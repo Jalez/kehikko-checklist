@@ -143,6 +143,25 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   name: 'Checklist',
   version: VERSION,
   summary: 'What a change owes before it is somebody else’s problem, and where the selected one stands.',
+  /**
+   * What an agent should do about this module, given that it is here.
+   *
+   * Not the summary. The summary says what this IS, for a person deciding
+   * whether to place it. This says what its PRESENCE OBLIGES, and a host
+   * composes it into the prompt every agent on the canvas is handed —
+   * attributed to this module, because it is this module's claim rather than
+   * the host's.
+   *
+   * Written as instructions to somebody who has just arrived and does not know
+   * the checklist exists, since that is exactly who reads it.
+   */
+  guidance:
+    'Every change on this kehikko is held to a checklist, and the work is not finished when the ' +
+    'code is finished — it is finished when the items are ticked. Before calling anything done, ' +
+    'read the checklist for that issue, merge request or pull request and either satisfy each item ' +
+    'or say plainly which you could not, and why. A tick is a claim somebody will rely on: do not ' +
+    'tick what you have not actually done, and never tick on the owner’s behalf. Items you cannot ' +
+    'judge are for a person — leave them, and say that you did.',
   entry: '/app',
   modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
   mcp: {
