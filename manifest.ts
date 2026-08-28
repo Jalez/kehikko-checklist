@@ -4,6 +4,18 @@ export const ID = 'roadmap.checklist'
 export const VERSION = '1.0.0'
 
 /**
+ * The extension this app emits into, named once.
+ *
+ * A constant rather than a string literal in two places, because the two places
+ * are `manifest.ts` — where a host reads which format this module speaks — and
+ * `src/wire/emit.ts`, where the events are actually sent. A typo in either one
+ * produces the same silent failure: the host knows the format, validates the
+ * payload, finds nobody who consumes what was named, and answers `delivered:
+ * 0`. Nothing errors and nothing appears.
+ */
+export const FORMAT = 'roadmap.notifications@1'
+
+/**
  * What this app says about itself when a host asks.
  *
  * The manifest is the smallest half of this program and the only half a host
@@ -44,9 +56,26 @@ export const VERSION = '1.0.0'
  * - **Tracker access — not declared, and there is no capability for it.** This
  *   app never speaks to GitHub or GitLab, holds no token, and has no code path
  *   that could.
- * - **No extensions.** Emitting a notification every time a box is ticked is a
- *   panel full of noise, and `consumes` is not implemented anywhere yet, so
- *   declaring it would be declaring an intention this app cannot act on.
+ * - **`events:emit` — declared, and `emits` names one format.** This is a
+ *   change, and the sentence that used to stand here is worth answering rather
+ *   than deleting. It said: emitting a notification every time a box is ticked
+ *   is a panel full of noise, and `consumes` is not implemented anywhere yet,
+ *   so declaring it would be declaring an intention this app cannot act on.
+ *
+ *   The second half stopped being true. The protocol grew `roadmap.event`, the
+ *   host grew a bus that reads `consumes` out of every manifest and delivers,
+ *   and there is now a module on the other end that shows what arrives.
+ *
+ *   The first half is still true, and it is why what this app emits is NOT a
+ *   tick. A tick is a thing a person does in this pane, in front of them, and
+ *   announcing it to a panel two inches away is telling somebody what they just
+ *   did. What is announced instead is an agent coming through the MCP DOOR —
+ *   which is the one thing that happens to this app that nobody watching the
+ *   screen can see. That is the whole of the distinction: a notification is for
+ *   what you would otherwise miss.
+ *
+ *   `consumes` stays empty. This app shows a checklist; a checklist that also
+ *   showed other modules' announcements would be two panels in one pane.
  *
  * And per the protocol's own README: a declaration is not a request and is not
  * answered. The host refuses whatever it likes at every call whatever is written
@@ -169,10 +198,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     transport: 'http',
     about: 'The list a change is held to, and ticking the items an agent is the only one who can assert.',
   },
-  extensions: { emits: [], consumes: [] },
+  extensions: { emits: [FORMAT], consumes: [] },
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['live:read'],
+    uses: ['live:read', 'events:emit'],
     storage: true,
     prompt: false,
   },

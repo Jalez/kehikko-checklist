@@ -13,6 +13,7 @@ import {
   setChecklist,
   type ChecklistOp,
 } from './list/store.ts'
+import { announce, since } from './list/outbox.ts'
 import { checklistView } from './list/view.ts'
 import { known, remember, seen, setTick } from './list/ticks.ts'
 
@@ -368,6 +369,36 @@ function mcp(rpc: Rpc): Reply {
 
   if (rpc.method === 'tools/call') {
     const name = String(rpc.params?.name ?? '')
+
+    /*
+     * Every tool call is written down for this app's own page to announce.
+     *
+     * Here rather than inside each tool, and BEFORE the call is made, for one
+     * reason: what is being announced is that an agent reached through this
+     * door, which is true whether the tool went on to succeed, refuse or throw.
+     * A record written only on success would be a notification panel that shows
+     * an agent's wins and is silent about the eight refusals in between, which
+     * is the least useful half of what happened.
+     *
+     * The wording therefore says what was CALLED, not what resulted. This app
+     * is not going to relay somebody's refusal message onto a shared panel —
+     * that sentence names who may do the thing instead, and it belongs to the
+     * agent that asked, not to whoever is looking at a canvas.
+     *
+     * `announce` cannot throw and must not: the work is already done by the
+     * time anything below runs, and an exception here would turn a recorded
+     * tick into a transport error the agent retries.
+     */
+    announce({
+      tool: name,
+      refs: [str((rpc.params?.arguments ?? {}).ref, MAX_REF)].filter(Boolean),
+      message: `an agent called ${name.slice(0, 60)} on the checklist`,
+      /* `info`. A tool call is a thing that happened and not a thing that needs
+         anybody. `attention` on every one of them would be a panel where the
+         loud level means nothing. */
+      level: 'info',
+    })
+
     const args = (rpc.params?.arguments ?? {}) as {
       ref?: unknown
       item?: unknown
@@ -420,7 +451,7 @@ function mcp(rpc: Rpc): Reply {
 export function answer(
   method: string,
   path: string,
-  _query: URLSearchParams,
+  query: URLSearchParams,
   body: Record<string, unknown> | null,
   ticket: string | null,
 ): Reply | null {
@@ -442,6 +473,20 @@ export function answer(
      back to it with nothing selected is not staring at an empty box wondering
      what it knows. */
   if (path === '/api/known' && method === 'GET') return ok({ ok: true, refs: known() })
+
+  /*
+   * What has come through the MCP door since the page last looked.
+   *
+   * Read-only and ungated, like every other read here: it says which of this
+   * app's own tools an agent called, which is less than `/api/lists` already
+   * gives away. See `list/outbox.ts` for why this exists at all — the half of
+   * this app that knows a tool was called has no wire, and the half with a wire
+   * does not know.
+   */
+  if (path === '/api/announcements' && method === 'GET') {
+    const cursor = Number(query.get('since') ?? '0')
+    return ok({ ok: true, ...since(Number.isFinite(cursor) && cursor >= 0 ? cursor : 0) })
+  }
 
   if (method === 'POST' && path.startsWith('/api/')) {
     /* The gate on every write, and it is one line because the whole argument for

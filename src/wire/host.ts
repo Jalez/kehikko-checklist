@@ -200,34 +200,35 @@ export function connect(id: string, events: HostEvents = {}, window_: MessageSou
     if (ev.source !== host) return
 
     if (message.type === MESSAGE.CONTEXT) {
-      /* Rebuilt field by field rather than passed along, because a context
-         message carries a `type` a `ModuleContext` does not have, and the two
-         shapes are only nearly the same. `selection` is the field this whole
-         module turns on: it is the host's answer to every `selection.set` anyone
-         on the canvas makes, and dropping it here is the difference between a
-         page that shows the ticks for what somebody picked and one that shows
-         the same thing however hard the canvas is clicked. */
-      events.onContext?.({
-        epic: message.epic,
-        project: message.project,
-        theme: message.theme,
-        selection: message.selection,
-        /* Carried and deliberately not read, exactly as `pinned` is below. This
-           module declares `prompt: false` — see the essay in `manifest.ts` for
-           the three reasons — so a host that offers prompts will not offer one
-           for this pane and this field will be null. Passing it through anyway
-           costs a line and means the day that declaration changes, the value is
-           already arriving at the hook rather than being rediscovered here. */
-        prompt: message.prompt,
-        /* Carried, and deliberately not acted on yet. `pinned` is a host saying
-           "what you were last told is what you keep" — the protocol's own essay
-           argues that a pin nobody was told about is the failure, and that a
-           module which ignores the field is exactly as correct as it was before,
-           it simply stops receiving updates. So passing it on costs a line and
-           leaves the honest sentence available to whoever writes it; what this
-           page does NOT do is invent one it has never seen a host send. */
-        pinned: message.pinned,
-      })
+      /*
+       * Handed on whole, with only the envelope removed.
+       *
+       * The version of this comment that stood here argued carefully for the
+       * wrong thing. It said the context was "rebuilt field by field" because a
+       * context message carries a `type` a `ModuleContext` does not, and then
+       * listed the fields — with a paragraph on `selection` explaining that
+       * dropping it is the difference between a page that shows what somebody
+       * picked and one that ignores every click on the canvas. That diagnosis
+       * was right and the remedy was not.
+       *
+       * A list that has to be kept complete is a list that will be incomplete
+       * again at the next protocol release, and it was, three times: `prompt`
+       * and `pinned` were both missing here within a day of being added, and
+       * `kehikko` — which says which canvas this pane is standing on — was
+       * missing the moment the protocol grew it. The failure has no symptom. A
+       * field left out does not error; it quietly becomes this page's belief
+       * that the host said nothing about it.
+       *
+       * So the listing is gone. `type` and `protocol` are the only two things a
+       * `ModuleContext` does not have, and removing exactly those means every
+       * field the protocol grows arrives here whether or not this file has heard
+       * of it. What the hook then chooses to READ is the hook's business, and
+       * this page still reads only `epic`, `theme` and `selection` — the
+       * difference is that the rest now arrives rather than being discarded on
+       * the way in.
+       */
+      const { type: _envelope, protocol: _spoken, ...context } = message
+      events.onContext?.(context)
       return
     }
 

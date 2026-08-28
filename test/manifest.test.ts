@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { METHOD_NAMES, PROTOCOL, manifestSchema, speaks } from 'roadmap-module-protocol'
+import { CAPABILITY_NAMES, EXTENSION_NAMES, METHOD_NAMES, PROTOCOL, manifestSchema, speaks } from 'roadmap-module-protocol'
 
-import { ID, MANIFEST } from '../manifest.ts'
+import { FORMAT, ID, MANIFEST } from '../manifest.ts'
 
 /**
  * The manifest is the only half of this program a host reads, and the whole of
@@ -29,8 +29,33 @@ describe('the manifest', () => {
     expect(MANIFEST.modes[0]?.scope).toBe('epic')
   })
 
-  test('declares live:read and nothing else, and every name is one the protocol knows', () => {
-    expect(MANIFEST.declares.uses).toEqual(['live:read'])
+  test('declares exactly the two it calls, and every name is one the protocol knows', () => {
+    /* `live:read` for the one question it asks. `events:emit` for the one thing
+       it says: an agent came through the MCP door — which is the one thing that
+       happens to this app that nobody watching the screen can see. Ticks are
+       still not announced, and the essay in `manifest.ts` says why. */
+    expect(MANIFEST.declares.uses).toEqual(['live:read', 'events:emit'])
+    /* Checked against the protocol's own list rather than against a string
+       here: a capability a host does not know is not an error anywhere — it is
+       simply a line in a manifest that means nothing, and this is the only
+       place it can be caught. */
+    for (const name of MANIFEST.declares.uses) {
+      expect(CAPABILITY_NAMES as readonly string[]).toContain(name)
+    }
+  })
+
+  test('emits the one format it emits, and consumes nothing', () => {
+    expect(MANIFEST.extensions.emits).toEqual([FORMAT])
+    /* A checklist that also showed other modules' announcements would be two
+       panels in one pane. */
+    expect(MANIFEST.extensions.consumes).toEqual([])
+  })
+
+  test('the format it names is one this protocol can actually check', () => {
+    /* A typo here is silent: the host would know no such format, refuse to
+       carry the payload, and the only evidence would be a refusal inside a
+       frame nobody has a console open on. */
+    expect(EXTENSION_NAMES).toContain(FORMAT)
   })
 
   test('every method this app calls is a real one, resolved from the protocol', () => {

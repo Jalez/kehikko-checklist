@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { HostRefused, connect, type Host, type HostEvents, type Refusal } from './host.ts'
+import { pump } from './emit.ts'
 
 /**
  * The bridge, as one React value.
@@ -275,7 +276,31 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
       setSight((was) => (was.at === 'listening' ? { at: 'unhosted' } : was))
     }, GREETING_GRACE_MS)
 
+    /*
+     * Tell the host when an agent comes through this app's MCP door.
+     *
+     * Started here, with the connection, because it has nothing to say when
+     * there is no connection to say it on — see the essay in `emit.ts` for why
+     * the door and the wire are in two different processes and need a pump
+     * between them at all.
+     *
+     * The epic is read through `standingOn` at each tick rather than captured,
+     * so an announcement is filed under the epic that is open when it is sent.
+     * `undefined` there means no context has been read yet, which is the same
+     * as no epic as far as this is concerned: nothing is filable, and nothing
+     * is invented.
+     */
+    const stopPump = pump(
+      (method, params) => {
+        const current = host.current
+        if (!current) return Promise.reject(new Error('nothing has greeted this page'))
+        return current.request(method, params)
+      },
+      () => standingOn.current ?? null,
+    )
+
     return () => {
+      stopPump()
       clearTimeout(grace)
       host.current?.stop()
       host.current = null
