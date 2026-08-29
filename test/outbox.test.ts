@@ -13,7 +13,8 @@ import { announce, forgetEverything, since } from '../list/outbox.ts'
 
 beforeEach(forgetEverything)
 
-const call = (tool: string) => announce({ tool, refs: [], message: `an agent called ${tool}`, level: 'info' })
+const call = (tool: string, epic: string | null = null) =>
+  announce({ tool, refs: [], epic, message: `an agent called ${tool}`, level: 'info' })
 
 describe('the cursor', () => {
   test('a reader that has never asked gets everything so far', () => {

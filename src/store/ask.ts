@@ -1,3 +1,4 @@
+import type { Paper, PaperItem } from '../../list/papers.ts'
 import type { Standing } from '../../derive/standing.ts'
 import type { ChecklistView } from '../../list/view.ts'
 import type { RefState } from '../../derive/ref-state.ts'
@@ -101,6 +102,64 @@ export async function standings(refs: Asked[], from: string): Promise<Standing[]
     refs: refs.map((r) => ({ ref: r.ref, state: r.state, shape: r.shape })),
   })) as { standings?: unknown }
   return Array.isArray(body.standings) ? (body.standings as Standing[]) : []
+}
+
+/* ------------------------------------------------------------------ *
+ * The hand-written list for a paper
+ * ------------------------------------------------------------------ */
+
+export type { Paper, PaperItem }
+
+/**
+ * One paper's list.
+ *
+ * Refused rather than empty when the epic is not a name — the server says so in
+ * a sentence, and this hands the sentence on rather than turning it into an
+ * empty list. "Nobody has written anything" and "that was not an epic" are two
+ * different answers with two different remedies, and this is a module whose
+ * whole argument is that those do not get flattened.
+ */
+export async function paperFor(epic: string): Promise<Paper | { error: string }> {
+  const response = await fetch(`/api/paper?epic=${encodeURIComponent(epic)}`)
+  const body = (await response.json()) as { ok?: unknown; paper?: unknown; error?: unknown }
+  if (body.ok === true && body.paper) return body.paper as Paper
+  return { error: typeof body.error === 'string' ? body.error : 'this app could not read that paper’s checklist.' }
+}
+
+/** Every paper anything has been written down against, for the screen with no paper. */
+export async function papersWritten(): Promise<{ epic: string; done: number; total: number }[]> {
+  const response = await fetch('/api/papers')
+  const body = (await response.json()) as { written?: unknown }
+  return Array.isArray(body.written) ? (body.written as { epic: string; done: number; total: number }[]) : []
+}
+
+export type PaperEdit =
+  | { op: 'add'; text: string }
+  | { op: 'reword'; id: string; text: string }
+  | { op: 'tick'; id: string; done: boolean }
+  | { op: 'move'; id: string; to: number }
+  | { op: 'drop'; id: string }
+
+export type PaperAnswer = { ok: true; said: string; paper: Paper } | { ok: false; error: string }
+
+/**
+ * Every change the owner makes to their own paper list.
+ *
+ * Answered with the whole list rather than with the one row, for the reason the
+ * tick is: the server decides, and a page that reordered itself optimistically
+ * would show an order the file does not have the moment a write is refused.
+ */
+export async function editPaper(epic: string, edit: PaperEdit): Promise<PaperAnswer> {
+  const body = (await post('/api/paper', { epic, ...edit })) as {
+    ok?: unknown
+    said?: unknown
+    paper?: unknown
+    error?: unknown
+  }
+  if (body.ok === true && body.paper) {
+    return { ok: true, said: typeof body.said === 'string' ? body.said : '', paper: body.paper as Paper }
+  }
+  return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not work, and said nothing about why' }
 }
 
 export type TickAnswer = { ok: true; standing: Standing } | { ok: false; error: string }

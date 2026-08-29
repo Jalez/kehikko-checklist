@@ -13,6 +13,16 @@ import {
   setChecklist,
   type ChecklistOp,
 } from './list/store.ts'
+import {
+  MAX_ID,
+  MAX_NOTE as MAX_PAPER_NOTE,
+  MAX_TEXT,
+  epicKey,
+  paper,
+  papersWritten,
+  setPaper,
+  type PaperOp,
+} from './list/papers.ts'
 import { announce, since } from './list/outbox.ts'
 import { checklistView } from './list/view.ts'
 import { known, remember, seen, setTick } from './list/ticks.ts'
@@ -74,6 +84,17 @@ const MAX_FROM = 80
  * asking for ten thousand of them.
  */
 const MAX_REFS_PER_ASK = 64
+/**
+ * How long an epic slug may be before this app stops reading it.
+ *
+ * The protocol's own `LIMITS.EPIC_SLUG`, written here as a number rather than
+ * imported, for the same reason `MAX_REFS_PER_ASK` is: a bound that tracked
+ * another program's constant would move the day that constant moved, silently,
+ * in a file whose whole job is to be the fence. `list/papers.ts` keeps its own
+ * copy of the same number and refuses on it too — two fences, because this one
+ * guards the door and that one guards the file.
+ */
+const MAX_EPIC_ARG = 80
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -201,7 +222,242 @@ function tools() {
         required: ['ref', 'item'],
       },
     },
+
+    /*
+     * The paper half, and it is a different KIND of list rather than more of
+     * the same one.
+     *
+     * `mr_checklist` and `check_mr` are about a change, and every item on them
+     * either computes from a tracker or is one of a fixed set somebody argued
+     * over. These five are about a PAPER — the document an epic is aimed at —
+     * and every item on them was typed by a person, because what a paper is
+     * missing is not a property of a merge request and no program here can work
+     * it out. So an agent may add to this list, reword it, reorder it and take
+     * things off it, none of which it may do to the derived one; and it may
+     * tick, which the derived list's owner item refuses it, for the reason set
+     * out in `list/papers.ts`.
+     *
+     * Everything is keyed by the epic's slug. There is no ref anywhere in this
+     * family, deliberately: a paper outlives every change made to it.
+     */
+    {
+      name: 'paper_checklist',
+      description:
+        'The hand-written checklist for the paper an epic is aimed at: what a person has said is still owed by the '
+        + 'document, in the order they put it in, with what has been ticked and by whom. None of it is derived — no '
+        + 'tracker has an opinion about what a paper is missing — so this is the only place it is written down. Read '
+        + 'it before working on a paper, and again before saying you are done. Omit the epic to see which papers have '
+        + 'a list at all.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          epic: {
+            type: 'string',
+            description: 'The epic slug, as list_epics spells it. Omit to see every paper that has a list.',
+          },
+        },
+      },
+    },
+    {
+      name: 'add_paper_item',
+      description:
+        'Add one line to a paper checklist. It goes on the end, which is where a new thing belongs until somebody '
+        + 'says otherwise — move_paper_item is how it gets somewhere else. Write what is owed, in a line somebody '
+        + 'else could act on. The id it comes back with is how you address it afterwards; the words and the position '
+        + 'both move.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          epic: { type: 'string', description: 'The epic slug, as list_epics spells it' },
+          text: { type: 'string', description: `What is owed. Up to ${MAX_TEXT} characters.` },
+          agent: { type: 'string', description: 'Your own name, so the list says who wrote the line' },
+        },
+        required: ['epic', 'text'],
+      },
+    },
+    {
+      name: 'check_paper_item',
+      description:
+        'Tick one item on a paper checklist, or take a tick back with done: false. You MAY tick these — unlike the '
+        + "owner's item on a change, which is refused to you and always will be. A paper item is a task somebody "
+        + 'wrote down, and you are often the one who did it. The record says it was you and that it came through '
+        + 'this door, and the person can take it back with one press, so tick what you have actually done and leave '
+        + 'what you cannot judge.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          epic: { type: 'string', description: 'The epic slug' },
+          id: { type: 'string', description: 'The item id, as paper_checklist prints it beside the line' },
+          note: { type: 'string', description: 'How you know — what you changed, where it is' },
+          done: { type: 'boolean', description: 'Defaults to true' },
+          agent: { type: 'string' },
+        },
+        required: ['epic', 'id'],
+      },
+    },
+    {
+      name: 'reword_paper_item',
+      description:
+        'Change what one item on a paper checklist says, keeping its id, its position and its tick. For sharpening a '
+        + 'line somebody wrote in a hurry. To say a different thing, add a different item.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          epic: { type: 'string', description: 'The epic slug' },
+          id: { type: 'string', description: 'The item id, as paper_checklist prints it' },
+          text: { type: 'string', description: `The new wording. Up to ${MAX_TEXT} characters.` },
+          agent: { type: 'string' },
+        },
+        required: ['epic', 'id', 'text'],
+      },
+    },
+    {
+      name: 'move_paper_item',
+      description:
+        'Put one item somewhere else in the order. The order of a hand-written list is a person’s judgement about '
+        + 'what comes first, so move something because the work has an order, not to tidy. Positions count from 1, as '
+        + 'paper_checklist prints them; a number past the end means the end.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          epic: { type: 'string', description: 'The epic slug' },
+          id: { type: 'string', description: 'The item id, as paper_checklist prints it' },
+          position: { type: 'integer', description: 'Where it should end up, counting from 1' },
+          agent: { type: 'string' },
+        },
+        required: ['epic', 'id', 'position'],
+      },
+    },
+    {
+      name: 'drop_paper_item',
+      description:
+        'Take one item off a paper checklist for good, along with any tick on it. This is not the same as ticking it '
+        + 'and it is not reversible from here — an item that was done is ticked, and an item that turned out not to '
+        + 'be owed is dropped. If you are unsure which, leave it and say so.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          epic: { type: 'string', description: 'The epic slug' },
+          id: { type: 'string', description: 'The item id, as paper_checklist prints it' },
+          agent: { type: 'string' },
+        },
+        required: ['epic', 'id'],
+      },
+    },
   ]
+}
+
+/* ------------------------------------------------------------------ *
+ * The paper half, in words
+ * ------------------------------------------------------------------ */
+
+/** One paper's list, in the marks the change tools already use. */
+function paperText(epic: string): string {
+  const p = paper(epic)
+  if (p.trouble) return `${epic}: ${p.trouble}`
+  if (!p.items.length) {
+    return (
+      `${epic} has no hand-written checklist yet. Nothing is wrong — this list is only ever what somebody typed, `
+      + 'so an empty one means nobody has written anything down about this paper. add_paper_item starts it.'
+    )
+  }
+  const lines = p.items.map((item, at) => {
+    const mark = item.done ? 'x' : ' '
+    const who = item.done
+      ? `  (${item.done.by}${item.done.viaMcp ? ', over MCP' : ''}${item.done.note ? `: ${item.done.note}` : ''})`
+      : ''
+    return `${at + 1}. [${mark}] ${item.id} — ${item.text}${who}`
+  })
+  return `${epic} — hand-written, ${p.done}/${p.total} ticked\n${lines.join('\n')}`
+}
+
+/** Which papers have a list at all, for an agent that was not told which epic. */
+function paperWrittenText(): string {
+  const written = papersWritten()
+  if (!written.length) {
+    return (
+      'No paper has a hand-written checklist yet. These lists are keyed by the epic a paper is aimed at, and every '
+      + 'line on one was typed by a person — so there being none means nobody has written anything down, not that '
+      + 'this app failed to look. add_paper_item with an epic slug starts one.'
+    )
+  }
+  return [
+    'Papers with a hand-written checklist:',
+    ...written.map((w) => `  ${w.epic} — ${w.done}/${w.total} ticked`),
+  ].join('\n')
+}
+
+/**
+ * Every paper write, bounded and then handed to the one function that decides.
+ *
+ * The bounds are here and the rules are in `list/papers.ts`, which is the same
+ * split `check_mr` uses: a string has a length before it has a meaning, and the
+ * question of whether an item exists belongs where the items are. The refusal
+ * sentence always comes from the store, so the page and this door cannot end up
+ * telling somebody two different things about the same press.
+ */
+function paperCall(name: string, args: Record<string, unknown>): string {
+  const epic = epicKey(str(args.epic, MAX_EPIC_ARG))
+  if (!epic) {
+    throw new Error(
+      `${name} needs the slug of the epic whose paper this is — the one list_epics prints. It cannot be empty, `
+      + `longer than ${MAX_EPIC_ARG} characters, or contain a space or a slash.`,
+    )
+  }
+  const by = str(args.agent, MAX_FROM) || AGENT
+  const id = str(args.id, MAX_ID)
+  if (name !== 'add_paper_item' && !id) {
+    throw new Error(
+      `${name} needs the id of the item, which paper_checklist prints beside each line. It is not the line's words `
+      + 'and it is not its position — both of those move, and an id does not.',
+    )
+  }
+
+  let op: PaperOp
+  if (name === 'add_paper_item') {
+    const text = str(args.text, MAX_TEXT)
+    if (!text) throw new Error('add_paper_item needs text: the line to add, saying what the paper still owes.')
+    op = { op: 'add', epic, text, by, viaMcp: true }
+  } else if (name === 'reword_paper_item') {
+    const text = str(args.text, MAX_TEXT)
+    if (!text) {
+      throw new Error(
+        'reword_paper_item needs text: the new wording. To take an item off the list, use drop_paper_item.',
+      )
+    }
+    op = { op: 'reword', epic, id, text, by, viaMcp: true }
+  } else if (name === 'check_paper_item') {
+    op = {
+      op: 'tick',
+      epic,
+      id,
+      done: args.done !== false,
+      by,
+      viaMcp: true,
+      note: str(args.note, MAX_PAPER_NOTE) || undefined,
+    }
+  } else if (name === 'move_paper_item') {
+    /* A position that is not a number is refused rather than defaulted. The
+       store clamps a number that is out of range, because "past the end" is a
+       clear intention; there is no clear intention behind `position: "up"`, and
+       reading it as 1 would silently move the item to the top of somebody's
+       list. */
+    const raw = args.position
+    const position = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN
+    if (!Number.isFinite(position)) {
+      throw new Error(
+        'move_paper_item needs position: a whole number saying where the item should end up, counting from 1 as '
+        + 'paper_checklist prints them. Nothing was moved.',
+      )
+    }
+    op = { op: 'move', epic, id, to: Math.trunc(position) - 1, by, viaMcp: true }
+  } else {
+    op = { op: 'drop', epic, id, by, viaMcp: true }
+  }
+
+  const out = setPaper(op)
+  if (!out.ok) throw new Error(`${epic}: ${out.error}`)
+  return `${out.said}.\n\n${paperText(epic)}`
 }
 
 /** The bare list, in the GitLab wording, with the exemptions spelled out. */
@@ -389,10 +645,28 @@ function mcp(rpc: Rpc): Reply {
      * time anything below runs, and an exception here would turn a recorded
      * tick into a transport error the agent retries.
      */
+    /*
+     * Which paper the call was about, where the call named one.
+     *
+     * The change tools carry a ref and no epic; the paper tools carry an epic
+     * and no ref. `roadmap.notifications@1` files every line under an epic, and
+     * until now the only epic this app could offer was the CANVAS's — read by
+     * the page at the moment it emits, which is the nearest honest answer when
+     * the door itself has none. A paper tool does have one, and it is a better
+     * answer than the canvas's: an agent working a paper list over MCP is very
+     * often doing it while somebody's canvas sits on another epic entirely, and
+     * filing that work under whatever they happened to be looking at would put
+     * a true sentence under the wrong heading.
+     */
+    const said = epicKey(str((rpc.params?.arguments ?? {}).epic, MAX_EPIC_ARG))
+
     announce({
       tool: name,
       refs: [str((rpc.params?.arguments ?? {}).ref, MAX_REF)].filter(Boolean),
-      message: `an agent called ${name.slice(0, 60)} on the checklist`,
+      epic: said,
+      message: said
+        ? `an agent called ${name.slice(0, 60)} on ${said}'s paper checklist`
+        : `an agent called ${name.slice(0, 60)} on the checklist`,
       /* `info`. A tool call is a thing that happened and not a thing that needs
          anybody. `attention` on every one of them would be a panel where the
          loud level means nothing. */
@@ -405,11 +679,42 @@ function mcp(rpc: Rpc): Reply {
       note?: unknown
       done?: unknown
       agent?: unknown
+      epic?: unknown
+      id?: unknown
+      text?: unknown
+      position?: unknown
     }
     try {
       if (name === 'mr_checklist') {
         const ref = str(args.ref, MAX_REF)
         return text(ref ? standingText(ref) : bareList())
+      }
+      if (name === 'paper_checklist') {
+        /* An epic that is not a name at all is told so rather than falling back
+           to the whole listing: a caller that meant to ask about one paper and
+           got a directory would read it as "there is nothing on mine". */
+        if (args.epic !== undefined && args.epic !== null && args.epic !== '') {
+          const epic = epicKey(str(args.epic, MAX_EPIC_ARG))
+          if (!epic) {
+            return text(
+              'paper_checklist was given something that is not an epic slug. It takes the name list_epics prints — '
+              + `no spaces, no slashes, no more than ${MAX_EPIC_ARG} characters — or nothing at all, which lists `
+              + 'every paper that has a checklist.',
+              true,
+            )
+          }
+          return text(paperText(epic))
+        }
+        return text(paperWrittenText())
+      }
+      if (
+        name === 'add_paper_item'
+        || name === 'check_paper_item'
+        || name === 'reword_paper_item'
+        || name === 'move_paper_item'
+        || name === 'drop_paper_item'
+      ) {
+        return text(paperCall(name, args))
       }
       if (name === 'check_mr') {
         const ref = str(args.ref, MAX_REF)
@@ -488,6 +793,29 @@ export function answer(
     return ok({ ok: true, ...since(Number.isFinite(cursor) && cursor >= 0 ? cursor : 0) })
   }
 
+  /*
+   * The hand-written list for one paper, and which papers have one.
+   *
+   * Two doors rather than one with a nullable argument, because the two answer
+   * different questions and the page asks them at different moments: with an
+   * epic open it wants that paper's list, and with no epic open it wants to know
+   * whether there is anything written down anywhere — which is what the no-paper
+   * screen offers instead of an empty box. Reads are ungated like every other
+   * read here; a checklist is not a secret.
+   */
+  if (path === '/api/paper' && method === 'GET') {
+    const epic = epicKey(query.get('epic'))
+    if (!epic) {
+      return bad(
+        'a hand-written checklist is kept against the paper an epic is aimed at, so this needs an epic slug: no '
+        + `spaces, no slashes, no more than ${MAX_EPIC_ARG} characters.`,
+      )
+    }
+    return ok({ ok: true, paper: paper(epic) })
+  }
+
+  if (path === '/api/papers' && method === 'GET') return ok({ ok: true, written: papersWritten() })
+
   if (method === 'POST' && path.startsWith('/api/')) {
     /* The gate on every write, and it is one line because the whole argument for
        it is in `TICKET` above. An agent's door is `/mcp` and is deliberately
@@ -520,6 +848,45 @@ export function answer(
         standings.push(standingFor(ref, shape(row.shape)))
       }
       return ok({ ok: true, standings })
+    }
+
+    /*
+     * The owner editing their own paper list, which is every operation on it
+     * rather than a tick alone.
+     *
+     * The mirror of `/api/lists`: one door, one `op`, and the deciding is in
+     * `setPaper` so that the page and the MCP door cannot apply two different
+     * rules to the same list. What differs from the derived side is who may do
+     * what, and here the answer is "the owner may do all of it" — this is their
+     * list, and there is no derived half of it for a press to hand-wave.
+     */
+    if (path === '/api/paper') {
+      const epic = epicKey(body.epic)
+      if (!epic) {
+        return bad(
+          'that edit did not say which paper it was about. A hand-written checklist is kept against the epic a paper '
+          + 'is aimed at.',
+        )
+      }
+      const op = str(body.op, 16)
+      const id = str(body.id, MAX_ID)
+      const text = str(body.text, MAX_TEXT)
+      const by = OWNER
+      if (op === 'add') return ok(setPaper({ op: 'add', epic, text, by }))
+      if (op === 'reword') return ok(setPaper({ op: 'reword', epic, id, text, by }))
+      if (op === 'tick') {
+        return ok(setPaper({ op: 'tick', epic, id, done: body.done !== false, by, note: str(body.note, MAX_PAPER_NOTE) || undefined }))
+      }
+      if (op === 'move') {
+        const to = typeof body.to === 'number' && Number.isFinite(body.to) ? body.to : null
+        if (to === null) return bad('a move needs a position to move to, and nothing was moved.')
+        return ok(setPaper({ op: 'move', epic, id, to, by }))
+      }
+      if (op === 'drop') return ok(setPaper({ op: 'drop', epic, id, by }))
+      /* Named rather than shrugged at, because the page and this list are one
+         program: an op this door does not know is this app's own bug and the
+         next person to read a log is the one who has to find it. */
+      return bad(`there is no "${op}" to do to a paper checklist — it is add, reword, tick, move or drop.`)
     }
 
     if (path === '/api/tick') {

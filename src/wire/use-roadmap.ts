@@ -47,6 +47,19 @@ export type Sight =
 export interface Roadmap {
   sight: Sight
   /**
+   * The epic the canvas is on, or null.
+   *
+   * Pulled out of `Sight` rather than read off it at each call site, because two
+   * different things want it and they want it for different reasons: the
+   * tracker-derived half wants the READING for an epic, which is what `Sight`
+   * is about, and the hand-written half wants nothing but the epic's NAME —
+   * `refused` and `unread` are perfectly good states to draw a paper checklist
+   * in, since this app holds that list itself and a host has nothing to do with
+   * it. Deriving it from `sight` at each call site would put that judgement in
+   * two places and eventually in disagreement.
+   */
+  epic: string | null
+  /**
    * What the canvas has picked out, as the host last said it.
    *
    * Never what this page asked for — this page never asks. It declares no
@@ -70,9 +83,20 @@ export interface Roadmap {
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
-export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
+export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void): Roadmap {
   const [sight, setSight] = useState<Sight>({ at: 'listening' })
   const [selection, setSelection] = useState<string[]>([])
+  /**
+   * The epic as a value the page can read, beside the ref the wire reads.
+   *
+   * `standingOn` is a ref on purpose — it is read inside callbacks that must see
+   * the newest value and must not re-run when it changes. A ref cannot be
+   * rendered from, so the same fact is also state. Two holders of one fact is
+   * normally the defect this codebase argues against; here they are written on
+   * the same line, in one place, and the alternative is either a page that does
+   * not repaint when the epic moves or a wire that re-subscribes when it does.
+   */
+  const [epic, setEpic] = useState<string | null>(null)
   const host = useRef<Host | null>(null)
 
   /**
@@ -86,6 +110,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
    */
   const goto = useRef(onGoto)
   goto.current = onGoto
+
+  /** The same arrangement, for "an agent came through the MCP door". */
+  const door = useRef(onDoor)
+  door.current = onDoor
 
   /**
    * Which question is the current one.
@@ -138,6 +166,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
   const look = useCallback((epic: string) => {
     const mine = (asking.current += 1)
     standingOn.current = epic
+    setEpic(epic)
     setSight({ at: 'asking', epic })
     const current = host.current
     if (!current) return
@@ -224,6 +253,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
       const moved = context.epic !== standingOn.current
       standingOn.current = context.epic
+      setEpic(context.epic)
       if (!moved) return
 
       if (context.epic) look(context.epic)
@@ -297,6 +327,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
         return current.request(method, params)
       },
       () => standingOn.current ?? null,
+      undefined,
+      () => door.current?.(),
     )
 
     return () => {
@@ -309,5 +341,5 @@ export function useRoadmap(id: string, onGoto: GotoHandler): Roadmap {
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
-  return useMemo(() => ({ sight, selection, resize }), [sight, selection, resize])
+  return useMemo(() => ({ sight, epic, selection, resize }), [sight, epic, selection, resize])
 }

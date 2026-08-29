@@ -112,6 +112,32 @@ export const FORMAT = 'roadmap.notifications@1'
  * ordering is decided. Until then it stays false and says why, because a
  * capability declared "just in case" is indistinguishable from one that works.
  *
+ * ## The hand-written list, and why it did not make `prompt` true
+ *
+ * This module now holds a second kind of checklist: one a person types, kept
+ * against the epic a PAPER is aimed at rather than against a change, and
+ * editable by an agent through this app's own MCP door. It is the closest thing
+ * this app has ever had to "a paragraph a person writes on the canvas, aimed at
+ * one pane", so the argument above has to be answered rather than left standing
+ * next to it.
+ *
+ * It stays `false`, and the reason is the same one the essay gives. A prompt is
+ * prose the HOST composes and delivers in a context: unstamped, unversioned,
+ * unaddressable, and gone when the canvas moves. A paper checklist is items, in
+ * this app's own store, each with an id an agent can name, an author, a time and
+ * a tick that says who made it and whether it came through the MCP door. Every
+ * one of those is a thing a prompt cannot be. Offering a prompt beside it would
+ * be offering a second, worse place to write the same thing down — which is
+ * precisely the failure the third bullet above names.
+ *
+ * Nor does it change what is declared. The list is keyed by the epic, and the
+ * epic already arrives in `roadmap.context` on the one epic-scoped mode below;
+ * nothing about it needs a capability, because the material is this app's own
+ * and the writes are its own doors. What DID change is what an emitted event
+ * says: an announcement about a paper names its own epic, rather than being
+ * filed under whichever one the canvas happened to be showing. See
+ * `list/outbox.ts`.
+ *
  * ## The mode, and the word that changed under it
  *
  * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
@@ -171,7 +197,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   id: ID,
   name: 'Checklist',
   version: VERSION,
-  summary: 'What a change owes before it is somebody else’s problem, and where the selected one stands.',
+  summary:
+    'What a change owes before it is somebody else’s problem, and what a paper still owes — the second one written by hand.',
   /**
    * What an agent should do about this module, given that it is here.
    *
@@ -190,13 +217,17 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'read the checklist for that issue, merge request or pull request and either satisfy each item ' +
     'or say plainly which you could not, and why. A tick is a claim somebody will rely on: do not ' +
     'tick what you have not actually done, and never tick on the owner’s behalf. Items you cannot ' +
-    'judge are for a person — leave them, and say that you did.',
+    'judge are for a person — leave them, and say that you did. Papers have a second checklist, ' +
+    'written by hand and kept against the epic: read it with paper_checklist before working on a ' +
+    'paper, keep it current as you go, and tick what you finish — those you MAY tick, under your ' +
+    'own name.',
   entry: '/app',
   modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
   mcp: {
     url: '/mcp',
     transport: 'http',
-    about: 'The list a change is held to, and ticking the items an agent is the only one who can assert.',
+    about:
+      'The list a change is held to, the hand-written list a paper is held to, and ticking what an agent may assert on either.',
   },
   extensions: { emits: [FORMAT], consumes: [] },
   declares: {

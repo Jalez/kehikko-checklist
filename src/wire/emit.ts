@@ -53,6 +53,8 @@ interface Announcement {
   seq: number
   tool: string
   refs: string[]
+  /** The epic the call named, where it named one. See `list/outbox.ts`. */
+  epic?: string | null
   message: string
   level: string
 }
@@ -68,10 +70,25 @@ interface Announcement {
  *                 open when it was SENT — which is the nearest this app can
  *                 honestly get to when it happened.
  */
+/**
+ * @param heard  Told about every batch this pump reads, after the seek.
+ *               Optional, and it exists so that the ONE poll already running
+ *               here can also be what keeps the page current: an agent adding
+ *               an item to a paper checklist over MCP changes what this page is
+ *               drawing, and the page has no other way to find out. A second
+ *               poller for that would be a second answer to "what has happened"
+ *               that could disagree with this one, on the same two-second
+ *               interval, for no question it could answer better.
+ *
+ *               It is called with the announcements as read, whether or not any
+ *               of them could be emitted: whether a host will carry an event has
+ *               nothing to do with whether this app's own store has moved.
+ */
 export function pump(
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   epic: () => string | null,
   everyMs: number = EVERY_MS,
+  heard?: (announcements: Announcement[]) => void,
 ): () => void {
   let cursor = 0
   let live = true
@@ -124,19 +141,36 @@ export function pump(
         return
       }
 
-      const slug = epic()
-      if (!slug) {
-        if (announcements.length) {
-          console.info(
-            `kehikko-checklist: ${announcements.length} MCP call(s) not announced — this canvas is on no epic, ` +
-              'and roadmap.notifications@1 files a line under one. Nothing was invented.',
-          )
-        }
-        return
-      }
+      /*
+       * The canvas's epic, which is now the FALLBACK rather than the answer.
+       *
+       * An announcement that names its own epic is filed under that one — the
+       * paper tools are addressed by epic and therefore know, and what they know
+       * beats what the canvas happens to be showing. Everything else still takes
+       * the canvas's, because a ref is not an epic and the page is the only half
+       * of this app that has been told where the reader is standing.
+       *
+       * So the drop below is per announcement rather than for the whole batch:
+       * with no epic open, a paper call is still filable and a `check_mr` still
+       * is not, and refusing both would throw away the one that was never in
+       * doubt.
+       */
+      /* Before any emitting, and outside the epic question entirely. A page
+         that only refreshed itself when a host was there to be told would be a
+         page that goes stale in exactly the case this app was built for: nothing
+         framing it, an agent working its store over MCP. */
+      if (announcements.length && heard) heard(announcements)
+
+      const canvas = epic()
+      let dropped = 0
 
       for (const announcement of announcements) {
         if (!live) return
+        const slug = announcement.epic ?? canvas
+        if (!slug) {
+          dropped += 1
+          continue
+        }
         try {
           await request('events.emit', {
             extension: FORMAT,
@@ -155,6 +189,13 @@ export function pump(
              precisely what the host refuses to do on its own side. */
           console.info('kehikko-checklist: the host did not carry an event.', error)
         }
+      }
+
+      if (dropped) {
+        console.info(
+          `kehikko-checklist: ${dropped} MCP call(s) not announced — this canvas is on no epic, they named none ` +
+            'themselves, and roadmap.notifications@1 files a line under one. Nothing was invented.',
+        )
       }
     } catch {
       /* Loopback to our own origin, so a failure is this app's own server being

@@ -132,7 +132,16 @@ describe('the agent’s door', () => {
     const { answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const tools = (reply?.body as { result: { tools: { name: string }[] } }).result.tools
-    expect(tools.map((t) => t.name)).toEqual(['mr_checklist', 'check_mr'])
+    expect(tools.map((t) => t.name)).toEqual([
+      'mr_checklist',
+      'check_mr',
+      'paper_checklist',
+      'add_paper_item',
+      'check_paper_item',
+      'reword_paper_item',
+      'move_paper_item',
+      'drop_paper_item',
+    ])
   })
 
   test('refuses an agent the owner’s item, and says who ticks it and where', async () => {

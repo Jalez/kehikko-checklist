@@ -48,6 +48,22 @@ export interface Announcement {
   tool: string
   /** What it was about, when the tool named something. */
   refs: string[]
+  /**
+   * The epic the call itself named, or null when it named none.
+   *
+   * `roadmap.notifications@1` files every line under an epic, and for a long
+   * time the only epic this app could offer was the CANVAS's — supplied by the
+   * page at the moment it emits, because the door has no context and a ref is
+   * not an epic. That is still the right answer for the change tools.
+   *
+   * The paper tools are addressed BY epic, so they know. It is a better answer
+   * than the canvas's rather than merely a different one: an agent working a
+   * paper list over MCP is very often doing it while the person's canvas sits on
+   * another epic, and filing that work under whatever they happened to be
+   * looking at would put a true sentence under the wrong heading — which on a
+   * shared panel is worse than the line being missing.
+   */
+  epic: string | null
   /** The sentence, in this app's own words. */
   message: string
   /** One of the four `roadmap.notifications@1` levels. */
