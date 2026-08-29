@@ -22,8 +22,8 @@ import { page } from './page/document.ts'
  *
  * That argument is usually made about the manifest and the health check. Here it
  * reaches further, because this module is not like Atlas or References: **it
- * holds its own material.** The page fetches `/api/lists`, `/api/standings` and
- * `/api/tick` as relative paths, which is how the app works with nothing else
+ * holds its own material.** The page fetches `/api/checklists` and
+ * `/api/checklist` as relative paths, which is how the app works with nothing else
  * running at all. A store on a second port would make every one of those fetches
  * cross-origin — and would mean this app could not read its own checklist inside
  * the frame it was extracted to live in. So the store is middleware here, in

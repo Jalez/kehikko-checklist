@@ -1,60 +1,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ID } from '../manifest.ts'
-import type { Standing, StandingRow } from '../derive/standing.ts'
-import type { ChecklistView } from '../list/view.ts'
-import type { Paper } from '../list/papers.ts'
+import { chosenOn } from '../list/keep.ts'
+import type { Target } from '../list/targets.ts'
 
-import { Button } from '@/components/ui/button.tsx'
-import { cn } from '@/lib/utils.ts'
-import { index } from '@/live/lookup.ts'
-import {
-  editPaper,
-  knownRefs,
-  lists,
-  paperFor,
-  papersWritten,
-  standings,
-  tick,
-  type Asked,
-  type PaperEdit,
-} from '@/store/ask.ts'
+import { edit, everyChecklist, openChecklist, type Edit, type Opened, type Summary } from '@/store/ask.ts'
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
-import { BareList } from '@/view/bare-list.tsx'
-import { NoPaper, PaperList } from '@/view/paper-list.tsx'
-import { StandingCard } from '@/view/standing-card.tsx'
+import { ChecklistView } from '@/view/checklist.tsx'
+import { Choose, Unplaced } from '@/view/choose.tsx'
 
 /**
  * The page.
  *
  * ## What it shows, and the sentence that decides it
  *
- * > "checklist not only shows the checklist but also the checked sections of a
- * > specific mr/issue/pr"
+ * > "The checklist I don't think needs to show a list of items it has
+ * > references recorded for. It should just show the checklist. Also I think we
+ * > should simplify checklist in the sense that when user looks at the checklist
+ * > for the first time in a kehikko they are supposed to pick an existing
+ * > checklist or create their own checklist."
  *
- * So there are two states and the selection decides which. With references
- * picked out, this page draws each of them with its rows and their verdicts —
- * every tick, who made it, whether it has gone stale, and every tracker-derived
- * item computed here from what a host handed over. With nothing picked, it draws
- * the list itself, which is the material this app holds and is worth reading on
- * its own.
+ * So there are exactly two screens. Until a checklist has been picked for this
+ * kehikko, the pane is the pick-or-create screen. After that it is the
+ * checklist, held against one target, and nothing else — no tab row, no
+ * directory of references, no second kind of list. The tab row that used to be
+ * here existed because there were three things this pane could be showing; there
+ * is one now, and a tab row over one thing is furniture.
  *
- * ## Two kinds of list, and the context decides which is in front
+ * ## The choice is remembered per kehikko, and the host holds it
  *
- * The sentence above is still true and is now half the story. Everything it
- * describes is DERIVED and scoped to a REFERENCE: what a change owes, computed
- * from what a tracker said. The other kind is hand-written and scoped to a
- * PAPER — the document an epic is aimed at — and no part of it is computed,
- * because what a paper is missing is a judgement and this program is in no
- * position to have one.
+ * `roadmap.context` carries `kehikko: {id, name} | null` — the only thing that
+ * says where this pane is standing, since a module's page is loaded once and
+ * shown on whichever canvas asks for it. The host's kept state is keyed by
+ * MODULE and by nothing else, so the per-kehikko map lives inside the one string
+ * it keeps for us. See `list/keep.ts`.
  *
- * They coexist rather than one replacing the other, and the page opens on
- * whichever the context calls for: with references picked out on the canvas, on
- * those; with none picked and an epic open, on that paper's list; with neither,
- * on the lists themselves. All three stay REACHABLE from the tab row, because
- * "the canvas selected something" is a poor reason to make somebody's own
- * checklist unreachable — the default follows the context and the reader
- * overrules it.
+ * A null kehikko is a real state and gets `Unplaced` wrapped around the same
+ * screens: the pane says it cannot tell where it is, and then works anyway for
+ * the session. Refusing to work would make a usable checklist unreachable
+ * because of a field a host declined to fill in.
  *
  * ## Identity is printed only when nothing is framing this page
  *
@@ -68,272 +52,238 @@ import { StandingCard } from '@/view/standing-card.tsx'
  */
 const framed = typeof window !== 'undefined' && window.parent !== window
 
-/**
- * The three things this pane can be showing.
- *
- * Three and not two, because they answer three different questions and none of
- * them is a view of another: what the canvas has picked out is held to, what
- * this paper still owes, and what every change is held to in general. A tab row
- * over them is not navigation for its own sake — it is the admission that the
- * context can only ever guess which of the three somebody wants.
- */
-type Which = 'refs' | 'paper' | 'lists'
-
 export function App() {
-  /**
-   * References picked here rather than on a canvas.
-   *
-   * This app works with nothing else running, and "nothing else running" is
-   * exactly when there is no selection to react to. So the refs it already has
-   * something recorded against are offered as buttons, and pressing one shows its
-   * standing. It is deliberately NOT merged with `selection`: a canvas selection
-   * is a fact about the canvas that this page reports, and a local pick is this
-   * page's own. When the host says something, the host wins and this is cleared —
-   * otherwise a stale local pick would sit under a canvas that had moved on, and
-   * the reader would have no way to tell the two apart.
-   */
-  const [picked, setPicked] = useState<string[]>([])
-  const [known, setKnown] = useState<string[]>([])
-  const [view, setView] = useState<ChecklistView | null>(null)
-  const [standing, setStanding] = useState<Standing[]>([])
-  const [shut, setShut] = useState<Record<string, boolean>>({})
-  const [trouble, setTrouble] = useState<Record<string, Record<string, string>>>({})
+  const [lists, setLists] = useState<Summary[]>([])
+  const [storeTrouble, setStoreTrouble] = useState<string | null>(null)
+  const [trouble, setTrouble] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [opened, setOpened] = useState<Opened | null>(null)
 
   /**
-   * Which of the three the reader has ASKED for, or null for "whatever the
-   * context calls for".
+   * A checklist picked here, for this session only.
    *
-   * Null rather than a computed initial value, and the distinction is the whole
-   * behaviour: a tab chosen here has to survive the next context, and a context
-   * arrives after every selection change anywhere on the canvas. If this held a
-   * concrete tab from the start, either the reader's choice would be overwritten
-   * by the next click in another pane, or the page would stop following the
-   * canvas at all. Null means "follow", and it stays null until somebody presses
-   * something.
+   * The mirror of the remembered choice rather than a duplicate of it. It is
+   * what a pick becomes when there is nowhere to write it down — no host, or a
+   * host that could not say which kehikko this is — and it is also what holds
+   * the choice for the instant between pressing a name and the host acknowledging
+   * anything. The remembered choice wins whenever there is one: two answers to
+   * "which list am I looking at" with no way to tell them apart is exactly the
+   * fault this app argues against everywhere else.
    */
-  const [tab, setTab] = useState<Which | null>(null)
-  /** A paper opened here, with no canvas to open one. The mirror of `picked`. */
-  const [pickedPaper, setPickedPaper] = useState<string | null>(null)
-  const [paper, setPaper] = useState<Paper | null>(null)
-  const [paperTrouble, setPaperTrouble] = useState<string | null>(null)
-  const [paperBusy, setPaperBusy] = useState(false)
-  const [written, setWritten] = useState<{ epic: string; done: number; total: number }[]>([])
+  const [session, setSession] = useState<string | null>(null)
+
+  /** A target picked here, which overrules what the context proposes. */
+  const [picked, setPicked] = useState<Target | null>(null)
+
+  /**
+   * A checklist that was remembered and is not here any more.
+   *
+   * A separate state from `trouble` because it is not a refusal of anything
+   * somebody just pressed — it is the store having moved underneath a
+   * remembered choice, which happens when a list is removed on another machine
+   * or in another pane. Held so the pick screen can say what happened rather
+   * than opening as though nothing had.
+   */
+  const [gone, setGone] = useState<string | null>(null)
+
   /**
    * Bumped whenever an agent comes through this app's MCP door.
    *
    * The pump in `emit.ts` is already polling for exactly that, in order to
    * announce it to a host, so this page learns of it on the same two-second read
    * rather than opening a second one — see the essay there. What it is FOR is
-   * the case that makes this feature worth having: somebody watching this pane
-   * while an agent works their paper list should see the list change, not a
-   * screen that was right when they loaded it.
+   * the case that makes this module worth having: somebody watching this pane
+   * while an agent ticks items off should see the ticks land, not a screen that
+   * was right when they loaded it.
    */
   const [doorbell, setDoorbell] = useState(0)
 
-  /**
-   * The `goto` handler, which needs to see the cards that are currently drawn.
-   *
-   * Held in a ref rather than closed over, because `useRoadmap` installs its
-   * listener once and must go on calling the newest handler — see the note there.
-   */
-  const drawn = useRef<Standing[]>([])
-  drawn.current = standing
-
   const onGoto = useCallback<GotoHandler>((message, answer) => {
-    /* A `goto` may name an epic, a step, or a reference, and only the last of
-       those is a thing this pane draws. Answering "not found" for the other two
-       is the honest reply rather than a failure: this page has no epic of its own
-       to move to and no steps at all, so there is nothing here that could be
-       arrived at. Saying so quickly is what gets the reader the host's fallback
-       link instead of a twelve-second wait. */
-    const ref = message.ref
-    if (!ref) {
-      answer(false, 'This pane shows a checklist against references, so there is nothing here to walk to by epic or step.')
-      return
-    }
-    const card = document.querySelector(`[data-ref="${CSS.escape(ref)}"]`)
-    if (!card) {
-      answer(
-        false,
-        drawn.current.length
-          ? 'This pane is showing the checklist for what the canvas has selected, and that reference is not among them.'
-          : 'Nothing is selected here, so this pane is showing the bare checklist rather than any reference.',
-      )
-      return
-    }
-    /* Opened as well as scrolled to. Walking somebody to a card and leaving it
-       collapsed is arriving at a closed door. */
-    setShut((was) => ({ ...was, [ref]: false }))
-    card.scrollIntoView({ block: 'start', behavior: 'smooth' })
-    answer(true, '')
+    /* A `goto` may name an epic, a step, or a reference. This pane draws one
+       checklist against one target, so the honest answer to all three is that
+       there is nothing here to be walked to — saying so quickly is what gets the
+       reader the host's fallback link instead of a twelve-second wait. */
+    answer(
+      false,
+      message.ref
+        ? 'This pane shows one checklist held against one target, so there is nothing here to walk to by reference.'
+        : 'This pane shows a checklist, so there is nothing here to walk to by epic or step.',
+    )
   }, [])
 
   const onDoor = useCallback(() => setDoorbell((was) => was + 1), [])
 
-  const { sight, epic, selection, resize } = useRoadmap(ID, onGoto, onDoor)
+  const { where, epic, kehikko, selection, kept, remember, resize } = useRoadmap(ID, onGoto, onDoor)
+
+  /** Which checklist is in front: the remembered one for this kehikko, or a session pick. */
+  const remembered = chosenOn(kept, kehikko?.id ?? null)
+  const chosen = remembered ?? session
+
+  /* Every checklist that exists. This app's own material, so it is read at load
+     and on the doorbell rather than being tied to anything on the wire. */
+  useEffect(() => {
+    void everyChecklist()
+      .then(({ lists: got, trouble: bad }) => {
+        setLists(got)
+        setStoreTrouble(bad)
+      })
+      .catch(() => setLists([]))
+  }, [doorbell])
 
   /**
-   * The paper this pane is about: the canvas's epic, or one opened here.
+   * The targets the CONTEXT is proposing, in the order a reader would want them.
    *
-   * The canvas wins whenever there is one, for the same reason it wins over
-   * `picked` — a local pick left standing under a canvas that has moved on is
-   * two answers to "what are we looking at" with no way to tell them apart.
+   * The canvas's selection first, because a reference somebody just clicked is
+   * the most likely thing they want a list held against; then the paper the open
+   * epic is aimed at, which is the target that exists whenever an epic does.
+   *
+   * Memoised on the SPELLING rather than on the arrays: `selection` is a new
+   * array on every context even when it names the same three refs, and the host
+   * sends a context after every selection change anywhere on the canvas, so a
+   * memo keyed on array identity would be no memo at all and everything
+   * downstream of it — including the fetch — would fire on each one.
    */
-  const openPaper = epic ?? pickedPaper
-
-  /* A paper opened here is dropped the moment a host names one. */
-  useEffect(() => {
-    if (epic) setPickedPaper((was) => (was === null ? was : null))
-  }, [epic])
-
-  /* The host's selection wins the moment there is one — and the guard is not
-     tidiness. `selection` is a fresh array on every context, and the host sends a
-     context after every selection change anywhere on the canvas, so an
-     unconditional `setPicked([])` would set state on every one of them: a new
-     empty array, a new `refs`, a new `asked`, and a refetch of every standing
-     triggered by exactly the event this page is supposed to be quietly reacting
-     to. It only writes when there is something to clear. */
-  useEffect(() => {
-    if (selection.length) setPicked((was) => (was.length ? [] : was))
-  }, [selection])
+  const key = `${selection.join(' ')}|${epic ?? ''}`
+  const candidates = useMemo((): Target[] => {
+    const [refs, paper] = key.split('|')
+    const out: Target[] = (refs ? refs.split(' ') : []).filter(Boolean).map((ref) => ({ kind: 'ref', ref }))
+    if (paper) out.push({ kind: 'paper', epic: paper, section: null })
+    return out
+  }, [key])
 
   /**
-   * The references to draw, and this is memoised on their SPELLING rather than
-   * on the arrays.
+   * The target in front: the one picked here, or the first the context proposes.
    *
-   * `selection` is a new array every context even when it names the same three
-   * refs, so a memo keyed on the array identity is no memo at all — and
-   * everything downstream of this, including the fetch, would fire on every
-   * context. The joined key is the honest dependency: what this page cares about
-   * is which references are picked, not which array carried them.
+   * A pick made here survives the next context, which is the whole reason it is
+   * held separately — a context arrives after every selection change anywhere on
+   * the canvas, and a target that reset on each would be unusable in a workspace
+   * where anything else is being clicked.
+   *
+   * It is dropped when the canvas selects something, because that IS somebody
+   * saying what they are now looking at, and a local pick left standing under it
+   * would be two answers with no way to tell them apart.
    */
-  const key = (selection.length ? selection : picked).join(' ')
-  const refs = useMemo(() => (key ? key.split(' ') : []), [key])
+  const target = picked ?? candidates[0] ?? null
 
-  /* The lists, and every reference anything is recorded against. Both are this
-     app's own and neither depends on a host, so they are read once at load
-     rather than being tied to anything on the wire. */
+  const selected = selection.join(' ')
   useEffect(() => {
-    void lists().then(setView).catch(() => setView(null))
-    void knownRefs().then(setKnown).catch(() => setKnown([]))
-  }, [])
+    if (selected) setPicked(null)
+  }, [selected])
 
   /**
-   * This paper's hand-written list, and every paper that has one.
+   * Go back to the pick screen, forgetting the choice for this kehikko.
    *
-   * Keyed on the paper and on the doorbell: the list is this app's own, so
-   * nothing about a host's reading can change it, and the only two things that
-   * can are the reader moving to another paper and somebody editing it through
-   * the MCP door. `alive` rather than an abort, so a slower earlier answer
-   * cannot paint over a newer one.
+   * `forget` and `another` are the same act with one difference, and the
+   * difference is the whole reason there are two: `another` is somebody pressing
+   * a button, so it clears the sentence explaining why the last list vanished,
+   * and `forget` is the store having moved underneath us, so it must not — the
+   * sentence is the only thing that will tell them what happened.
+   */
+  const forget = useCallback(() => {
+    setSession(null)
+    setOpened(null)
+    if (kehikko) remember(kehikko.id, null)
+  }, [kehikko, remember])
+
+  const another = useCallback(() => {
+    forget()
+    setTrouble(null)
+    setGone(null)
+  }, [forget])
+
+  /**
+   * The chosen checklist, held against the current target.
+   *
+   * `alive` rather than an abort, so a slower earlier answer cannot paint over a
+   * newer one. `target` is a safe dependency despite being an object: it is
+   * either state the reader set, or `candidates[0]`, and the candidates are
+   * memoised on their SPELLING — so a context that re-proposes the same targets
+   * hands back the same array and this does not fire.
+   *
+   * A checklist that is not there any more is not an error to be printed and
+   * left. The remembered choice is dropped, the pick screen comes back, and it
+   * says what happened — because a pane stuck on a sentence about a list that
+   * was removed on another machine is a pane a reader has no way out of.
    */
   useEffect(() => {
-    if (!openPaper) {
-      setPaper(null)
+    if (!chosen) {
+      setOpened(null)
       return
     }
     let alive = true
-    void paperFor(openPaper)
+    void openChecklist(chosen, target)
       .then((answer) => {
         if (!alive) return
         if ('error' in answer) {
-          setPaper(null)
-          setPaperTrouble(answer.error)
+          setGone(chosen)
+          forget()
           return
         }
-        setPaper(answer)
-        setPaperTrouble(null)
+        setOpened(answer)
+        setTrouble(null)
+        setGone(null)
       })
       .catch(() => {
-        if (alive) setPaper(null)
+        if (alive) setOpened(null)
       })
     return () => {
       alive = false
     }
-  }, [openPaper, doorbell])
+  }, [chosen, target, doorbell, forget])
 
-  useEffect(() => {
-    void papersWritten()
-      .then(setWritten)
-      .catch(() => setWritten([]))
-  }, [doorbell])
+  const pick = useCallback(
+    (id: string) => {
+      setSession(id)
+      setTrouble(null)
+      setGone(null)
+      if (kehikko) remember(kehikko.id, id)
+    },
+    [kehikko, remember],
+  )
 
-  const onPaperEdit = useCallback(
-    async (edit: PaperEdit) => {
-      if (!openPaper) return
-      setPaperBusy(true)
+  const onEdit = useCallback(
+    async (change: Edit) => {
+      setBusy(true)
       try {
-        const answer = await editPaper(openPaper, edit)
+        const answer = await edit(change)
         if (!answer.ok) {
-          setPaperTrouble(answer.error)
+          setTrouble(answer.error)
           return
         }
-        setPaperTrouble(null)
+        setTrouble(null)
+        setLists(answer.lists)
+        if (change.op === 'create') {
+          /* A list created here is opened here. Making somebody press the name
+             they have just typed is the sort of step that reads as the app not
+             having noticed. */
+          setSession(answer.id)
+          if (kehikko) remember(kehikko.id, answer.id)
+          return
+        }
+        if (change.op === 'forget') {
+          setSession(null)
+          setOpened(null)
+          if (kehikko) remember(kehikko.id, null)
+          return
+        }
         /* Painted from what came back, never toggled locally. The server holds
            the order and the ticks, and a list that reordered itself on a write
            that was refused would be showing an order the file does not have. */
-        setPaper(answer.paper)
+        if (answer.held) setOpened((was) => ({ held: answer.held!, targets: was?.targets ?? [] }))
+        /* And the targets are re-read, because a tick may have made a new one or
+           emptied the last one — which is what the target switch is drawn from. */
+        if (chosen) {
+          const again = await openChecklist(chosen, target)
+          if (!('error' in again)) setOpened(again)
+        }
       } finally {
-        setPaperBusy(false)
+        setBusy(false)
       }
     },
-    [openPaper],
+    [chosen, kehikko, remember, target],
   )
 
-  /**
-   * What the open epic's reading says about each picked reference.
-   *
-   * This is the join, and it is where a selection stops being a list of strings.
-   * A selection carries refs and nothing else — deliberately, because a host can
-   * vouch that somebody picked these and cannot vouch for what they ARE. So the
-   * kind comes from the bag the host's own refresh filed the reference in, which
-   * is the same place References reads it from, and `lookup.ts` is that reading.
-   *
-   * A ref the reading does not contain still goes through, with no state and no
-   * shape. That is an ordinary state — somebody picked a reference from a pane
-   * showing another epic, or one this app has ticks for that the host has never
-   * read — and it comes back as a standing that says `unasked` rather than
-   * vanishing from the list.
-   */
-  const asked = useMemo((): Asked[] => {
-    const reading = sight.at === 'read' ? index(sight.live) : new Map()
-    return refs.map((ref) => {
-      const found = reading.get(ref)
-      return found?.state ? { ref, state: found.state, shape: found.shape } : { ref, state: null }
-    })
-  }, [refs, sight])
-
-  /**
-   * Ask this app's own server where each of them stands, whenever the set or the
-   * reading changes.
-   *
-   * Keyed on the refs and on the reading, not on every context: `useRoadmap`
-   * already refuses to refetch `live.get` for a context that names the same epic,
-   * so `sight` is stable across a selection change and this effect fires on the
-   * thing that actually moved.
-   *
-   * `alive` rather than an AbortController, because the write half of this
-   * request — the server remembering what it was just shown — should NOT be
-   * cancelled when the selection moves on. What must not happen is a slower
-   * earlier answer painting over a newer one.
-   */
-  useEffect(() => {
-    if (!asked.length) {
-      setStanding([])
-      return
-    }
-    let alive = true
-    void standings(asked, framed ? 'a host framing this page' : 'this page')
-      .then((rows) => {
-        if (alive) setStanding(rows)
-      })
-      .catch(() => {
-        if (alive) setStanding([])
-      })
-    return () => {
-      alive = false
-    }
-  }, [asked])
+  const onCreate = useCallback((name: string) => void onEdit({ op: 'create', name }), [onEdit])
 
   /** Say how tall we would like to be, whenever what is drawn changes size. */
   const shell = useRef<HTMLDivElement | null>(null)
@@ -345,35 +295,56 @@ export function App() {
     return () => watch.disconnect()
   })
 
-  const onTick = useCallback(async (ref: string, row: StandingRow) => {
-    const answer = await tick(ref, row.id, row.state !== 'done')
-    if (!answer.ok) {
-      /* Kept beside the row that was pressed rather than in one place at the top.
-         Every refusal this server gives names what was wrong and what to do
-         instead, and a sentence about `agreed` shown above a list of sixteen
-         items is a sentence about none of them. */
-      setTrouble((was) => ({ ...was, [ref]: { ...(was[ref] ?? {}), [row.id]: answer.error } }))
-      return
-    }
-    setTrouble((was) => ({ ...was, [ref]: {} }))
-    /* Painted from what came BACK rather than toggled locally: the server is what
-       decides whether the tick stands. */
-    setStanding((was) => was.map((s) => (s.ref === ref ? answer.standing : s)))
-  }, [])
-
-  const one = standing.length === 1
-
   /**
-   * Which tab is in front: what the reader asked for, or what the context calls
-   * for, and never a tab that is not there.
+   * Why we are on the pick screen, in the words that fit the case.
    *
-   * The last clause is the one that needed writing down. A reader can be looking
-   * at `refs` when the canvas clears its selection, which would otherwise leave
-   * the page on a tab with nothing behind it — an empty pane, caused by a click
-   * in another module, looking exactly like a bug in this one.
+   * Four sentences rather than one, because they send a reader to four different
+   * places: waiting to hear, standing on a named canvas for the first time,
+   * standing on a canvas whose remembered list is gone, and running with nothing
+   * framing this page at all. A single "pick a checklist" would be this app
+   * telling a reader nothing at the moment it has something specific to say.
    */
-  const following: Which = standing.length ? 'refs' : openPaper ? 'paper' : 'lists'
-  const showing: Which = tab === 'refs' && !standing.length ? following : (tab ?? following)
+  const said =
+    where === 'listening'
+      ? 'Waiting to hear whether anything is framing this page, and therefore which kehikko this is.'
+      : gone
+        ? 'That checklist is not here any more — it was removed, here or on another machine. Pick another, or start one.'
+        : kehikko
+          ? `Nothing has been picked for ${kehikko.name} yet. What is chosen here is remembered for this kehikko and no other, so a different canvas keeps its own.`
+          : where === 'unhosted'
+            ? 'Nothing is framing this page, so there is no kehikko to remember a choice against. Everything below is held here, on this machine, and works with nothing else running — the pick will last until this page is reloaded.'
+            : 'Pick the checklist this work is held to, or start one. Nothing here ships a list.'
+
+  const screen =
+    opened && chosen ? (
+      <ChecklistView
+        held={opened.held}
+        targets={opened.targets}
+        candidates={candidates}
+        onTarget={setPicked}
+        onEdit={(change) => void onEdit(change)}
+        onAnother={another}
+        trouble={trouble}
+        busy={busy}
+      />
+    ) : chosen ? (
+      /* A list is chosen and has not come back yet — or came back refused, which
+         is a sentence rather than a blank. Both are said, because "reading it"
+         and "it could not be read" send a reader to two different places. */
+      <p className="text-[0.7rem] leading-4 text-muted-foreground">
+        {trouble ?? 'Reading that checklist.'}
+        {trouble ? (
+          <>
+            {' '}
+            <button type="button" className="underline underline-offset-2" onClick={another}>
+              Pick another
+            </button>
+          </>
+        ) : null}
+      </p>
+    ) : (
+      <Choose lists={lists} onPick={pick} onCreate={onCreate} trouble={trouble} busy={busy} said={said} />
+    )
 
   return (
     <div ref={shell} className="flex flex-col gap-2 p-2 text-foreground">
@@ -381,150 +352,21 @@ export function App() {
         <header>
           <h1 className="text-sm font-semibold">Checklist</h1>
           <p className="text-[0.7rem] leading-4 text-muted-foreground">
-            What a change owes before it is somebody else’s problem, and what has been ticked against one. The lists and
-            the ticks are held here, on this machine, in this app’s own store. What a tracker says about a reference is
-            not: that is read by a host, which holds the credentials, and handed over if there is one. Where nothing has
-            handed one over, an item is marked “not asked” rather than guessed at.
+            Checklists somebody wrote, and what has been ticked off against one issue, change or paper. Nothing here
+            ships a list and nothing is computed: every item is a line a person or an agent typed, and every tick
+            belongs to a checklist, an item and a target together. The lists and the ticks are held here, on this
+            machine, in this app’s own store.
           </p>
         </header>
       )}
 
-      <nav aria-label="What this pane is showing" className="flex flex-wrap gap-1">
-        {(['refs', 'paper', 'lists'] as const)
-          .filter((which) => which !== 'refs' || standing.length > 0)
-          .map((which) => (
-            <Button
-              key={which}
-              type="button"
-              variant={showing === which ? 'default' : 'outline'}
-              size="pane"
-              aria-current={showing === which}
-              onClick={() => setTab(which)}
-            >
-              <span className={cn(showing === which && 'font-semibold')}>
-                {which === 'refs'
-                  ? `Selected (${standing.length})`
-                  : which === 'paper'
-                    ? paper && paper.total
-                      ? `Paper (${paper.done}/${paper.total})`
-                      : 'Paper'
-                    : 'The lists'}
-              </span>
-            </Button>
-          ))}
-      </nav>
+      {storeTrouble ? (
+        <p className="rounded border border-failed/40 bg-failed/5 px-2 py-1.5 text-[0.7rem] leading-4 text-failed">
+          {storeTrouble}
+        </p>
+      ) : null}
 
-      {showing === 'paper' ? (
-        openPaper && paper ? (
-          <PaperList paper={paper} onEdit={(edit) => void onPaperEdit(edit)} trouble={paperTrouble} busy={paperBusy} />
-        ) : openPaper ? (
-          /* An epic is open and its list has not come back yet — or came back
-             refused, which is a sentence rather than a blank. Both are said,
-             because "reading it" and "it could not be read" send a reader to
-             two different places. */
-          <p className="text-[0.7rem] leading-4 text-muted-foreground">
-            {paperTrouble ?? `Reading what has been written down against ${openPaper}.`}
-          </p>
-        ) : (
-          <NoPaper
-            where={sight.at === 'listening' ? 'listening' : sight.at === 'unhosted' ? 'unhosted' : 'no-epic'}
-            written={written}
-            onPick={(pick) => {
-              setPickedPaper(pick)
-              setTab('paper')
-            }}
-          />
-        )
-      ) : showing === 'refs' ? (
-        <>
-          <p className="text-[0.7rem] leading-4 text-muted-foreground">
-            {selection.length
-              ? `${standing.length === 1 ? 'One reference is' : `${standing.length} references are`} selected on the canvas.`
-              : `Showing ${standing.length === 1 ? 'a reference' : `${standing.length} references`} you picked here. Selecting on a canvas replaces this.`}
-          </p>
-          {standing.map((s, at) => (
-            <StandingCard
-              key={s.ref}
-              standing={s}
-              /* Open when it is the only one, or the first of several, unless
-                 somebody has said otherwise since. See the essay in
-                 `standing-card.tsx` for why all of them are drawn. */
-              open={shut[s.ref] === undefined ? one || at === 0 : !shut[s.ref]}
-              onToggle={() =>
-                setShut((was) => ({
-                  ...was,
-                  [s.ref]: was[s.ref] === undefined ? one || at === 0 : !was[s.ref],
-                }))
-              }
-              onTick={(ref, row) => void onTick(ref, row)}
-              trouble={trouble[s.ref] ?? {}}
-            />
-          ))}
-        </>
-      ) : (
-        <>
-          <Sightline sight={sight} />
-          {known.length ? (
-            <div>
-              <p className="mb-1 text-[0.7rem] leading-4 text-muted-foreground">
-                This app has something recorded against {known.length === 1 ? 'one reference' : `${known.length} references`} — a
-                tick, or a tracker state it was once shown. Open one here without a canvas:
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {known.map((ref) => (
-                  <Button
-                    key={ref}
-                    variant="outline"
-                    size="pane"
-                    className="font-mono"
-                    onClick={() => {
-                      setPicked([ref])
-                      /* And move to the tab that will draw it. Without this the
-                         press would fetch a standing the reader is not looking
-                         at — a button that does nothing visible is a button
-                         somebody presses twice. */
-                      setTab('refs')
-                    }}
-                  >
-                    {ref}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          {view ? <BareList view={view} /> : null}
-        </>
-      )}
+      {where === 'hosted' && !kehikko ? <Unplaced>{screen}</Unplaced> : screen}
     </div>
   )
-}
-
-/**
- * What this page can currently see, in words, when nothing is selected.
- *
- * Six sentences for six states, and they are six because they send a reader to
- * six different places. "Nothing is framing this page" and "the host refused the
- * question" and "the host has no reading for this epic" are not shades of one
- * disappointment, and a single "no data" would be this app telling a reader
- * nothing at the exact moment it has something specific to say.
- *
- * None of them is a spinner. `listening` says what it is waiting for and lasts
- * under a second.
- */
-function Sightline({ sight }: { sight: ReturnType<typeof useRoadmap>['sight'] }) {
-  const said =
-    sight.at === 'listening'
-      ? 'Waiting to hear whether anything is framing this page.'
-      : sight.at === 'unhosted'
-        ? 'Nothing is framing this page, so nothing has said which references to show. The list below is the whole of what this app holds, and it is readable and editable with nothing else running.'
-        : sight.at === 'no-epic'
-          ? 'A host is here and no epic is open, so there is nothing selected to show a checklist against.'
-          : sight.at === 'asking'
-            ? `Asking the host what it last read about ${sight.epic}.`
-            : sight.at === 'refused'
-              ? `The host was asked what it last read about ${sight.epic} and said no: ${sight.refusal.error} The list below still works; the tracker-answered items on any reference will read “not asked”.`
-              : sight.at === 'unread'
-                ? `The host has no reading for ${sight.epic} — nothing has been refreshed from a tracker for it. Select a reference and its list still draws; the tracker-answered items will read “not asked”.`
-                : `Nothing is selected on the canvas. Pick a reference and this pane shows what it is held to, and what has been ticked against it.`
-  return <p className="text-[0.7rem] leading-4 text-muted-foreground">{said}</p>
 }

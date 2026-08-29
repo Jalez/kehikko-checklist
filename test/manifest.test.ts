@@ -30,11 +30,19 @@ describe('the manifest', () => {
   })
 
   test('declares exactly the two it calls, and every name is one the protocol knows', () => {
-    /* `live:read` for the one question it asks. `events:emit` for the one thing
-       it says: an agent came through the MCP door — which is the one thing that
-       happens to this app that nobody watching the screen can see. Ticks are
-       still not announced, and the essay in `manifest.ts` says why. */
-    expect(MANIFEST.declares.uses).toEqual(['live:read', 'events:emit'])
+    /* `events:emit` for the one thing it says: an agent came through the MCP
+       door — which is the one thing that happens to this app that nobody
+       watching the screen can see. `state:keep` for the one thing it remembers:
+       which checklist was picked, per kehikko.
+
+       `live:read` is NOT here, and its absence is the assertion that matters.
+       It was the only capability this module declared, and it existed to compute
+       hardcoded, tracker-derived items from a reading a host handed over. There
+       are no hardcoded items now. A capability asked for and never used is the
+       fastest way to teach somebody to press yes without reading, so it is gone
+       and this test is what stops it drifting back. */
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'state:keep'])
+    expect(MANIFEST.declares.uses).not.toContain('live:read')
     /* Checked against the protocol's own list rather than against a string
        here: a capability a host does not know is not an error anywhere — it is
        simply a line in a manifest that means nothing, and this is the only
@@ -59,13 +67,13 @@ describe('the manifest', () => {
   })
 
   test('every method this app calls is a real one, resolved from the protocol', () => {
-    /* `live.get` is the only question this page asks. Asserting it against
-       METHOD_NAMES rather than against a string in a test is the point: a typo
-       here would be refused by a host as `unknown-method`, from inside a frame,
-       with nothing in this repository to look at. */
-    expect(METHOD_NAMES).toContain('live.get')
-    expect(METHOD_NAMES).not.toContain('journeys.list' as never)
-    expect(METHOD_NAMES).not.toContain('journey.get' as never)
+    /* `state.set` and `events.emit` are the only two questions this page asks.
+       Asserting them against METHOD_NAMES rather than against a string in a test
+       is the point: a typo here would be refused by a host as
+       `unknown-method`, from inside a frame, with nothing in this repository to
+       look at. */
+    expect(METHOD_NAMES).toContain('state.set')
+    expect(METHOD_NAMES).toContain('events.emit')
   })
 
   test('asks for an origin, because it holds data and takes writes', () => {

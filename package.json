@@ -3,9 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "What a change owes before it is somebody else's problem, and what has been ticked against one. An app: its own store, its own page, its own port. A host may frame it, and then the tracker-answered items compute too.",
+  "description": "Checklists somebody wrote, held against one issue, merge request, pull request or paper at a time. Nothing here ships a list. An app: its own store, its own page, its own port. A host may frame it, and then it learns which kehikko it is standing on.",
   "scripts": {
-    "build": "vite build",
     "dev": "vite",
     "start": "vite",
     "test": "bun test",

@@ -1,106 +1,257 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { cleanup, render, screen } from '@testing-library/react'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { StandingCard } from '../src/view/standing-card.tsx'
+import type { Held } from '../list/checklists.ts'
+import { ChecklistView } from '../src/view/checklist.tsx'
+import { Choose, Unplaced } from '../src/view/choose.tsx'
 
 /**
- * What the page actually says, rendered.
+ * The components, rendered for real.
  *
- * The words are the material here — every `why` on the list was argued over on a
- * real merge request — so these tests assert sentences rather than structure. A
- * fake renderer would let a component say something different from what it says
- * in a browser, which is why the real components run against a real document.
- *
- * What is NOT asserted here is layout. happy-dom has no layout engine, so "does
- * this overflow at 220 pixels" is not a question it can answer, and a test that
- * pretended to would be worse than none. That measurement is taken in a real
- * browser instead; see the probes in the README.
+ * Half the value of these is that the words on screen are the thing being
+ * asserted: a refusal that names what to do instead is worth nothing if the row
+ * it belongs to never draws it, and a two-press arm that never says what the
+ * second press does is a dialog with the sentence removed.
  */
-let dir = ''
+afterEach(cleanup)
 
-beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'checklist-render-'))
-  process.env.CHECKLIST_DATA = dir
-})
+const LONG =
+  'The bridge chapter still claims the wire is synchronous, which it has not been since the mailbox landed, and the '
+  + 'paragraph after it repeats the claim in different words so that fixing one leaves the other standing — see also '
+  + 'the figure, whose caption says the same thing a third time and is the one somebody will quote.'
 
-afterEach(() => {
-  cleanup()
-  rmSync(dir, { recursive: true, force: true })
-  delete process.env.CHECKLIST_DATA
-})
-
-async function standing(ref: string, shape: 'change' | 'work') {
-  const { standingFor } = await import('../derive/standing.ts')
-  return standingFor(ref, shape)
+function held(over: Partial<Held> = {}): Held {
+  const rows = [
+    { item: { id: 'aaa', text: LONG, at: '2026-01-01T00:00:00Z', by: 'the owner' }, done: null },
+    {
+      item: { id: 'bbb', text: 'Second', at: '2026-01-01T00:00:00Z', by: 'the owner' },
+      done: { at: '2026-01-02T00:00:00Z', by: 'claude', viaMcp: true, note: 'ran it' },
+    },
+  ]
+  return {
+    checklist: { id: 'list1', name: 'What a change owes', at: '2026-01-01T00:00:00Z', by: 'the owner', origin: null, items: rows.map((r) => r.item) },
+    target: { kind: 'ref', ref: 'gh#105' },
+    rows,
+    done: 1,
+    total: 2,
+    ...over,
+  } as Held
 }
 
-const inert = { open: true, onToggle: () => {}, onTick: () => {}, trouble: {} }
+const noop = () => {}
 
-describe('a selected reference nothing has been read about', () => {
-  test('says “not asked”, and never says the tracker had nothing to say', async () => {
-    render(<StandingCard standing={await standing('!1848', 'change')} {...inert} />)
-    /* The distinction the whole module turns on. `unasked` is a program that has
-       not looked; `no answer` is a tracker that was read and was silent. */
-    expect(screen.getAllByText('not asked').length).toBeGreaterThan(0)
-    expect(screen.queryByText('no answer')).toBeNull()
-    expect(screen.getByText(/Nothing has ever shown this app/)).toBeTruthy()
+describe('the pick screen', () => {
+  test('says which state it is in rather than a bare instruction', () => {
+    render(
+      <Choose
+        lists={[]}
+        onPick={noop}
+        onCreate={noop}
+        trouble={null}
+        busy={false}
+        said="Nothing has been picked for Roadmap yet."
+      />,
+    )
+    expect(screen.getByText(/Nothing has been picked for Roadmap yet/)).toBeTruthy()
   })
 
-  test('draws the reference and the tracker’s own word for it', async () => {
-    render(<StandingCard standing={await standing('!1848', 'change')} {...inert} />)
-    expect(screen.getByText('!1848')).toBeTruthy()
-    expect(screen.getByText('merge request')).toBeTruthy()
+  test('says an empty store is not a gap this app can fill, because nothing ships a list', () => {
+    render(<Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} said="x" />)
+    expect(screen.getByText(/Nothing ships a list/)).toBeTruthy()
+  })
+
+  test('offers every list that exists, by name, and hands the id back on a press', () => {
+    let picked = ''
+    render(
+      <Choose
+        lists={[
+          { id: 'one', name: 'What a change owes', at: '', by: 'a test', items: 3, targets: 2 },
+          { id: 'two', name: LONG, at: '', by: 'a test', items: 1, targets: 0 },
+        ]}
+        onPick={(id) => {
+          picked = id
+        }}
+        onCreate={noop}
+        trouble={null}
+        busy={false}
+        said="x"
+      />,
+    )
+    fireEvent.click(screen.getByText('What a change owes'))
+    expect(picked).toBe('one')
+  })
+
+  test('draws a long name as wrapped prose, never in a nowrap badge', () => {
+    /* The trap: shadcn's `Badge` carries `whitespace-nowrap`, and a long string in
+       one sets a min-content floor far wider than a 220px pane. A sibling module
+       shipped exactly that. */
+    render(
+      <Choose
+        lists={[{ id: 'two', name: LONG, at: '', by: 'a test', items: 1, targets: 0 }]}
+        onPick={noop}
+        onCreate={noop}
+        trouble={null}
+        busy={false}
+        said="x"
+      />,
+    )
+    const name = screen.getByText(LONG)
+    expect(name.className).toContain('break-words')
+    expect(name.className).toContain('min-w-0')
+    expect(name.className).not.toContain('whitespace-nowrap')
+    expect(name.className).not.toContain('truncate')
+  })
+
+  test('a refusal is shown where it was caused, not swallowed', () => {
+    render(
+      <Choose
+        lists={[]}
+        onPick={noop}
+        onCreate={noop}
+        trouble="there is already a checklist called “What a change owes” (one)."
+        busy={false}
+        said="x"
+      />,
+    )
+    expect(screen.getByText(/there is already a checklist called/)).toBeTruthy()
   })
 })
 
-describe('the owner’s item', () => {
-  test('is the one row on either list that is a control', async () => {
-    render(<StandingCard standing={await standing('gh#131', 'work')} {...inert} />)
-    /* Every other row reports something that happened elsewhere. This one is a
-       press, and it is a press because this app can prove a person at this
-       machine made it. */
-    const rows = document.querySelectorAll('li[data-kind]')
-    const own = document.querySelector('li[data-item="agreed"] button')
-    expect(rows.length).toBeGreaterThan(1)
-    expect(own).toBeTruthy()
-    expect(document.querySelectorAll('li[data-kind] button').length).toBe(1)
-    expect(own?.getAttribute('aria-pressed')).toBe('false')
+describe('the checklist', () => {
+  test('says which target it is held against, and that ticks belong to the pair', () => {
+    render(
+      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} />,
+    )
+    expect(screen.getByText('gh#105')).toBeTruthy()
+    expect(screen.getByText(/keeps its own/)).toBeTruthy()
+  })
+
+  test('prints who ticked an item and that it came through the MCP door', () => {
+    /* Never a bare checkmark. An agent's claim has to be legible as one. */
+    render(
+      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} />,
+    )
+    expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
+  })
+
+  test('draws a 400-character item as wrapped prose in a min-w-0 column', () => {
+    render(
+      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} />,
+    )
+    const text = screen.getByText(LONG)
+    expect(text.className).toContain('break-words')
+    expect(text.className).toContain('min-w-0')
+    expect(text.className).not.toContain('whitespace-nowrap')
+  })
+
+  test('a press ticks for THIS target, and says so in the edit it sends', () => {
+    const sent: unknown[] = []
+    render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={(e) => sent.push(e)}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+      />,
+    )
+    fireEvent.click(screen.getByText(LONG))
+    expect(sent[0]).toEqual({ op: 'tick', id: 'list1', item: 'aaa', target: { kind: 'ref', ref: 'gh#105' }, done: true })
+  })
+
+  test('with no target the rows are text rather than controls, and the row above says why', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+      />,
+    )
+    expect(screen.getByText(/nothing below can be ticked/)).toBeTruthy()
+    expect(container.querySelector('li[data-item="aaa"] button[aria-pressed]')).toBeNull()
+  })
+
+  test('removing the checklist takes two presses, and the first one says what the second does', () => {
+    /* `window.confirm` is IGNORED inside the host's sandbox — `allow-modals` is
+       not set — so it returns false, the handler returns early, and the button
+       does nothing forever with nothing in the console. The second press is asked
+       for in the row instead, where it can be seen. */
+    const sent: unknown[] = []
+    render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={(e) => sent.push(e)}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+      />,
+    )
+    const button = screen.getByText('Remove this checklist')
+    fireEvent.click(button)
+    expect(sent).toHaveLength(0)
+    expect(screen.getByText(/along with every tick made on it against every target/)).toBeTruthy()
+    fireEvent.click(screen.getByText('Press again to remove it'))
+    expect(sent[0]).toEqual({ op: 'forget', id: 'list1' })
+  })
+
+  test('the target switch offers what the context proposes and what the list already has ticks against', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
+        candidates={[{ kind: 'ref', ref: 'gh#105' }]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+      />,
+    )
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelector('[data-pick-target="ref:gh#105"]')).toBeTruthy()
+    expect(container.querySelector('[data-pick-target="paper:modes"]')).toBeTruthy()
+  })
+
+  test('a target proposed by the canvas and already ticked against is drawn once, not twice', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[{ target: { kind: 'ref', ref: 'gh#105' }, done: 1 }]}
+        candidates={[{ kind: 'ref', ref: 'gh#105' }]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+      />,
+    )
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelectorAll('[data-pick-target="ref:gh#105"]')).toHaveLength(1)
   })
 })
 
-describe('every reason', () => {
-  test('is in the document rather than behind a tooltip', async () => {
-    /* A `<details>` is open text in the DOM: reachable by keyboard, by a screen
-       reader, by find-in-page, and on a touch device that can never hover. A
-       tooltip is none of those, and these sentences are the reason an agent reads
-       the list a second time instead of skimming it. */
-    render(<StandingCard standing={await standing('!1848', 'change')} {...inert} />)
-    expect(screen.getByText(/Undo the change: if the test still passes it proves nothing/)).toBeTruthy()
-    expect(screen.getAllByText('why this is on the list').length).toBeGreaterThan(10)
-  })
-})
-
-describe('a reference whose kind nobody has settled', () => {
-  test('shows both lists and says why, rather than picking one and keeping quiet', async () => {
-    const { standingFor } = await import('../derive/standing.ts')
-    render(<StandingCard standing={standingFor('gh#105')} {...inert} />)
-    expect(screen.getByText(/GitHub numbers both in one sequence/)).toBeTruthy()
-    /* The owner's own item lives on the issue list. Guessing "change" would have
-       quietly removed the one gate on either list. */
-    expect(document.querySelector('li[data-item="agreed"]')).toBeTruthy()
-    expect(document.querySelector('li[data-item="pipeline"]')).toBeTruthy()
-  })
-})
-
-describe('a tick against an item no longer on the list', () => {
-  test('is drawn, named, and explained rather than dropped', async () => {
-    const { setTick } = await import('../list/ticks.ts')
-    setTick({ ref: '!1848', item: 'a-thing-nobody-lists', done: true, agent: 'an agent' })
-    render(<StandingCard standing={await standing('!1848', 'change')} {...inert} />)
-    expect(screen.getByText(/no longer on the list/)).toBeTruthy()
-    expect(screen.getByText(/The tick is kept rather than deleted/)).toBeTruthy()
+describe('a pane that cannot tell which kehikko it is on', () => {
+  test('says so, and works anyway for the session', () => {
+    render(
+      <Unplaced>
+        <Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} said="x" />
+      </Unplaced>,
+    )
+    expect(screen.getByText(/cannot tell which kehikko it is on/)).toBeTruthy()
+    expect(screen.getByText(/holds until this page is reloaded/)).toBeTruthy()
+    /* And the pick screen is still there. Refusing to work would make a usable
+       checklist unreachable because of a field a host declined to fill in. */
+    expect(screen.getByText('Pick a checklist')).toBeTruthy()
   })
 })

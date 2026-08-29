@@ -1,14 +1,12 @@
 # Checklist
 
-What a change owes before it is somebody else's problem, what a paper still owes,
-and what has been ticked against either.
+Checklists somebody wrote, held against one issue, merge request, pull request
+or paper at a time. **Nothing here ships a list.**
 
-An app first. It holds two DERIVED lists — what a merge request or pull request
-owes, and what an issue owes — and every tick anybody has ever filed against a
-reference, in its own store, beside the program. It also holds a second kind:
-**hand-written lists, one per paper**, which nothing computes. It has its own
-page, its own port and its own MCP door. A host may frame it, and then the items
-a tracker answers compute too.
+An app first. It holds every checklist a person or an agent has made, and every
+tick anybody has filed on one, in its own store beside the program. It has its
+own page, its own port and its own MCP door. A host may frame it, and then it
+learns which kehikko it is standing on and what the canvas has picked out.
 
 ```bash
 ./run.sh                 # http://127.0.0.1:7860/app
@@ -17,180 +15,165 @@ bun run register         # tell a host on this machine where it is
 bun test && bun run typecheck
 ```
 
+## The model, which is one sentence long
+
+A **checklist** is a named thing a person created. It is **applied to a target**,
+and a tick belongs to the **(checklist, target, item)** triple — so the same list
+held against `gh#105` and `gh#106` keeps two independent sets of ticks, because
+those are two pieces of work and finishing one says nothing about the other.
+
+A **target** is a tracker reference (`gh#105`, `!44`, `#12`) or a place in a
+paper (an epic, optionally with a section of it). See `list/targets.ts` for what
+a paper target IS and, in particular, for the honest account of what happens to
+its ticks when the paper changes underneath them.
+
 ## What it does with nothing else running
 
-- **Both lists in full**, with every reason, in the tracker's own words on either
-  side. The reasons are the material: each was argued over on a real merge
-  request, and they are the difference between a list read twice and one skimmed.
-- **Its own store.** `data/checklist.json` is the list as somebody has since
-  decided it — rewordings, exemptions with their reasons, items added and taken
-  off, the two size thresholds — each stamped with who and when.
-  `data/ticks.json` is every tick, under `(ref, item)`, with who said it, when, a
-  note, and the head it was made against. `CHECKLIST_DATA` moves the directory.
-  The whole claim of the module is that this directory can be copied to another
-  machine, run, and be somebody's checklist.
-- **The owner's tick.** The `agreed` item is a gate. An item asking whether a
-  person has agreed to something, which the party doing the asking can tick, is a
-  formality with a box beside it — so an agent is refused it over MCP, in words,
-  and it is pressed here, on this app's own origin, holding a ticket this process
-  minted.
-- **The hand-written list, per paper.** See below.
-- **Its MCP door**, `/mcp`: `mr_checklist` reads the list and where one reference
-  stands, `check_mr` asserts the agent's half, and six more work the paper lists.
-
-## The other kind of list: what a paper owes
-
-Everything above is derived and scoped to a REFERENCE. This is neither.
-
-A paper is the document an epic is aimed at — `kehikko-paper` reads the `.tex`
-and is keyed by epic — and what a paper is still missing is a judgement no
-program on this machine is in a position to make. So the second list is
-**hand-written**, **keyed by the epic**, and **ordered by the person**, in
-`data/papers.json` beside the other two files.
-
-It is a third file rather than a section of `checklist.json` for one reason: that
-file's reader answers an unparseable byte with the list as it SHIPPED, which is
-right for edits and catastrophic for authored prose — there is no shipped paper
-list to fall back to, so "empty" and "broken" would be indistinguishable. The
-paper store therefore refuses to be quiet: it reports the trouble, on the card,
-and blocks every write until the file parses. Migration is additive in the same
-way the rest of this workspace does it to a database — every new field arrives
-with a zod `.default()`, so a file written today opens under next year's schema.
-
-**An agent may tick these, and that is not a reversal of the rule above.** The
-`agreed` item is a gate because it asks whether a PERSON has agreed to something,
-and the party doing the asking must not be able to close it; `check_mr` still
-refuses it, in words. A hand-written paper item is a task somebody wrote down,
-and an agent is often the one who did it. What makes that safe is that the record
-says so: every tick names its author and whether it came through the MCP door,
-the row prints "ticked by claude, over MCP", and one press takes it back.
-
-Six tools, matching the two that were already there:
+- **The pick-or-create screen.** On first view in a kehikko there is no default
+  and no guess: the pane lists the checklists that exist and offers a box to
+  start one. A checklist held against work is a claim about what that work owes,
+  and a pane that opened on somebody else's list would have a person ticking
+  items off against a standard they never chose.
+- **The checklist, and only the checklist.** One list, its items, and the ticks
+  for whichever target is in front. There is no directory of references and no
+  tab row; the target switch is one row, not a screen.
+- **Its own store.** `data/checklists.json` holds every list, every item and
+  every tick. `CHECKLIST_DATA` moves the directory. The whole claim of the module
+  is that this directory can be copied to another machine, run, and be somebody's
+  checklist.
+- **Its MCP door**, `/mcp`, with seven tools:
 
 ```
-paper_checklist      the list for one epic's paper, or which papers have one
-add_paper_item       a line on the end
-check_paper_item     tick it, or done: false to take a tick back
-reword_paper_item    the same item, sharper words, same id and same tick
-move_paper_item      positions count from 1; past the end means the end
-drop_paper_item      off the list for good, with its tick
+checklists             every list, or one of them held against a target
+create_checklist       start one under a name
+add_checklist_item     a line on the end
+check_item             tick it FOR A TARGET, or done: false to take a tick back
+reword_checklist_item  the same item, sharper words, same id and same ticks
+move_checklist_item    positions count from 1; past the end means the end
+drop_checklist_item    off the list for good, with its ticks on every target
 ```
 
 Every one of them refuses in a sentence that names what to do instead, and
 `position: "up"` is refused rather than read as 1 — a tool that silently
-reordered somebody's list would be worse than one that failed.
+reordered somebody's list would be worse than one that failed. There is no
+`forget_checklist`: removing a list takes every tick anybody ever made on it and
+is the one irreversible act here, so it lives on the page behind a two-press arm.
 
-**With no epic there is a screen, not an empty list.** `context.epic` is
-nullable, and there are three ways to arrive at nothing: no host is framing this
-page, a host is here and the canvas is on no epic, or nothing has spoken yet.
-Each says which it is, and then offers the papers something has already been
-written against, openable here. That is the same distinction `unasked` draws on
-the other list — not having looked is not the same as having looked and found
-nothing.
+## An agent may tick, and may never do it anonymously
 
-## What a host adds, and nothing else can
+An earlier version of this module had a hardcoded `agreed` item that an agent was
+refused, in words, because an item asking whether a PERSON has agreed to
+something, which the party doing the asking can tick, is a formality with a box
+beside it.
 
-One question: `live.get` for the open epic. `derive()` is a pure function of one
-`RefState`, so with a reading in hand every tracker-derived item — pipeline,
-conflicts, threads, draft, size, the review mark, which issue it names — computes
-**here**, with no credentials and no call to anybody's API.
+That gate is gone with the hardcoded lists, and this is what it meant. Every item
+here is a line somebody typed, and an agent is very often the one who did the
+work — refusing the tick would leave a person hand-ticking work they watched
+somebody else do. What survives is the half that was doing the actual work: the
+tick is never anonymous about its origin. Every tick names its author and carries
+`viaMcp`, the row prints "ticked by claude, over MCP" rather than a bare
+checkmark, and one press takes it back. Somebody who wants an item only they may
+tick writes it as a question and unticks what they disagree with.
 
-The same answer does a second job. A selection carries refs and nothing else, on
-purpose, so `gh#105` does not say whether it is an issue or a pull request. The
-reading does: which bag a host filed a reference in is the only thing that says
-what it is, and that is where this app reads it — the same place References reads
-it from.
+## Remembered per kehikko, by the host
 
-## How it degrades, which is the part that proves it is an app
+`roadmap.context` carries `kehikko: {id, name} | null` — the only thing that says
+where this pane is standing, because a module's page is loaded once and shown on
+whichever canvas asks for it. The choice of checklist is remembered against that.
 
-With no reading for a reference, a derived item is **`unasked`** — never
-`pending`, never `unknown`. Those two are answers arrived at by looking; this one
-is not having looked, and the remedy is a different one. Seven verdicts in all
-(`done`, `failed`, `pending`, `unknown`, `unasked`, `stale`, `todo`), each with
-its own word on the row, because collapsing any pair of them would be this
-program stating something it cannot know.
+The host's kept state (`state.set`) is keyed by MODULE and by nothing else, so
+the per-kehikko map lives inside the one opaque string it keeps for us; see
+`list/keep.ts`, which never throws and turns anything it cannot read into no
+memory at all. A **null kehikko is a real state** — a host need not have canvases
+— and it gets its own screen: the pane says it cannot tell where it is standing,
+and then works anyway for the session.
 
-## The selection
+## What was deleted, and why it was safe
 
-`context.selection` decides what the page shows. With references picked out, each
-gets a card: its rows, their verdicts, who ticked what and when, and how old the
-tracker facts are. With nothing picked, the lists themselves.
+This module used to hold three kinds of list. Two were DERIVED and hardcoded —
+what a merge request owes and what an issue owes, whose items were `case` arms in
+a `derive()` function and whose wording shipped in the program — with a settings
+store on top for rewording them, exempting them per tracker and adding items. The
+third was hand-written, one per paper, keyed by epic.
 
-**Every selected reference is drawn**, in the order the host sent them, each
-collapsible with its count in the header. Showing only the first would hide ticks,
-and a reference whose ticks are not drawn looks exactly like one with no ticks. A
-ref the reading does not contain is an ordinary state, not an error: it comes back
-as a standing that says `unasked`.
+The derived half is **deleted**: `derive/`, `list/shipped.ts`, `list/store.ts`,
+`list/view.ts`, `list/ticks.ts`, `src/live/`, the `mr_checklist` and `check_mr`
+tools, `/api/standings`, `/api/known`, `/api/lists`, `/api/tick`, the seven
+verdicts and the `live:read` capability. It was safe because **nobody typed any
+of it**: the items were this program's own opinion about somebody else's work,
+and the ticks against them were ticks on that opinion. Every mechanism that made
+the opinion bearable existed only to soften it, so removing the opinion left
+nothing with a subject.
 
-The reading is fetched on the epic CHANGING, never on a context arriving. A host
-sends a context after every selection change anywhere on the canvas, and
-refetching on each would blank this page at exactly the moment it is being asked
-to say something.
+The paper half is **migrated**, once and idempotently, on read: a hand-written
+list of what a paper owes is not a special kind of thing under the new model — it
+is an ordinary checklist held against a paper target. Every line, every id, every
+tick with its author, its time, its `viaMcp` and its note comes across, and
+`papers.json` is left on disk. See `list/checklists.ts` and
+`test/migration.test.ts`.
 
-## What the pane shows, and what decides it
+Two arguments from the deleted files were carried rather than deleted with them,
+because they are still true: the store **refuses to write when its file will not
+parse** (for authored prose, "empty" and "broken" must not be indistinguishable,
+and there is no shipped list to fall back to), and **ordering is the array's
+order and not an `order` column** (two sources for one fact, and a partial write
+leaves two items claiming position 3).
 
-Three things, and the context picks the default while the reader overrules it:
-references picked out on the canvas, this paper's hand-written list, or the two
-lists themselves. A tab row keeps all three reachable, because "the canvas
-selected something" is a poor reason to make somebody's own checklist
-unreachable.
+## Removal is a two-press arm, not `window.confirm()`
 
-The page learns that an agent has changed a paper list on the **same** two-second
-poll that already exists to announce MCP calls to a host (`src/wire/emit.ts`) —
-not on a second one. A paper announcement now carries its own epic rather than
-taking the canvas's: an agent working one paper while somebody reads another
-would otherwise file a true sentence under the wrong heading.
+Measured, in the host's own frame:
+
+```
+[console] Ignored call to 'confirm()'. The document is sandboxed, and the
+          'allow-modals' keyword is not set.
+confirm() inside the checklist frame returns: false
+```
+
+The host frames modules with `allow-scripts allow-forms allow-popups
+allow-same-origin` and no `allow-modals`, which is a reasonable sandbox and not
+something this module should ask to widen for one dialog. `confirm` returns
+`false`, the handler returns early, the button does nothing at all, and there is
+nothing on screen saying why. So the second press is asked for in the row, where
+it can be seen, and it says the same sentence the dialog used to.
 
 ## Prompts
 
-`declares.prompt` is **false**, deliberately. The list is already the instruction
-and a better one — stamped, versioned, refusing an exemption shorter than a
-sentence — and a prompt could reach nothing this app can act on: derived items are
-`case` arms, agent ticks arrive over MCP under an agent's name, and the owner's
-tick is a gate whose value is that a person pressed it. `manifest.ts` has the
-argument in full and names what would have to become true for it to change.
+`declares.prompt` is **false**, deliberately. A prompt is prose the host composes
+and delivers in a context: unstamped, unversioned, unaddressable, and gone when
+the canvas moves. A checklist here is items in this app's own store, each with an
+id an agent can name, an author, a time, and a tick per target that says who made
+it and whether it came through the MCP door. `manifest.ts` has the argument in
+full and names what would have to become true for it to change.
 
 ## Security
 
-`declares.storage: true`, and **no `server.cors`**. Framed opaque, this page's own
-`/api` calls would be cross-origin, forcing a permissive
+`declares.storage: true`, and **no `server.cors`**. Framed opaque, this page's
+own `/api` calls would be cross-origin, forcing a permissive
 `Access-Control-Allow-Origin` — which lets any page in any tab read this origin,
 including `/app`, including the write ticket printed into it. With a real origin
-the page's fetches are ordinary same-origin requests, no CORS header is offered to
-anybody, and the ticket is unreadable from outside. Measured:
+the page's fetches are ordinary same-origin requests, no CORS header is offered
+to anybody, and the ticket is unreadable from outside. Measured:
 
 ```
-$ curl -s -D - -o /dev/null -H 'Origin: https://evil.example' http://127.0.0.1:7860/app
-HTTP/1.1 200 OK
-cache-control: no-store
-content-security-policy: frame-ancestors 'self' http://127.0.0.1:4181 …
-                                                       # and no Access-Control-Allow-Origin
+$ curl -sI -H 'Origin: https://evil.example' http://127.0.0.1:7860/app | grep -i access-control
+                                                       # nothing at all
 
-$ curl -s -X POST -d '{"ref":"gh#1","item":"agreed"}' http://127.0.0.1:7860/api/tick
+$ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/checklist
 { "ok": false, "error": "that press did not come from this app’s own page" }
 ```
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 116 tests, including the paper
-store, the additive migration, and every new tool's argument validation. The rest
-was driven in a real browser with Playwright; the probes are in the job scratch
-directory as `ck-verify.mjs` (handshake, selection, stored data), `ck-narrow.mjs`
-(no horizontal overflow at 220/280/320/400px with every disclosure open),
-`ck-untick.mjs` (the owner's tick, and withdrawing it), `ck-paper.mjs` (the
-hand-written list, unframed: the no-paper screen, an item typed in the pane and
-read back after a reload, an item and a tick arriving over MCP with no reload, a
-reorder surviving a reload, and no horizontal overflow at 220/280/320/400/1200px
-in both themes) and `ck-framed2.mjs` (the same pane framed by the host at 4181,
-opening on the epic's paper because `roadmap.context` said which one).
-
-A tick survives a restart because the store is a file: measured by killing the
-server, starting it again with `run.sh`, and reading the same `2/3 ticked` back
-through `/mcp` under a fresh process and a fresh ticket.
-
-One bug was found that way and could not have been found any other: the host
-frames modules with `allow-scripts allow-forms allow-popups allow-same-origin`
-and **no `allow-modals`**, so the `window.confirm` that guarded withdrawing the
-owner's agreement was ignored, returned `false`, and left the button doing nothing
-with nothing on screen saying why. It is a two-press arm in the row now. See the
-essay in `src/view/row.tsx`.
+`bun test` covers the wire-independent half — 106 tests across the store, the
+migration of a real `papers.json`, the per-kehikko memory, target identity, every
+MCP tool's argument validation, and the components. The rest was driven in a real
+browser with Playwright; the probes are in the job scratch directory as
+`ck-new.mjs` (the pick-or-create screen, a checklist created in the UI and read
+back after a reload, the same list against two targets holding two independent
+sets of ticks, a tick made over MCP appearing with no reload, the migrated paper
+lists, and no horizontal overflow at 220/280/320/400/1200px in both themes),
+`ck-kehikko.mjs` (the memory: picked on one kehikko, surviving a reframe, asked
+again on a second kehikko, still its own on the first, and the null-kehikko
+screen) and `ck-realhost.mjs` (the same pane framed by the real host at 4181,
+opening on the pick screen, the choice surviving a full host reload, and the
+epic's paper offered as the target).

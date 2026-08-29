@@ -4,11 +4,19 @@ import { join } from 'node:path'
 /**
  * Where this app keeps what is its own.
  *
- * Two files live here — the edited list (`checklist.json`) and what has been
- * ticked against a reference (`ticks.json`) — and the directory is beside the
- * program rather than inside any host's data. That is the whole of what "an app"
- * means here: somebody can copy this directory to another machine, run it, and
- * have their checklist, with nothing else installed and nothing else running.
+ * One file lives here — `checklists.json`, holding every checklist somebody made
+ * and every tick filed on one against every target — and the directory is beside
+ * the program rather than inside any host's data. That is the whole of what "an
+ * app" means here: somebody can copy this directory to another machine, run it,
+ * and have their checklists, with nothing else installed and nothing else
+ * running.
+ *
+ * There used to be three, because there used to be three kinds of list.
+ * `checklist.json` held EDITS to a list this program shipped, `ticks.json` held
+ * what had been ticked against a reference, and `papers.json` held the
+ * hand-written list for one paper. The shipped list is gone and so are the first
+ * two. `papers.json` may still be here, and is read — once, never written — by
+ * `list/checklists.ts`, to bring what somebody typed into the one store.
  *
  * `CHECKLIST_DATA` moves it, and it is deliberately NOT `ROADMAP_DATA`. That
  * variable belongs to a different program: honouring it would make this app's

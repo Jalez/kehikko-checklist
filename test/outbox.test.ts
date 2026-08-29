@@ -18,13 +18,13 @@ const call = (tool: string, epic: string | null = null) =>
 
 describe('the cursor', () => {
   test('a reader that has never asked gets everything so far', () => {
-    call('mr_checklist')
-    call('check_mr')
-    expect(since(0).announcements.map((a) => a.tool)).toEqual(['mr_checklist', 'check_mr'])
+    call('checklists')
+    call('check_item')
+    expect(since(0).announcements.map((a) => a.tool)).toEqual(['checklists', 'check_item'])
   })
 
   test('asking again from the cursor gets nothing, rather than the same rows twice', () => {
-    call('mr_checklist')
+    call('checklists')
     const first = since(0)
     /* The failure this prevents: one tool call drawn twice on a panel is
        indistinguishable from the agent having done the thing twice. */

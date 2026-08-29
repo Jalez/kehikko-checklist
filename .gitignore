@@ -13,9 +13,9 @@ node_modules
 # moment somebody edits `src/`.
 dist
 
-# This app's own store. It is somebody's decided material — what they hold a
-# change to, and what has been ticked against one — and it belongs to the machine
-# the app runs on rather than to any repository this directory happens to be
-# sitting in today. That is the whole of what "an app" means here: the directory
-# can be copied to another machine, run, and be somebody's checklist.
+# This app's own store. It is somebody's authored material — the checklists they
+# wrote and every tick filed on one against every target — and it belongs to the
+# machine the app runs on rather than to any repository this directory happens to
+# be sitting in today. That is the whole of what "an app" means here: the
+# directory can be copied to another machine, run, and be somebody's checklist.
 data

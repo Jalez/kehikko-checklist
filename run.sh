@@ -16,7 +16,7 @@
 #     for what a host started.
 #   - `cd` to this script's own directory, so this app's store is beside the
 #     program however it was invoked. That is not a detail here: `data/` holds
-#     somebody's edited checklist and every tick ever filed, and the whole claim
+#     every checklist somebody wrote and every tick filed on one, and the whole claim
 #     of the module is that the directory can be copied to another machine and
 #     run.
 #

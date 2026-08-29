@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { HostRefused, connect, type Host, type HostEvents, type Refusal } from './host.ts'
+import { choose, reading, unchoose, writing, type Kept } from '../../list/keep.ts'
+import { connect, type Host, type HostEvents } from './host.ts'
 import { pump } from './emit.ts'
 
 /**
@@ -8,11 +9,22 @@ import { pump } from './emit.ts'
  *
  * `host.ts` is the wire and knows no React; this is the only file that turns
  * messages into state, and it is deliberately the only one. Two places driving
- * "what can this page see" would eventually disagree, and this module's whole
- * honesty rests on telling `unasked` from `unknown` — not having looked from
- * having looked and found nothing.
+ * "what can this page see" would eventually disagree.
  *
- * ## The grace, and why there is one
+ * ## What this hook stopped doing, and it is most of what it used to do
+ *
+ * It used to hold a six-way `Sight` — `listening`, `unhosted`, `no-epic`,
+ * `asking`, `refused`, `unread`, `read` — because the page derived checklist
+ * items from a tracker reading a host handed over, and those six absences had
+ * six different remedies. Nothing is derived any more. There is no `live.get`
+ * here, no reading, no epic-change refetch, and no correlation guard on an
+ * answer arriving after the epic moved, because no answer is being waited for.
+ *
+ * What is left is what a context actually carries: which epic is open, which
+ * kehikko this pane is standing on, what the canvas has picked out, and the
+ * theme. Plus one new thing, which is the reason `state:keep` is declared.
+ *
+ * ## The grace, and why there is still one
  *
  * A page cannot know at load whether it is framed. It has to wait to find out,
  * because the greeting arrives when the host is ready rather than when we are,
@@ -27,48 +39,49 @@ import { pump } from './emit.ts'
 const GREETING_GRACE_MS = 700
 
 /**
- * What this page can currently see of a host's reading.
+ * Whether anything is framing this page, in the three states that matter.
  *
- * Six states rather than a nullable reading, for the reason the whole module
- * exists: `unhosted`, `no-epic`, `refused` and `unread` are four different
- * absences with four different remedies, and collapsing them would put "the
- * tracker had nothing to say" on a screen belonging to a program that has never
- * spoken to a tracker.
+ * Three rather than a boolean, because "we have not heard yet" is not "nobody is
+ * there": one lasts under a second and the other is the standalone case this app
+ * is built to work in. Drawing the second while in the first is the flicker the
+ * grace above exists to prevent.
  */
-export type Sight =
-  | { at: 'listening' }
-  | { at: 'unhosted' }
-  | { at: 'no-epic' }
-  | { at: 'asking'; epic: string }
-  | { at: 'refused'; epic: string; refusal: Refusal }
-  | { at: 'unread'; epic: string }
-  | { at: 'read'; epic: string; live: unknown }
+export type Where = 'listening' | 'unhosted' | 'hosted'
+
+/** Which canvas this pane is standing on, as the host says it. */
+export interface Kehikko {
+  id: number
+  name: string
+}
 
 export interface Roadmap {
-  sight: Sight
-  /**
-   * The epic the canvas is on, or null.
-   *
-   * Pulled out of `Sight` rather than read off it at each call site, because two
-   * different things want it and they want it for different reasons: the
-   * tracker-derived half wants the READING for an epic, which is what `Sight`
-   * is about, and the hand-written half wants nothing but the epic's NAME —
-   * `refused` and `unread` are perfectly good states to draw a paper checklist
-   * in, since this app holds that list itself and a host has nothing to do with
-   * it. Deriving it from `sight` at each call site would put that judgement in
-   * two places and eventually in disagreement.
-   */
+  where: Where
+  /** The epic the canvas is on, or null. What makes a paper target offerable without typing a slug. */
   epic: string | null
+  /**
+   * The kehikko this pane is on, or null.
+   *
+   * Null is a REAL state and not a missing one: a host need not have canvases at
+   * all, and this module cannot tell where it is standing without being told. It
+   * gets its own screen rather than a wrong answer — see `Unplaced` in
+   * `src/view/choose.tsx`.
+   */
+  kehikko: Kehikko | null
   /**
    * What the canvas has picked out, as the host last said it.
    *
    * Never what this page asked for — this page never asks. It declares no
-   * `selection:set`, has no control that would set one, and its entire job is to
-   * answer a question about what somebody else picked. So this is a fact
-   * arriving, in the same family as which epic is open, and the only place it
-   * comes from is `roadmap.context`.
+   * `selection:set`, has no control that would set one, and its job is to answer
+   * a question about what somebody else picked. Under the new model these are
+   * candidate TARGETS: a ref selected on the canvas is a thing a checklist can
+   * be held against, and offering it is cheaper and more accurate than asking
+   * somebody to type it.
    */
   selection: string[]
+  /** Which checklist was last picked, per kehikko, as the host kept it for us. */
+  kept: Kept
+  /** Remember a pick for one kehikko, or forget it. Silent when nothing is framing this page. */
+  remember: (kehikko: number, checklist: string | null) => void
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
 }
@@ -84,20 +97,25 @@ export interface Roadmap {
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
 export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void): Roadmap {
-  const [sight, setSight] = useState<Sight>({ at: 'listening' })
+  const [where, setWhere] = useState<Where>('listening')
   const [selection, setSelection] = useState<string[]>([])
-  /**
-   * The epic as a value the page can read, beside the ref the wire reads.
-   *
-   * `standingOn` is a ref on purpose — it is read inside callbacks that must see
-   * the newest value and must not re-run when it changes. A ref cannot be
-   * rendered from, so the same fact is also state. Two holders of one fact is
-   * normally the defect this codebase argues against; here they are written on
-   * the same line, in one place, and the alternative is either a page that does
-   * not repaint when the epic moves or a wire that re-subscribes when it does.
-   */
   const [epic, setEpic] = useState<string | null>(null)
+  const [kehikko, setKehikko] = useState<Kehikko | null>(null)
+  const [kept, setKept] = useState<Kept>([])
   const host = useRef<Host | null>(null)
+
+  /**
+   * The kept list as the sender sees it, beside the state the page renders from.
+   *
+   * Two holders of one fact is normally the defect this codebase argues against.
+   * Here the alternative is worse: `remember` is a stable callback that must not
+   * be rebuilt every time the map changes — it is passed to components and used
+   * in effects — and a stale closure over `kept` would write a map missing
+   * whatever was chosen in between. So the ref is what `remember` reads and the
+   * state is what React draws, and they are assigned on the same line every
+   * time.
+   */
+  const held = useRef<Kept>([])
 
   /**
    * The handler, held in a ref and read at the moment a `goto` arrives.
@@ -115,96 +133,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const door = useRef(onDoor)
   door.current = onDoor
 
-  /**
-   * Which question is the current one.
-   *
-   * Epics switch faster than a slow host answers, and without this the answer to
-   * the previous epic arrives after the answer to this one and quietly replaces
-   * it — the right refs under the right title, about the wrong work. Every answer
-   * checks that it is still the one being waited for before it is allowed to
-   * become the page.
-   */
-  const asking = useRef(0)
-
-  /**
-   * The epic the last context put this page on.
-   *
-   * This is the field that keeps the page still, and it is the single most
-   * important line in the file for a module that reacts to a selection.
-   *
-   * A context is no longer a message that only ever means "the reader moved". It
-   * carries the canvas's selection, so the host sends one after every selection
-   * change ANYWHERE on the canvas — a click in References, a click in Journeys,
-   * a click in a module written next year. Re-asking `live.get` on each of those
-   * would throw the reading away and put this page back into `asking` every time
-   * somebody selected a row: every checklist item would vanish, a paragraph would
-   * say the question was out, and the rows would come back a moment later. The
-   * click that caused it would look like a bug in whichever module was clicked.
-   *
-   * Worse here than in a list, because the selection is what this page draws. The
-   * refetch would be triggered by exactly the event the page is supposed to be
-   * responding to, so the page would blank itself precisely when it was being
-   * asked to say something.
-   *
-   * So the fetch is keyed to the epic CHANGING rather than to a context
-   * arriving. A repeated context about the same epic is a normal event, and the
-   * correct response to it is to read the parts that did change — the theme and
-   * the selection — and to leave the reading alone.
-   *
-   * The cost, stated plainly: this page no longer refetches when a host re-sends
-   * the same epic to mean "you were hidden and are visible again". That was never
-   * a promise the protocol made, and the fix if it is ever wanted is a context
-   * field saying so, not a refetch on every selection.
-   *
-   * Three values and not two: a slug, `null` for "the host says no epic is
-   * open", and `undefined` for "no context has been read yet". Collapsing the
-   * last two would make the first context of a conversation that names no epic
-   * look like a repeat of a state the page was already in.
-   */
-  const standingOn = useRef<string | null | undefined>(undefined)
-
-  const look = useCallback((epic: string) => {
-    const mine = (asking.current += 1)
-    standingOn.current = epic
-    setEpic(epic)
-    setSight({ at: 'asking', epic })
-    const current = host.current
-    if (!current) return
-    void current
-      /**
-       * Both spellings of the same name.
-       *
-       * `methodParams['live.get']` takes `{ epic }` in the protocol as it stands.
-       * The hosts this workspace was built beside read `params.slug` and refuse
-       * anything else — the package renamed this material and the hosts have not
-       * all caught up. Sending only the newer key would make this app correct and
-       * useless; sending only the older one would make it wrong the day a host is
-       * updated. So it sends both, which no host can be confused by: each reads
-       * the key it knows and neither sees a conflicting value, because there is
-       * one name here spelled twice. The second key comes out when no host in the
-       * field reads it.
-       */
-      .request('live.get', { epic, slug: epic })
-      .then((data) => {
-        if (asking.current !== mine) return
-        /* `null` is a host's own word for "there is no reading for this epic". It
-           is not an error and it is not an empty reading, and the six-way `Sight`
-           exists so that it does not become either. */
-        if (data === null || data === undefined) setSight({ at: 'unread', epic })
-        else setSight({ at: 'read', epic, live: data })
-      })
-      .catch((error: unknown) => {
-        if (asking.current !== mine) return
-        setSight({
-          at: 'refused',
-          epic,
-          refusal:
-            error instanceof HostRefused
-              ? error.refusal
-              : { reason: 'failed', error: 'This app failed while reading the host’s answer.' },
-        })
-      })
-  }, [])
+  /** The epic the pump files an announcement under, read at each tick rather than captured. */
+  const standingOn = useRef<string | null>(null)
 
   useEffect(() => {
     /**
@@ -216,48 +146,39 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      * `dark`, so that a host asking for light over a machine set to dark actually
      * gets it — see the media query in `index.css`.
      */
-    const arrived = (context: { epic: string | null; theme: 'light' | 'dark'; selection: string[] }, greeting: boolean) => {
-      /* A greeting always re-asks, because a greeting means the conversation is
-         new: the host greets on every frame LOAD, so one arriving is a page that
-         has just come into existence, or a frame that reloaded and has forgotten
-         everything it knew. Answering that with "the epic has not changed, so
-         there is nothing to do" would leave a page with no reading and no
-         question outstanding, forever.
-
-         `StrictMode` is the case that proves it in the smallest possible space.
-         The effect below is torn down and set up again on purpose in development;
-         the teardown refuses every question still in flight, and the setup
-         replays the greeting out of the mailbox. If the replayed greeting were
-         deduplicated against the epic the refused question had been about, the
-         page would settle on the refusal and stay there — in development only,
-         which is the worst place for a bug to live. */
-      if (greeting) standingOn.current = undefined
-
+    const arrived = (context: {
+      epic: string | null
+      theme: 'light' | 'dark'
+      selection: string[]
+      kehikko: Kehikko | null
+    }) => {
       const root = document.documentElement
       root.classList.toggle('dark', context.theme === 'dark')
       root.classList.toggle('light', context.theme === 'light')
 
-      /**
-       * The selection is taken from every context, unconditionally, before
-       * anything decides whether the epic moved.
-       *
-       * That order is the whole of "this page follows rather than showing stale
-       * ticks". The host clears the selection as part of moving to another epic,
-       * and it says so in the same message that names the new epic — so a page
-       * that read the selection only on the branch where the epic stayed put
-       * would keep drawing the previous epic's ticks against whatever rows happen
-       * to share a ref with it. Reading it first means the clear lands whether
-       * the epic moved or not, and the refetch below is a separate question.
-       */
+      setWhere('hosted')
       setSelection(context.selection)
-
-      const moved = context.epic !== standingOn.current
-      standingOn.current = context.epic
       setEpic(context.epic)
-      if (!moved) return
-
-      if (context.epic) look(context.epic)
-      else setSight({ at: 'no-epic' })
+      standingOn.current = context.epic
+      /*
+       * Written unconditionally rather than only when it changed.
+       *
+       * A context arrives after every selection change anywhere on the canvas,
+       * so this runs often, and the old version of this hook was careful to
+       * compare before writing — because a write meant throwing away a tracker
+       * reading and refetching it. Nothing is refetched now. What these setters
+       * cost is a render of a page that is already drawn, and React bails out of
+       * one where the value is identical anyway, so a comparison here would be a
+       * guard against a cost that no longer exists.
+       *
+       * The kehikko IS compared, because it is an object: a fresh `{id, name}`
+       * with the same id every two seconds would be a new identity in every memo
+       * downstream, and the whole point of reading it is to key a stable choice
+       * by it.
+       */
+      setKehikko((was) =>
+        was?.id === context.kehikko?.id && was?.name === context.kehikko?.name ? was : context.kehikko,
+      )
     }
 
     /**
@@ -268,9 +189,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      * already arrived SYNCHRONOUSLY, inside that call. The greeting almost always
      * arrives before React mounts — that is the entire reason the mailbox exists
      * — so `onHello` fires on this line, before `host.current` has been assigned.
-     * `look` reads `host.current`, finds null, returns early, and leaves the page
-     * reading "Asking about …". It starts no timer either, so nothing ever times
-     * out: not a slow answer, not a refusal, just a sentence that never changes.
+     * Anything reading `host.current` then finds null and quietly does nothing.
      *
      * Worse, it works often enough to look fine. When the host happens to greet
      * after this effect returns — a slow module, a reload, a busy machine — the
@@ -281,29 +200,42 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      * assignment is done. Not deferred to a microtask: that would fix the symptom
      * and leave the next reader to work out why the order mattered.
      */
-    type Arrival = [context: { epic: string | null; theme: 'light' | 'dark'; selection: string[] }, greeting: boolean]
+    type Context = { epic: string | null; theme: 'light' | 'dark'; selection: string[]; kehikko: Kehikko | null }
+    type Arrival = [context: Context, state: string | null | undefined]
     let ready = false
     /* A box rather than a bare `let`, and only because of the compiler: this is
        assigned inside a callback that `connect` invokes, which the flow analysis
        cannot see, so a plain variable is narrowed to `null` for the rest of this
-       function and the replay below stops type-checking. A property is not
-       narrowed across a call, which is the truth here. */
+       function and the replay below stops type-checking. */
     const early: { arrival: Arrival | null } = { arrival: null }
-    const held = (...arrival: Arrival) => {
-      if (ready) arrived(...arrival)
+    const deliver = (context: Context, state: string | null | undefined) => {
+      /* The kept string arrives ONLY in the greeting, and is read before the
+         context is applied so the first render already has the remembered
+         choice. A page that drew the pick screen and then replaced it with the
+         remembered list would be teaching the reader that the pick screen is
+         noise — the same argument as the greeting grace above. */
+      if (state !== undefined) {
+        const was = reading(state)
+        held.current = was
+        setKept(was)
+      }
+      arrived(context)
+    }
+    const heldEarly = (...arrival: Arrival) => {
+      if (ready) deliver(...arrival)
       else early.arrival = arrival
     }
 
     host.current = connect(id, {
-      onHello: (context) => held(context, true),
-      onContext: (context) => held(context, false),
+      onHello: (context, state) => heldEarly(context as Context, state),
+      onContext: (context) => heldEarly(context as Context, undefined),
       onGoto: (message, answer) => goto.current(message, answer),
     })
     ready = true
-    if (early.arrival) arrived(...early.arrival)
+    if (early.arrival) deliver(...early.arrival)
 
     const grace = setTimeout(() => {
-      setSight((was) => (was.at === 'listening' ? { at: 'unhosted' } : was))
+      setWhere((was) => (was === 'listening' ? 'unhosted' : was))
     }, GREETING_GRACE_MS)
 
     /*
@@ -313,12 +245,6 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      * there is no connection to say it on — see the essay in `emit.ts` for why
      * the door and the wire are in two different processes and need a pump
      * between them at all.
-     *
-     * The epic is read through `standingOn` at each tick rather than captured,
-     * so an announcement is filed under the epic that is open when it is sent.
-     * `undefined` there means no context has been read yet, which is the same
-     * as no epic as far as this is concerned: nothing is filable, and nothing
-     * is invented.
      */
     const stopPump = pump(
       (method, params) => {
@@ -326,7 +252,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
         if (!current) return Promise.reject(new Error('nothing has greeted this page'))
         return current.request(method, params)
       },
-      () => standingOn.current ?? null,
+      () => standingOn.current,
       undefined,
       () => door.current?.(),
     )
@@ -337,9 +263,32 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       host.current?.stop()
       host.current = null
     }
-  }, [id, look])
+  }, [id])
+
+  /**
+   * Remember which checklist was picked on one kehikko, or forget it.
+   *
+   * Fire and forget, deliberately. A host may refuse `state.set` — it is a
+   * declared capability and a declaration is not a request — and the correct
+   * response to a refusal is that the choice holds for this session and is
+   * asked for again next time. Blocking the pick on a round trip, or drawing a
+   * failure beside it, would make a page's most ordinary action wait on
+   * somebody else's storage.
+   */
+  const remember = useCallback((canvas: number, checklist: string | null) => {
+    const next = checklist === null ? unchoose(held.current, canvas) : choose(held.current, canvas, checklist)
+    held.current = next
+    setKept(next)
+    void host.current?.request('state.set', { state: writing(next) }).catch(() => {
+      /* Reported nowhere on purpose. See above: a refused keep is a choice that
+         lasts the session, which is a state this page is already correct in. */
+    })
+  }, [])
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
-  return useMemo(() => ({ sight, epic, selection, resize }), [sight, epic, selection, resize])
+  return useMemo(
+    () => ({ where, epic, kehikko, selection, kept, remember, resize }),
+    [where, epic, kehikko, selection, kept, remember, resize],
+  )
 }

@@ -1,8 +1,5 @@
-import type { Paper, PaperItem } from '../../list/papers.ts'
-import type { Standing } from '../../derive/standing.ts'
-import type { ChecklistView } from '../../list/view.ts'
-import type { RefState } from '../../derive/ref-state.ts'
-import type { Shape } from '../live/lookup.ts'
+import type { Held, Summary } from '../../list/checklists.ts'
+import type { Target } from '../../list/targets.ts'
 
 /**
  * Talking to this app's own server, which is the same origin this page came
@@ -10,23 +7,32 @@ import type { Shape } from '../live/lookup.ts'
  *
  * ## Why these are plain relative fetches and it is worth saying so
  *
- * `/api/lists` and `/api/standings` are relative paths, so the browser resolves
- * them against the document — which is `http://127.0.0.1:7860/app`, framed or
- * not, because this module declares `storage: true` and therefore keeps its
- * origin. Every request below is an ordinary same-origin request: no preflight,
- * no CORS header offered to anybody, and no way for a page in another tab to
- * make one of them. The essay in `manifest.ts` is why that was worth the
+ * `/api/checklists` and `/api/checklist` are relative paths, so the browser
+ * resolves them against the document — which is `http://127.0.0.1:7860/app`,
+ * framed or not, because this module declares `storage: true` and therefore
+ * keeps its origin. Every request below is an ordinary same-origin request: no
+ * preflight, no CORS header offered to anybody, and no way for a page in another
+ * tab to make one of them. The essay in `manifest.ts` is why that was worth the
  * declaration.
  *
  * ## The types come from the server's own files
  *
- * `Standing` and `ChecklistView` are imported from `derive/` and `list/` above
- * the `src/` boundary, as types, and are erased at build. That is deliberate
- * rather than lazy: these two shapes are decided in one place and drawn in
- * another, and a hand-written copy on this side would be a second definition
- * that silently disagrees the first time a row grows a field. The wire between
- * this page and this server is not a wire between two programs — it is one
- * program with a socket in the middle.
+ * `Held`, `Summary` and `Target` are imported from `list/` above the `src/`
+ * boundary, AS TYPES, and are erased at build. That is deliberate rather than
+ * lazy: these shapes are decided in one place and drawn in another, and a
+ * hand-written copy on this side would be a second definition that silently
+ * disagrees the first time a row grows a field. The wire between this page and
+ * this server is not a wire between two programs — it is one program with a
+ * socket in the middle.
+ *
+ * `import type` and not a value import, and that is load-bearing rather than
+ * tidy: `list/checklists.ts` imports `node:fs`, and a value import would drag it
+ * into the browser bundle. `tsc` would say nothing, `bun test` would say nothing,
+ * and the only symptom would be a page that loads and never answers the host's
+ * greeting. `list/targets.ts` and `list/keep.ts` touch no node module at all and
+ * are imported for their functions on purpose — target identity has to be spelled
+ * the same on both sides of that socket or the page asks about a target the
+ * server does not have.
  */
 
 /**
@@ -61,125 +67,104 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return response.json()
 }
 
-/** Both lists as this app now holds them, with what shipped travelling beside it. */
-export async function lists(): Promise<ChecklistView> {
-  const response = await fetch('/api/lists')
-  return (await response.json()) as ChecklistView
+export type { Held, Summary, Target }
+
+/** Every checklist that exists. The first thing the page asks for, and the only unconditional one. */
+export async function everyChecklist(): Promise<{ lists: Summary[]; trouble: string | null }> {
+  const response = await fetch('/api/checklists')
+  const body = (await response.json()) as { lists?: unknown; trouble?: unknown }
+  return {
+    lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
+    trouble: typeof body.trouble === 'string' ? body.trouble : null,
+  }
 }
 
-/** Every reference this app has anything recorded against — ticked, or seen, or both. */
-export async function knownRefs(): Promise<string[]> {
-  const response = await fetch('/api/known')
-  const body = (await response.json()) as { refs?: unknown }
-  return Array.isArray(body.refs) ? body.refs.filter((r): r is string => typeof r === 'string') : []
+/** The target, spelled into a query the server reads back with the same rules. */
+function query(id: string, target: Target | null): string {
+  const parts = [`id=${encodeURIComponent(id)}`]
+  if (target?.kind === 'ref') parts.push(`ref=${encodeURIComponent(target.ref)}`)
+  if (target?.kind === 'paper') {
+    parts.push(`epic=${encodeURIComponent(target.epic)}`)
+    if (target.section) parts.push(`section=${encodeURIComponent(target.section)}`)
+  }
+  return parts.join('&')
 }
 
-export interface Asked {
-  ref: string
-  /** What a host last read about it, where a host has read anything. Null is ordinary. */
-  state: RefState | null
-  /** What the reference IS, where the reading said. Absent leaves the app to say it cannot tell. */
-  shape?: Shape
+export interface Opened {
+  held: Held
+  /** Every target this list has ticks against, so nothing recorded becomes unreachable. */
+  targets: { target: Target; done: number }[]
 }
 
 /**
- * Where each of these references stands, and — as a side effect the server owns
- * — this app remembering what it was just shown about them.
+ * One checklist, with the ticks for one target.
  *
- * One request for the whole selection rather than one per ref. Three panes'
- * worth of round trips would arrive out of order and paint the list three times;
- * more to the point, the server writes `ticks.json` as it remembers each state,
- * and one writer per request is one file rewrite instead of five racing.
- *
- * A ref with `state: null` is still sent. That is the case where somebody picked
- * a reference the open epic's reading does not contain, and it must come back as
- * a standing that says `unasked` — never be quietly left out of the list. A
- * missing row looks exactly like a row that was never meant to be there.
+ * Refused rather than empty when the list is gone or the target is not a name —
+ * the server says so in a sentence, and this hands the sentence on rather than
+ * turning it into an empty list. "Nobody has ticked anything" and "that
+ * checklist is not here" are two different answers with two different remedies,
+ * and this is a module whose whole argument is that those do not get flattened.
  */
-export async function standings(refs: Asked[], from: string): Promise<Standing[]> {
-  const body = (await post('/api/standings', {
-    from,
-    refs: refs.map((r) => ({ ref: r.ref, state: r.state, shape: r.shape })),
-  })) as { standings?: unknown }
-  return Array.isArray(body.standings) ? (body.standings as Standing[]) : []
+export async function openChecklist(id: string, target: Target | null): Promise<Opened | { error: string }> {
+  const response = await fetch(`/api/checklist?${query(id, target)}`)
+  const body = (await response.json()) as { ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }
+  if (body.ok === true && body.held) {
+    return {
+      held: body.held as Held,
+      targets: Array.isArray(body.targets) ? (body.targets as { target: Target; done: number }[]) : [],
+    }
+  }
+  return { error: typeof body.error === 'string' ? body.error : 'this app could not read that checklist.' }
 }
 
-/* ------------------------------------------------------------------ *
- * The hand-written list for a paper
- * ------------------------------------------------------------------ */
+export type Edit =
+  | { op: 'create'; name: string }
+  | { op: 'rename'; id: string; name: string }
+  | { op: 'forget'; id: string }
+  | { op: 'add'; id: string; text: string }
+  | { op: 'reword'; id: string; item: string; text: string }
+  | { op: 'move'; id: string; item: string; to: number }
+  | { op: 'drop'; id: string; item: string }
+  | { op: 'tick'; id: string; item: string; target: Target; done: boolean }
 
-export type { Paper, PaperItem }
+export type Answer = { ok: true; said: string; id: string; lists: Summary[]; held: Held | null } | { ok: false; error: string }
 
 /**
- * One paper's list.
+ * Every change the owner makes, through the one door the server decides at.
  *
- * Refused rather than empty when the epic is not a name — the server says so in
- * a sentence, and this hands the sentence on rather than turning it into an
- * empty list. "Nobody has written anything" and "that was not an epic" are two
- * different answers with two different remedies, and this is a module whose
- * whole argument is that those do not get flattened.
+ * Answered with the whole list rather than with the one row, and the page
+ * repaints from that rather than toggling itself. The server holds the order and
+ * the ticks, and a page that reordered itself optimistically would show an order
+ * the file does not have the moment a write is refused.
  */
-export async function paperFor(epic: string): Promise<Paper | { error: string }> {
-  const response = await fetch(`/api/paper?epic=${encodeURIComponent(epic)}`)
-  const body = (await response.json()) as { ok?: unknown; paper?: unknown; error?: unknown }
-  if (body.ok === true && body.paper) return body.paper as Paper
-  return { error: typeof body.error === 'string' ? body.error : 'this app could not read that paper’s checklist.' }
-}
-
-/** Every paper anything has been written down against, for the screen with no paper. */
-export async function papersWritten(): Promise<{ epic: string; done: number; total: number }[]> {
-  const response = await fetch('/api/papers')
-  const body = (await response.json()) as { written?: unknown }
-  return Array.isArray(body.written) ? (body.written as { epic: string; done: number; total: number }[]) : []
-}
-
-export type PaperEdit =
-  | { op: 'add'; text: string }
-  | { op: 'reword'; id: string; text: string }
-  | { op: 'tick'; id: string; done: boolean }
-  | { op: 'move'; id: string; to: number }
-  | { op: 'drop'; id: string }
-
-export type PaperAnswer = { ok: true; said: string; paper: Paper } | { ok: false; error: string }
-
-/**
- * Every change the owner makes to their own paper list.
- *
- * Answered with the whole list rather than with the one row, for the reason the
- * tick is: the server decides, and a page that reordered itself optimistically
- * would show an order the file does not have the moment a write is refused.
- */
-export async function editPaper(epic: string, edit: PaperEdit): Promise<PaperAnswer> {
-  const body = (await post('/api/paper', { epic, ...edit })) as {
+export async function edit(change: Edit): Promise<Answer> {
+  /* The target is flattened into the body here rather than being sent as a
+     nested object, because the server reads a ref, an epic and a section as
+     three bounded strings — the same three the MCP door reads. One spelling of a
+     target across both doors is what stops the page and an agent naming the same
+     work two ways. */
+  const target =
+    change.op === 'tick'
+      ? change.target.kind === 'ref'
+        ? { ref: change.target.ref }
+        : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
+      : {}
+  const body = (await post('/api/checklist', { ...change, ...target })) as {
     ok?: unknown
     said?: unknown
-    paper?: unknown
+    id?: unknown
+    lists?: unknown
+    held?: unknown
     error?: unknown
   }
-  if (body.ok === true && body.paper) {
-    return { ok: true, said: typeof body.said === 'string' ? body.said : '', paper: body.paper as Paper }
+  if (body.ok === true) {
+    return {
+      ok: true,
+      said: typeof body.said === 'string' ? body.said : '',
+      id: typeof body.id === 'string' ? body.id : '',
+      lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
+      held: (body.held as Held | null) ?? null,
+    }
   }
-  return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not work, and said nothing about why' }
-}
-
-export type TickAnswer = { ok: true; standing: Standing } | { ok: false; error: string }
-
-/**
- * The owner's tick, which is the one write this page makes.
- *
- * Answered with the whole standing rather than with the tick, and the page
- * repaints from that rather than toggling itself green. The server is what
- * decides whether the tick stands, and a control that showed itself done on a
- * write that failed halfway is the one lie this particular control must never
- * tell — its entire value is that it means a person at this machine really did
- * agree.
- */
-export async function tick(ref: string, item: string, done: boolean): Promise<TickAnswer> {
-  const body = (await post('/api/tick', { ref, item, done })) as {
-    ok?: unknown
-    error?: unknown
-    standing?: unknown
-  }
-  if (body.ok === true && body.standing) return { ok: true, standing: body.standing as Standing }
   return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not work, and said nothing about why' }
 }

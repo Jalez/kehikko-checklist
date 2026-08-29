@@ -41,9 +41,9 @@ function door(rows: { seq: number; tool: string; refs: string[]; message: string
 const rows = (n: number) =>
   Array.from({ length: n }, (_, i) => ({
     seq: i + 1,
-    tool: 'mr_checklist',
+    tool: 'checklists',
     refs: [`gh#${i}`],
-    message: `an agent called mr_checklist on the checklist`,
+    message: `an agent called checklists on a checklist`,
     level: 'info',
   }))
 
@@ -86,13 +86,13 @@ describe('a page that has just loaded', () => {
     const stop = pump(host.request, () => 'modes-are-modules', 5)
     await settle()
     /* An agent calls the door now, with the page already up. */
-    visible.push({ seq: 3, tool: 'check_mr', refs: [], message: 'an agent called check_mr on the checklist', level: 'info' })
+    visible.push({ seq: 3, tool: 'check_item', refs: [], message: 'an agent called check_item on the checklist', level: 'info' })
     await settle()
     stop()
 
     expect(host.sent).toHaveLength(1)
     expect(host.sent[0]!.method).toBe('events.emit')
-    expect((host.sent[0]!.params.payload as { message: string }).message).toContain('check_mr')
+    expect((host.sent[0]!.params.payload as { message: string }).message).toContain('check_item')
   })
 })
 
@@ -103,7 +103,7 @@ describe('what is emitted', () => {
     const host = recorder()
     const stop = pump(host.request, () => 'modes-are-modules', 5)
     await settle()
-    visible.push({ seq: 1, tool: 'mr_checklist', refs: ['gh#41'], message: 'called', level: 'info' })
+    visible.push({ seq: 1, tool: 'checklists', refs: ['gh#41'], message: 'called', level: 'info' })
     await settle()
     stop()
 
@@ -124,7 +124,7 @@ describe('what is emitted', () => {
     const host = recorder()
     const stop = pump(host.request, () => null, 5)
     await settle()
-    visible.push({ seq: 1, tool: 'mr_checklist', refs: [], message: 'called', level: 'info' })
+    visible.push({ seq: 1, tool: 'checklists', refs: [], message: 'called', level: 'info' })
     await settle()
     stop()
 
@@ -147,7 +147,7 @@ describe('what is emitted', () => {
       5,
     )
     await settle()
-    visible.push({ seq: 1, tool: 'mr_checklist', refs: [], message: 'called', level: 'info' })
+    visible.push({ seq: 1, tool: 'checklists', refs: [], message: 'called', level: 'info' })
     await settle(60)
     stop()
 
@@ -166,7 +166,7 @@ describe('stopping', () => {
     const stop = pump(host.request, () => 'modes-are-modules', 5)
     await settle()
     stop()
-    visible.push({ seq: 1, tool: 'mr_checklist', refs: [], message: 'called', level: 'info' })
+    visible.push({ seq: 1, tool: 'checklists', refs: [], message: 'called', level: 'info' })
     await settle(40)
 
     expect(host.sent).toHaveLength(0)
