@@ -38,15 +38,15 @@ import { cn } from '@/lib/utils.ts'
  * the three words it was used for on the old list and would be catastrophic
  * here. An item's text is up to 400 characters of whatever somebody typed, and a
  * 400-character string in a nowrap box sets a min-content floor a thousand
- * pixels wide under a pane that is 220. A sibling module shipped exactly that
- * and the pane scrolled sideways for the rest of the day. So every piece of
+ * pixels wide under a container that is 220. A sibling module shipped exactly that
+ * and the container scrolled sideways for the rest of the day. So every piece of
  * authored text on this page is plain wrapped prose in a `min-w-0 flex-1`
  * column, and the only fixed-width things on a row are the mark and the buttons.
  *
  * ## The controls are buttons rather than a drag
  *
  * Reordering has to be expressible and has to survive a reload; it does not have
- * to be a drag. A drag target inside a 220-pixel pane inside somebody's iframe
+ * to be a drag. A drag target inside a 220-pixel container inside somebody's iframe
  * is a poor control on a touch device, unreachable from a keyboard without a
  * second implementation, and untestable in a headless browser — which would mean
  * the one thing about this feature that is easy to get quietly wrong is also the
@@ -150,7 +150,7 @@ export function ChecklistView({
           className="w-full resize-y rounded border bg-background px-1.5 py-1 text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button type="button" size="pane" disabled={busy || !typing.trim()} onClick={add}>
+          <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={add}>
             Add
           </Button>
           <span className="min-w-0 flex-1 text-[0.65rem] leading-4 text-muted-foreground">
@@ -161,7 +161,7 @@ export function ChecklistView({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t bg-muted/40 px-2 py-1.5">
-        <Button type="button" variant="outline" size="pane" onClick={onAnother} data-another>
+        <Button type="button" variant="outline" size="container" onClick={onAnother} data-another>
           Use another checklist
         </Button>
         {/*
@@ -194,7 +194,7 @@ export function ChecklistView({
         <Button
           type="button"
           variant="ghost"
-          size="pane"
+          size="container"
           disabled={busy}
           data-forget
           onClick={() => {
@@ -287,7 +287,7 @@ function TargetRow({
         <span className="min-w-0 flex-1 break-words text-[0.75rem] font-medium" data-target>
           {target ? targetName(target) : 'nothing yet'}
         </span>
-        <Button type="button" variant="ghost" size="pane" onClick={() => setOpen((was) => !was)} data-switch>
+        <Button type="button" variant="ghost" size="container" onClick={() => setOpen((was) => !was)} data-switch>
           {open ? 'done' : 'change'}
         </Button>
       </div>
@@ -308,7 +308,7 @@ function TargetRow({
                     key={key}
                     type="button"
                     variant={target && targetKey(target) === key ? 'default' : 'outline'}
-                    size="pane"
+                    size="container"
                     disabled={busy}
                     data-pick-target={key}
                     className="max-w-full"
@@ -351,7 +351,7 @@ function TargetRow({
               data-type-target
               className="min-w-0 flex-1 rounded border bg-background px-1.5 py-1 font-mono text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             />
-            <Button type="button" size="pane" disabled={busy || !typing.trim()} onClick={type}>
+            <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={type}>
               Hold
             </Button>
           </div>
@@ -407,7 +407,7 @@ function ItemRow({
         {done ? '✓' : ''}
       </span>
       {/* `min-w-0` and `break-words` together are what keep a 400-character item,
-          or an unbroken URL somebody pasted, inside a 220px pane. Never a Badge
+          or an unbroken URL somebody pasted, inside a 220px container. Never a Badge
           and never `truncate`: the text IS the item. */}
       <span
         className={cn(
@@ -452,7 +452,7 @@ function ItemRow({
           <Button
             type="button"
             variant="ghost"
-            size="pane"
+            size="container"
             className="px-1"
             disabled={busy || at === 0}
             title="Move up"
@@ -464,7 +464,7 @@ function ItemRow({
           <Button
             type="button"
             variant="ghost"
-            size="pane"
+            size="container"
             className="px-1"
             disabled={busy || last}
             title="Move down"
@@ -479,7 +479,7 @@ function ItemRow({
           <Button
             type="button"
             variant="ghost"
-            size="pane"
+            size="container"
             className="px-1"
             disabled={busy}
             title={arming ? 'Press again to take this off the list' : 'Take this off the list'}

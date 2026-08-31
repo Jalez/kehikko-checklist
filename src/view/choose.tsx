@@ -15,9 +15,9 @@ import { Button } from '@/components/ui/button.tsx'
  *
  * The alternative — open on the first list alphabetically, or the most recently
  * used anywhere — is worse than it looks. A checklist held against work is a
- * claim about what that work owes, and a pane that opened on somebody else's
+ * claim about what that work owes, and a container that opened on somebody else's
  * list would have a person ticking items off against a standard they never
- * chose. There is no correct guess here, so there is no guess: the pane says
+ * chose. There is no correct guess here, so there is no guess: the container says
  * what it has and waits.
  *
  * ## Nothing is in a Badge
@@ -25,9 +25,9 @@ import { Button } from '@/components/ui/button.tsx'
  * shadcn's `Badge` carries `whitespace-nowrap` in its base, which is right for
  * the two or three words it is used for and would be catastrophic here. A
  * checklist name is up to 120 characters of whatever somebody typed, and a long
- * string in a nowrap box sets a min-content floor far wider than the pane — a
+ * string in a nowrap box sets a min-content floor far wider than the container — a
  * sibling module shipped exactly that, with a 407-character string and an
- * 1187-pixel floor under a 220-pixel pane, and the pane scrolled sideways for
+ * 1187-pixel floor under a 220-pixel container, and the container scrolled sideways for
  * the rest of the day. So every name here is wrapped prose in a `min-w-0`
  * column, and the counts beside them are the only fixed-width things on a row.
  */
@@ -80,7 +80,7 @@ export function Choose({
               >
                 {/* `min-w-0` and `break-words` together are what keep a long name,
                     or an unbroken URL somebody pasted into one, inside a 220px
-                    pane. Never a Badge and never `truncate`: the name IS how
+                    container. Never a Badge and never `truncate`: the name IS how
                     somebody tells one list from another. */}
                 <span className="min-w-0 flex-1 break-words text-[0.8rem] leading-5">{list.name}</span>
                 <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
@@ -121,7 +121,7 @@ export function Choose({
           className="w-full resize-y rounded border bg-background px-1.5 py-1 text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         />
         <div className="flex items-center gap-1.5">
-          <Button type="button" size="pane" disabled={busy || !typing.trim()} onClick={create}>
+          <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={create}>
             Create
           </Button>
           <span className="min-w-0 flex-1 text-[0.65rem] leading-4 text-muted-foreground">
@@ -135,7 +135,7 @@ export function Choose({
 }
 
 /**
- * The screen for a pane that cannot tell which kehikko it is on.
+ * The screen for a container that cannot tell which kehikko it is on.
  *
  * `context.kehikko` is nullable and null is a REAL state: a host need not have
  * canvases at all, and a module's page is loaded once and shown on whichever one
@@ -161,7 +161,7 @@ export function Unplaced({ children }: { children: React.ReactNode }) {
         data-unplaced="yes"
         className="rounded border border-pending/40 bg-pending/5 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
       >
-        This pane cannot tell which kehikko it is on — the host did not say, which is allowed and happens when a host
+        This container cannot tell which kehikko it is on — the host did not say, which is allowed and happens when a host
         has no canvases. A checklist is remembered per kehikko, so there is nothing here to remember one against:
         pick a list and it holds until this page is reloaded, then you will be asked again.
       </p>

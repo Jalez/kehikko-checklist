@@ -33,9 +33,9 @@ its ticks when the paper changes underneath them.
 ## What it does with nothing else running
 
 - **The pick-or-create screen.** On first view in a kehikko there is no default
-  and no guess: the pane lists the checklists that exist and offers a box to
+  and no guess: the container lists the checklists that exist and offers a box to
   start one. A checklist held against work is a claim about what that work owes,
-  and a pane that opened on somebody else's list would have a person ticking
+  and a container that opened on somebody else's list would have a person ticking
   items off against a standard they never chose.
 - **The checklist, and only the checklist.** One list, its items, and the ticks
   for whichever target is in front. There is no directory of references and no
@@ -60,7 +60,7 @@ its ticks when the paper changes underneath them.
   other's lists, and there is no code path by which they could.
 
   **`projectPath` is nullable, and null is not a guess.** No project open, or a
-  host with no filesystem, and the pane says there is nowhere to read or write
+  host with no filesystem, and the container says there is nowhere to read or write
   and offers nothing to press. It does not fall back to this app's folder or to
   `process.cwd()`: a guessed location writes somebody's list into a repository
   they will never open, under a screen saying it was saved.
@@ -116,14 +116,14 @@ tick writes it as a question and unticks what they disagree with.
 ## Remembered per kehikko, by the host
 
 `roadmap.context` carries `kehikko: {id, name} | null` — the only thing that says
-where this pane is standing, because a module's page is loaded once and shown on
+where this container is standing, because a module's page is loaded once and shown on
 whichever canvas asks for it. The choice of checklist is remembered against that.
 
 The host's kept state (`state.set`) is keyed by MODULE and by nothing else, so
 the per-kehikko map lives inside the one opaque string it keeps for us; see
 `list/keep.ts`, which never throws and turns anything it cannot read into no
 memory at all. A **null kehikko is a real state** — a host need not have canvases
-— and it gets its own screen: the pane says it cannot tell where it is standing,
+— and it gets its own screen: the container says it cannot tell where it is standing,
 and then works anyway for the session.
 
 ## What was deleted, and why it was safe
@@ -231,6 +231,6 @@ sets of ticks, a tick made over MCP appearing with no reload, the migrated paper
 lists, and no horizontal overflow at 220/280/320/400/1200px in both themes),
 `ck-kehikko.mjs` (the memory: picked on one kehikko, surviving a reframe, asked
 again on a second kehikko, still its own on the first, and the null-kehikko
-screen) and `ck-realhost.mjs` (the same pane framed by the real host at 4181,
+screen) and `ck-realhost.mjs` (the same container framed by the real host at 4181,
 opening on the pick screen, the choice surviving a full host reload, and the
 epic's paper offered as the target).

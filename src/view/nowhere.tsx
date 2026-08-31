@@ -11,7 +11,7 @@
  *
  * The alternatives to saying so were both available and both worse:
  *
- * - **An empty pane.** "No project is open" and "this project has no checklists
+ * - **An empty container.** "No project is open" and "this project has no checklists
  *   yet" would look identical, and the second has a button on it. A reader who
  *   pressed Start a checklist and watched nothing happen would learn that this
  *   app is broken, when in fact it is waiting to be told where it is.
@@ -42,7 +42,7 @@ export function Nowhere({ unhosted, project }: { unhosted: boolean; project: str
           : project
             ? `This canvas says the project is called “${project}” but did not say where it is on this machine. `
               + 'Checklists are kept inside the project, in a .kehikot folder there, so a name alone is not enough to '
-              + 'open one — and this pane will not guess, because a guess writes somebody’s list into a folder they '
+              + 'open one — and this container will not guess, because a guess writes somebody’s list into a folder they '
               + 'will never look in.'
             : 'Nothing on this canvas says which project is open. Checklists are kept inside the project they are '
               + 'about — in a .kehikot folder there, as plain JSON, beside the work — so there is nothing to show and '

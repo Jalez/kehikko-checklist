@@ -84,7 +84,7 @@ describe('the pick screen', () => {
 
   test('draws a long name as wrapped prose, never in a nowrap badge', () => {
     /* The trap: shadcn's `Badge` carries `whitespace-nowrap`, and a long string in
-       one sets a min-content floor far wider than a 220px pane. A sibling module
+       one sets a min-content floor far wider than a 220px container. A sibling module
        shipped exactly that. */
     render(
       <Choose
@@ -242,7 +242,7 @@ describe('the checklist', () => {
   })
 })
 
-describe('a pane that cannot tell which kehikko it is on', () => {
+describe('a container that cannot tell which kehikko it is on', () => {
   test('says so, and works anyway for the session', () => {
     render(
       <Unplaced>
@@ -259,7 +259,7 @@ describe('a pane that cannot tell which kehikko it is on', () => {
 
 describe('the screen for "there is nowhere to keep a checklist"', () => {
   /* Not an error screen and not the pick screen. The distinction is the whole
-     reason this component exists: an empty pane would look exactly like a
+     reason this component exists: an empty container would look exactly like a
      project with no checklists yet, and that screen has a button on it that
      would do nothing. */
   test('says a project has to be open, and offers nothing to press', () => {
@@ -274,7 +274,7 @@ describe('the screen for "there is nowhere to keep a checklist"', () => {
     expect(screen.getByText(/Nothing has been lost and nothing has been written/)).toBeTruthy()
   })
 
-  /* A host that sends a NAME and no path has told this pane which project it is
+  /* A host that sends a NAME and no path has told this container which project it is
      looking at and given it nowhere to open. That is a different sentence from a
      host that has said nothing, and the reader can act on the difference. */
   test('names the project when the host gave a name but no folder', () => {

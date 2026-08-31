@@ -97,7 +97,7 @@ export type Target =
  * A host spells epic slugs; a tracker spells refs; somebody's `.tex` spells
  * labels. A positive grammar here — `[a-z0-9-]+` — would refuse a perfectly good
  * name the day any of those three widened, and the refusal would look like a bug
- * in this pane. So what is refused is the shapes that are not names at all:
+ * in this container. So what is refused is the shapes that are not names at all:
  * empty, over the bound, or carrying whitespace, a path separator or a control
  * character.
  *

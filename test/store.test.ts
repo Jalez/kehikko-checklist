@@ -76,7 +76,7 @@ describe('where a checklist lives', () => {
     }
   })
 
-  test('reading never creates the folder, so opening a pane leaves a repository as it was', () => {
+  test('reading never creates the folder, so opening a container leaves a repository as it was', () => {
     expect(checklists(project).lists).toEqual([])
     expect(existsSync(mine())).toBe(false)
     /* And the whole project is untouched, not merely the folder. */
@@ -95,7 +95,7 @@ describe('no project is an ordinary state, and never a guessed path', () => {
     const out = checklists(null)
     expect(out.lists).toEqual([])
     expect(out.nowhere).toBe(true)
-    /* Not an error. A pane that drew "no project open" in the same red box as
+    /* Not an error. A container that drew "no project open" in the same red box as
        "this file will not parse" would teach a reader that the ordinary state is
        a breakage. */
     expect(out.trouble).toBeNull()

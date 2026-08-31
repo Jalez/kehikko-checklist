@@ -39,7 +39,7 @@ import { pump } from './emit.ts'
  * answer arriving after the epic moved, because no answer is being waited for.
  *
  * What is left is what a context actually carries: which epic is open, which
- * kehikko this pane is standing on, what the canvas has picked out, and the
+ * kehikko this container is standing on, what the canvas has picked out, and the
  * theme. Plus one new thing, which is the reason `state:keep` is declared.
  *
  * ## The grace, and why there is still one
@@ -66,7 +66,7 @@ const GREETING_GRACE_MS = 700
  */
 export type Where = 'listening' | 'unhosted' | 'hosted'
 
-/** Which canvas this pane is standing on, as the host says it. */
+/** Which canvas this container is standing on, as the host says it. */
 export interface Kehikko {
   id: number
   name: string
@@ -96,14 +96,14 @@ export interface Roadmap {
    *
    * Read only to put in a sentence. The pair is what makes the "no project"
    * screen able to say something specific: a host that sends a name and no path
-   * has told this pane which project it is looking at and given it nowhere to
+   * has told this container which project it is looking at and given it nowhere to
    * open, which is a different sentence from a host that has said nothing at
    * all. Never used to locate anything — a name is not a path, and the protocol
    * says so at length on `projectPath`.
    */
   project: string | null
   /**
-   * The kehikko this pane is on, or null.
+   * The kehikko this container is on, or null.
    *
    * Null is a REAL state and not a missing one: a host need not have canvases at
    * all, and this module cannot tell where it is standing without being told. It
@@ -214,7 +214,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
        * protocol — means "there is no project", and so does `null`. Two spellings
        * of one state would eventually be compared two ways in two effects, and
        * the effect that got it wrong would fetch with an empty project and paint
-       * an empty pane that looked like a project with no checklists.
+       * an empty container that looked like a project with no checklists.
        *
        * A plain string comparison is enough to make this a no-op when nothing
        * moved, which matters because a context arrives after every selection

@@ -7,7 +7,7 @@ import { FORMAT, ID, MANIFEST } from '../manifest.ts'
  * The manifest is the only half of this program a host reads, and the whole of
  * the port from protocol 1 lives in it. So the things that changed are asserted
  * by name rather than by eye: a mode scope of `journey` and a `needs` block are
- * exactly what a host frames as INCOMPATIBLE, and the symptom is a pane that
+ * exactly what a host frames as INCOMPATIBLE, and the symptom is a container that
  * refuses to open with no error in this repository at all.
  */
 describe('the manifest', () => {
@@ -55,7 +55,7 @@ describe('the manifest', () => {
   test('emits the one format it emits, and consumes nothing', () => {
     expect(MANIFEST.extensions.emits).toEqual([FORMAT])
     /* A checklist that also showed other modules' announcements would be two
-       panels in one pane. */
+       panels in one container. */
     expect(MANIFEST.extensions.consumes).toEqual([])
   })
 

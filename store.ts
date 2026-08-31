@@ -169,7 +169,7 @@ const UPWARD = 64
  *   under it. The sentence is for a person and says what was refused and why.
  *
  * Reading creates nothing. `makeDir()` is what creates, and it is called on the
- * write path only, so opening a pane against a project never leaves a folder in
+ * write path only, so opening a container against a project never leaves a folder in
  * somebody's repository they did not ask for.
  */
 export function dataFile(projectPath: string | null | undefined): { path: string | null; trouble: string | null } {
@@ -230,7 +230,7 @@ export function oldPapersFile(projectPath: string | null | undefined): string | 
  * once.
  *
  * Called before a write and never before a read, so that looking at a project
- * never changes it. A person who opens a checklist pane against a repository and
+ * never changes it. A person who opens a checklist container against a repository and
  * picks nothing should find that repository exactly as they left it.
  */
 export function makeDir(projectPath: string | null | undefined): { dir: string | null; trouble: string | null } {
@@ -280,7 +280,7 @@ export function makeDir(projectPath: string | null | undefined): { dir: string |
  * deliberate: git honours a `.gitignore` in any directory, so a rule placed
  * beside the folder it is about does the job, and it does it without this app
  * editing a file several levels above the project it was pointed at. Somebody
- * who opens a checklist pane on one subdirectory has not invited a program to
+ * who opens a checklist container on one subdirectory has not invited a program to
  * touch the root of a repository that may hold thirty others.
  *
  * A project with no `.git` anywhere above it gets nothing at all. That is a

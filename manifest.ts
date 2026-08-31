@@ -27,7 +27,7 @@ export const FORMAT = 'roadmap.notifications@1'
  * ## What it declares, and the longer list of what it does not
  *
  * - **`state:keep` — declared, and it is the newest one.** The user asked that
- *   somebody looking at this pane for the first time IN A KEHIKKO pick an
+ *   somebody looking at this container for the first time IN A KEHIKKO pick an
  *   existing checklist or create one, and that the choice then stick. A module's
  *   page is loaded once and shown on whichever canvas asks for it, so it cannot
  *   tell where it is standing except by `context.kehikko` — and it has nowhere
@@ -54,7 +54,7 @@ export const FORMAT = 'roadmap.notifications@1'
  *   `context.selection`, and a picker of our own beside it would be a second
  *   answer to "what are we looking at" that could disagree with the first.
  * - **`selection:set` — not declared.** This app REACTS to a selection; it does
- *   not make one. Declaring it would be asking to change what every other pane
+ *   not make one. Declaring it would be asking to change what every other container
  *   on the canvas is looking at, in a module whose whole job is to answer a
  *   question about what is already picked.
  * - **`view:navigate` — not declared.** The checklist is a place a reader is
@@ -67,7 +67,7 @@ export const FORMAT = 'roadmap.notifications@1'
  *   that could. That was true when it derived items from a host's reading and it
  *   is more obviously true now that it derives nothing.
  * - **`events:emit` — declared, and `emits` names one format.** What is
- *   announced is NOT a tick. A tick is a thing a person does in this pane, in
+ *   announced is NOT a tick. A tick is a thing a person does in this container, in
  *   front of them, and announcing it to a panel two inches away is telling
  *   somebody what they just did. What is announced is an agent coming through
  *   the MCP DOOR — the one thing that happens to this app that nobody watching
@@ -75,7 +75,7 @@ export const FORMAT = 'roadmap.notifications@1'
  *   for what you would otherwise miss.
  *
  *   `consumes` stays empty. This app shows a checklist; a checklist that also
- *   showed other modules' announcements would be two panels in one pane.
+ *   showed other modules' announcements would be two panels in one container.
  *
  * And per the protocol's own README: a declaration is not a request and is not
  * answered. The host refuses whatever it likes at every call whatever is written
@@ -86,7 +86,7 @@ export const FORMAT = 'roadmap.notifications@1'
  * ## `prompt: false`, deliberately, and the reasoning survived the rewrite
  *
  * The protocol offers a module a prompt: a paragraph a person writes on the
- * canvas, aimed at one pane, composed by the host and delivered in every
+ * canvas, aimed at one container, composed by the host and delivered in every
  * context. Declaring it makes a host OFFER one. So the question is not "could we
  * find a use" but "is there work here that has to be described before it can be
  * done", and the answer is still no.

@@ -32,7 +32,7 @@
  *
  * So the map lives inside the one string the host keeps, keyed by kehikko id.
  * `roadmap.context` carries `kehikko: {id, name} | null`, which is the only
- * thing that says where this pane is standing — a module's page is loaded once
+ * thing that says where this container is standing — a module's page is loaded once
  * and shown on whichever canvas asks for it, so it genuinely cannot tell
  * otherwise.
  *

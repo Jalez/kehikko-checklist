@@ -45,7 +45,7 @@ function file(): string {
  * Put bytes where the store will look for them.
  *
  * The folder has to be made first, because reading never makes it — that is the
- * rule `store.ts` keeps so that opening a pane against a repository does not
+ * rule `store.ts` keeps so that opening a container against a repository does not
  * leave a directory in it. A test writing the file by hand is standing in for a
  * project that already has one.
  */

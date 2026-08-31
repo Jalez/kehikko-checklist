@@ -76,7 +76,7 @@ export type { Held, Summary, Target }
  *
  * Because the server cannot know it. This app's store moved into the project —
  * `<projectPath>/.kehikot/checklist/checklists.json` — and the only thing that says which
- * project a pane is showing is `roadmap.context.projectPath`, which arrives at
+ * project a container is showing is `roadmap.context.projectPath`, which arrives at
  * THIS page over the frame. The server has no host, no canvas and no way to ask;
  * a server that guessed would be answering about some other folder.
  *

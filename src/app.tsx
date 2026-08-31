@@ -22,26 +22,26 @@ import { Nowhere } from '@/view/nowhere.tsx'
  * > checklist or create their own checklist."
  *
  * So there are exactly two screens. Until a checklist has been picked for this
- * kehikko, the pane is the pick-or-create screen. After that it is the
+ * kehikko, the container is the pick-or-create screen. After that it is the
  * checklist, held against one target, and nothing else — no tab row, no
  * directory of references, no second kind of list. The tab row that used to be
- * here existed because there were three things this pane could be showing; there
+ * here existed because there were three things this container could be showing; there
  * is one now, and a tab row over one thing is furniture.
  *
  * ## The choice is remembered per kehikko, and the host holds it
  *
  * `roadmap.context` carries `kehikko: {id, name} | null` — the only thing that
- * says where this pane is standing, since a module's page is loaded once and
+ * says where this container is standing, since a module's page is loaded once and
  * shown on whichever canvas asks for it. The host's kept state is keyed by
  * MODULE and by nothing else, so the per-kehikko map lives inside the one string
  * it keeps for us. See `list/keep.ts`.
  *
  * A null kehikko is a real state and gets `Unplaced` wrapped around the same
- * screens: the pane says it cannot tell where it is, and then works anyway for
+ * screens: the container says it cannot tell where it is, and then works anyway for
  * the session. Refusing to work would make a usable checklist unreachable
  * because of a field a host declined to fill in.
  *
- * ## A null projectPath is a real state too, and this one DOES stop the pane
+ * ## A null projectPath is a real state too, and this one DOES stop the container
  *
  * The two nullable facts are not the same and are not treated the same, which is
  * worth saying out loud because the pair looks symmetrical.
@@ -52,7 +52,7 @@ import { Nowhere } from '@/view/nowhere.tsx'
  * `projectPath` decides where the checklists ARE. This app's store moved into
  * the project (`<projectPath>/.kehikot/checklist/checklists.json`), so without one there is
  * no file to read and nowhere to write; every list on screen would have to be
- * invented and every press would have to go somewhere guessed. So the pane says
+ * invented and every press would have to go somewhere guessed. So the container says
  * so and offers nothing to press — see `src/view/nowhere.tsx`, and `store.ts`
  * for why a guessed location is worse than an absent one.
  *
@@ -67,10 +67,10 @@ import { Nowhere } from '@/view/nowhere.tsx'
  *
  * ## Identity is printed only when nothing is framing this page
  *
- * A host prints the module's name in the pane header and hangs the manifest's
+ * A host prints the module's name in the container header and hangs the manifest's
  * `summary` off it as a tooltip. A page that also printed "Checklist" at the top
  * of itself would be saying the name twice and spending a fixed strip of a
- * 340-pixel-tall pane on the repetition. Unframed there is no pane header and
+ * 340-pixel-tall container on the repetition. Unframed there is no container header and
  * nothing else would ever say what this program is, so the heading stays. The
  * test is `window.parent !== window`, which is answerable before first paint and
  * therefore does not blink.
@@ -106,7 +106,7 @@ export function App() {
    * A separate state from `trouble` because it is not a refusal of anything
    * somebody just pressed — it is the store having moved underneath a
    * remembered choice, which happens when a list is removed on another machine
-   * or in another pane. Held so the pick screen can say what happened rather
+   * or in another container. Held so the pick screen can say what happened rather
    * than opening as though nothing had.
    */
   const [gone, setGone] = useState<string | null>(null)
@@ -117,22 +117,22 @@ export function App() {
    * The pump in `emit.ts` is already polling for exactly that, in order to
    * announce it to a host, so this page learns of it on the same two-second read
    * rather than opening a second one — see the essay there. What it is FOR is
-   * the case that makes this module worth having: somebody watching this pane
+   * the case that makes this module worth having: somebody watching this container
    * while an agent ticks items off should see the ticks land, not a screen that
    * was right when they loaded it.
    */
   const [doorbell, setDoorbell] = useState(0)
 
   const onGoto = useCallback<GotoHandler>((message, answer) => {
-    /* A `goto` may name an epic, a step, or a reference. This pane draws one
+    /* A `goto` may name an epic, a step, or a reference. This container draws one
        checklist against one target, so the honest answer to all three is that
        there is nothing here to be walked to — saying so quickly is what gets the
        reader the host's fallback link instead of a twelve-second wait. */
     answer(
       false,
       message.ref
-        ? 'This pane shows one checklist held against one target, so there is nothing here to walk to by reference.'
-        : 'This pane shows a checklist, so there is nothing here to walk to by epic or step.',
+        ? 'This container shows one checklist held against one target, so there is nothing here to walk to by reference.'
+        : 'This container shows a checklist, so there is nothing here to walk to by epic or step.',
     )
   }, [])
 
@@ -255,8 +255,8 @@ export function App() {
    *
    * A checklist that is not there any more is not an error to be printed and
    * left. The remembered choice is dropped, the pick screen comes back, and it
-   * says what happened — because a pane stuck on a sentence about a list that
-   * was removed on another machine is a pane a reader has no way out of.
+   * says what happened — because a container stuck on a sentence about a list that
+   * was removed on another machine is a container a reader has no way out of.
    */
   useEffect(() => {
     if (!chosen) {

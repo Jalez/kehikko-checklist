@@ -366,7 +366,7 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
  *   parse. The sentence says which.
  *
  * `nowhere` deliberately does NOT come back as an empty store with no trouble,
- * even though that would draw a blank pane and look perfectly fine. An empty
+ * even though that would draw a blank container and look perfectly fine. An empty
  * store is a thing a later write may flatten a real file with; "there is nowhere
  * to write" has to be refused rather than written, and this one field is what
  * keeps those two apart at every call site below.
@@ -410,7 +410,7 @@ function read(projectPath: string | null | undefined): Opened {
  *
  * `makeDir` is called HERE and nowhere on the read path, which is what stops
  * this app leaving a `.kehikot/` in every repository somebody happens to open a
- * checklist pane against. The folder appears on the first save, which is the
+ * checklist container against. The folder appears on the first save, which is the
  * first moment this project actually has a checklist to hold — and that is also
  * the one moment the project's `.gitignore` is told about it.
  *
@@ -434,7 +434,7 @@ function save(store: Store, projectPath: string | null | undefined): string | nu
  * What a write is told when nothing said which project this is.
  *
  * Written once and shared by every refusal below, because it is the same fact
- * every time and because a person who sees it in the pane and an agent who reads
+ * every time and because a person who sees it in the container and an agent who reads
  * it out of a tool call should be reading the same sentence. It says where a
  * checklist lives, which is the part that makes the refusal actionable rather
  * than merely true.
@@ -452,7 +452,7 @@ const NOWHERE =
  * A checklist's name.
  *
  * Long enough to say what the list is for, short enough that it is a name rather
- * than the first item. Names are drawn in a pane 220 pixels wide and wrapped
+ * than the first item. Names are drawn in a container 220 pixels wide and wrapped
  * rather than clipped, so a long one costs lines rather than hiding itself.
  */
 export const MAX_NAME = 120
@@ -512,7 +512,7 @@ export interface Store_ {
    * True when nothing said which project this is, so there is nowhere to look.
    *
    * Beside `trouble` rather than folded into it, because it is not a fault and
-   * must not be drawn as one. A pane that printed "no project open" in the same
+   * must not be drawn as one. A container that printed "no project open" in the same
    * red box as "this file will not parse" would be teaching a reader that the
    * ordinary state is a breakage.
    */
