@@ -6,11 +6,26 @@
 #   - No arguments. A registration names a directory and one script inside it,
 #     never a command line: a string a host handed to a shell would make a
 #     registration file a place to write shell.
-#   - $PORT from the environment. Whoever starts this chose the port; a script
-#     that picked its own would answer somewhere nobody is looking. 7860 is the
-#     default and it is the number in the registration too — 7820, 7830, 7840 and
-#     7850 belong to References, Atlas, Journeys and the orchestrator on this
-#     machine.
+#   - No port on this command line, and no `--strictPort`. Both used to be here,
+#     and 7860 was written twice — once at the bottom of this file and once in
+#     `register.ts` — so moving this app meant two edits and then remembering
+#     that the file in `~/.roadmap/modules` still named the old address. It is
+#     said once now, beside the id, as `PREFERRED_PORT` in `manifest.ts`, and
+#     `serves()` in `vite.config.ts` acts on it.
+#
+#     $PORT is still honoured, by the plugin instead of by this line, and for
+#     exactly the reason this bullet always gave: whoever starts this chose the
+#     port, and an app that picked its own would answer somewhere nobody is
+#     looking. A host that starts this passes the port from the registration,
+#     which is the address it is about to go and look at.
+#
+#     What `--strictPort` bought was an app that DIED on a taken port —
+#     `Error: Port 7860 is already in use`, exit 1 — rather than one answering
+#     quietly somewhere else. That was the only honest option while nothing
+#     handled a collision. `serves()` handles it: a free 7860 is taken in
+#     silence, this module already answering there ends the start cleanly instead
+#     of making a second copy, and anything else is a loud move with the
+#     registration rewritten to the port actually bound.
 #   - `exec`, and the foreground. A script that forks and returns leaves whoever
 #     started it holding a pid that stops nothing, and Stop is only ever offered
 #     for what a host started.
@@ -34,9 +49,13 @@
 # a default would be handing this app a place to write that nobody chose. See
 # `store.ts`: a silently wrong location is worse than a loud absent one.
 #
-# It does NOT register. Registration is a deliberate act by a person — see
-# `register.ts` — and a start script that quietly wrote into somebody's home
-# directory would be doing it on their behalf.
+# It does NOT register a module that had none. Registration is a deliberate act
+# by a person — see `register.ts` — and a start script that quietly wrote into
+# somebody's home directory would be doing it on their behalf. That stands. What
+# the Vite plugin writes on every start is this module's ADDRESS, which is a
+# different sentence: the person decided to be framed, they did not decide to be
+# framed at 7860 in particular, and a registration still naming a port this app
+# has drifted off is one the host sweeps to find nothing.
 #
 # ## There is no build here, and no `dist`
 #
@@ -63,4 +82,4 @@ if [ ! -d node_modules ]; then
   bun install >&2
 fi
 
-exec bunx vite --host 127.0.0.1 --port "${PORT:-7860}" --strictPort
+exec bunx vite

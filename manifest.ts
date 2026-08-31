@@ -4,6 +4,31 @@ export const ID = 'roadmap.checklist'
 export const VERSION = '2.0.0'
 
 /**
+ * The port this app would rather have, said once and beside the id it belongs
+ * with.
+ *
+ * A constant here for the same reason `EXTENSION` below is one, and against the
+ * same failure: 7860 used to be a literal in two places — `--port "${PORT:-7860}"`
+ * at the bottom of `run.sh` and `Number(process.env.PORT ?? 7860)` in
+ * `register.ts` — with nothing keeping them in step, and a third copy sitting in
+ * `~/.roadmap/modules` from whenever somebody last ran the second. Moving this
+ * app was two edits and a thing to remember, and getting it wrong produced the
+ * quiet failure again: a host talking to an address where nobody is.
+ *
+ * It lives in this file rather than in `vite.config.ts` because `register.ts`
+ * needs it too, and importing a Vite config to read one number would build the
+ * whole plugin list and mint this process's write ticket on the way to finding
+ * out what to write down.
+ *
+ * It is a PREFERENCE and not a promise. 7820 through 7960 belong to the other
+ * modules on this machine, and if something else holds 7860 when this starts,
+ * `serves()` moves to the next free port and rewrites the registration to match
+ * — see `roadmap-module-protocol/serve`. A host reads the registry, so the
+ * registry is what has to be true; this number is only where to start looking.
+ */
+export const PREFERRED_PORT = 7860
+
+/**
  * The extension this app emits into, named once.
  *
  * A constant rather than a string literal in two places, because the two places

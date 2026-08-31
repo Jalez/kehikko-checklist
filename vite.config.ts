@@ -4,9 +4,11 @@ import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { WELL_KNOWN } from 'roadmap-module-protocol'
+import { serves } from 'roadmap-module-protocol/serve'
 import { defineConfig, type Plugin } from 'vite'
 
 import { MANIFEST, TICKET, answer } from './doors.ts'
+import { ID, PREFERRED_PORT } from './manifest.ts'
 import { page } from './page/document.ts'
 
 /**
@@ -203,6 +205,25 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown> |
  * The `@` alias below is a different thing entirely — it points inside this
  * repository, at `src`, and is what shadcn's generated components import
  * through.
+ *
+ * ## No `server.port` either, because `serves()` decides it
+ *
+ * 7860 used to be written on the last line of `run.sh` and again in
+ * `register.ts`, and true in neither of them the moment something else had the
+ * port: `--strictPort` meant this app printed `Error: Port 7860 is already in
+ * use` and exited 1, so a program with no interest in checklists could stop the
+ * checklists from opening. The number is `PREFERRED_PORT` in `manifest.ts` now,
+ * said once beside the id and read from there by this file and `register.ts`
+ * both.
+ *
+ * `serves()` is FIRST in the plugin list because it has to claim a port before
+ * anything else in this config asks for one. A free 7860 is taken in silence, so
+ * somebody who types the address they remember still gets their module; this
+ * module already answering there ends the start cleanly rather than putting a
+ * second writer on one `checklists.json`; and anything else is a loud move to
+ * the next free port with the registration rewritten to whatever the server
+ * ACTUALLY bound, read off `httpServer.address()` after `listening` rather than
+ * off what was asked for.
  */
 export default defineConfig({
   /**
@@ -213,7 +234,7 @@ export default defineConfig({
    * fetched.
    */
   base: './',
-  plugins: [doors(), react(), tailwindcss()],
+  plugins: [serves({ id: ID, prefer: PREFERRED_PORT }), doors(), react(), tailwindcss()],
   resolve: { alias: { '@': resolve(import.meta.dirname, 'src') } },
   build: { outDir: 'dist', emptyOutDir: true },
 })
