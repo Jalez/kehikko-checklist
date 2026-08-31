@@ -224,6 +224,35 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     about: 'Checklists somebody wrote, and ticking one off against a specific issue, change or paper.',
   },
   extensions: { emits: [FORMAT], consumes: [] },
+  /**
+   * ## `reacts: ['selection']`, which is a description and not a request
+   *
+   * The selection decides what a tick can be filed against. `src/app.tsx`
+   * builds its candidate targets out of the selected refs and drops a locally
+   * picked target when the canvas selection moves under it, which is a
+   * reaction rather than a reading: the page is different afterwards.
+   *
+   * The field is new, and the reason to fill it in is a person browsing the
+   * module registry. Until now a host could say who SENDS — References declares
+   * `selection:set` — and could not say who RECEIVES, because every framed
+   * module is handed the whole context and receiving one distinguished nobody.
+   * So a registry could draw half of every relationship. This is the other
+   * half, written down.
+   *
+   * It changes nothing about what this app is given. The selection arrives in
+   * `roadmap.context` whether or not this line exists, and if a host ever
+   * started withholding the context from modules that had not declared an
+   * interest, that host would have turned a line of documentation into a
+   * permission over something it was already broadcasting. Nothing here is
+   * asked for and nothing is granted; see the essay on `reacts` in the
+   * protocol's `manifest.ts`.
+   *
+   * `passage` is deliberately not here. A checklist is filed against a ref, and a byte
+   * range in a document is not one. Ticking a word here that the code does
+   * not act on would put a name in somebody's registry that is not true of
+   * this program.
+   */
+  reacts: ['selection'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['events:emit', 'state:keep'],
