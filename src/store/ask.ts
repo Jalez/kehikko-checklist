@@ -69,13 +69,48 @@ async function post(path: string, body: unknown): Promise<unknown> {
 
 export type { Held, Summary, Target }
 
-/** Every checklist that exists. The first thing the page asks for, and the only unconditional one. */
-export async function everyChecklist(): Promise<{ lists: Summary[]; trouble: string | null }> {
-  const response = await fetch('/api/checklists')
-  const body = (await response.json()) as { lists?: unknown; trouble?: unknown }
+/**
+ * Which project every request below is about.
+ *
+ * ## Why it is on the wire at all, when the server is on this machine too
+ *
+ * Because the server cannot know it. This app's store moved into the project —
+ * `<projectPath>/.kehikot/checklist/checklists.json` — and the only thing that says which
+ * project a pane is showing is `roadmap.context.projectPath`, which arrives at
+ * THIS page over the frame. The server has no host, no canvas and no way to ask;
+ * a server that guessed would be answering about some other folder.
+ *
+ * So it rides on every request, read and write alike, and a request without one
+ * is answered with a sentence rather than with somebody else's lists.
+ */
+function withProject(path: string, projectPath: string | null): string {
+  if (!projectPath) return path
+  return `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(projectPath)}`
+}
+
+/**
+ * What comes back when there is no project to read from.
+ *
+ * Carried as its own field rather than as an empty list, all the way from
+ * `list/checklists.ts`, because "this project has no checklists" and "nothing
+ * said which project" draw two different screens and send a reader to two
+ * different places. Flattening them is the failure this app argues against
+ * everywhere else.
+ */
+export interface Everything {
+  lists: Summary[]
+  trouble: string | null
+  nowhere: boolean
+}
+
+/** Every checklist in the open project. The first thing the page asks for. */
+export async function everyChecklist(projectPath: string | null): Promise<Everything> {
+  const response = await fetch(withProject('/api/checklists', projectPath))
+  const body = (await response.json()) as { lists?: unknown; trouble?: unknown; nowhere?: unknown }
   return {
     lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
+    nowhere: body.nowhere === true,
   }
 }
 
@@ -105,8 +140,12 @@ export interface Opened {
  * checklist is not here" are two different answers with two different remedies,
  * and this is a module whose whole argument is that those do not get flattened.
  */
-export async function openChecklist(id: string, target: Target | null): Promise<Opened | { error: string }> {
-  const response = await fetch(`/api/checklist?${query(id, target)}`)
+export async function openChecklist(
+  id: string,
+  target: Target | null,
+  projectPath: string | null,
+): Promise<Opened | { error: string }> {
+  const response = await fetch(withProject(`/api/checklist?${query(id, target)}`, projectPath))
   const body = (await response.json()) as { ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }
   if (body.ok === true && body.held) {
     return {
@@ -137,7 +176,7 @@ export type Answer = { ok: true; said: string; id: string; lists: Summary[]; hel
  * the ticks, and a page that reordered itself optimistically would show an order
  * the file does not have the moment a write is refused.
  */
-export async function edit(change: Edit): Promise<Answer> {
+export async function edit(change: Edit, projectPath: string | null): Promise<Answer> {
   /* The target is flattened into the body here rather than being sent as a
      nested object, because the server reads a ref, an epic and a section as
      three bounded strings — the same three the MCP door reads. One spelling of a
@@ -149,7 +188,7 @@ export async function edit(change: Edit): Promise<Answer> {
         ? { ref: change.target.ref }
         : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
       : {}
-  const body = (await post('/api/checklist', { ...change, ...target })) as {
+  const body = (await post('/api/checklist', { ...change, ...target, project: projectPath })) as {
     ok?: unknown
     said?: unknown
     id?: unknown

@@ -14,11 +14,25 @@
 #   - `exec`, and the foreground. A script that forks and returns leaves whoever
 #     started it holding a pid that stops nothing, and Stop is only ever offered
 #     for what a host started.
-#   - `cd` to this script's own directory, so this app's store is beside the
-#     program however it was invoked. That is not a detail here: `data/` holds
-#     every checklist somebody wrote and every tick filed on one, and the whole claim
-#     of the module is that the directory can be copied to another machine and
-#     run.
+#   - `cd` to this script's own directory, so `bunx vite` finds this app's own
+#     config and its `node_modules` however the script was invoked.
+#
+# ## There is no store variable here any more, and that is the change
+#
+# There used to be `export CHECKLIST_DATA="${CHECKLIST_DATA:-$PWD/data}"` with a
+# paragraph under it explaining that Vite bundles its own config, so nothing in
+# that module graph can be trusted to know where it lives, so the directory had
+# to be named in the one place a bundler cannot move.
+#
+# The paragraph was right and the variable is gone, because the store is no
+# longer beside this program at all: it is
+# `<projectPath>/.kehikot/checklist/checklists.json`,
+# and `projectPath` arrives in `roadmap.context` from whichever host framed the
+# page. There is therefore nothing here for a launcher to configure and nothing
+# for a bundler to get wrong — a checklist belongs to the project it is about,
+# this script cannot know which project that will be, and a script that exported
+# a default would be handing this app a place to write that nobody chose. See
+# `store.ts`: a silently wrong location is worse than a loud absent one.
 #
 # It does NOT register. Registration is a deliberate act by a person — see
 # `register.ts` — and a start script that quietly wrote into somebody's home
@@ -43,15 +57,6 @@
 # cross-origin, which is to say not at all.
 set -euo pipefail
 cd "$(dirname "$0")"
-
-# Said out loud rather than left to a default, and the reason is in `store.ts`:
-# Vite bundles its own config into `node_modules/.vite-temp/`, so anything in
-# that graph asking where it lives gets the wrong answer — or, under Node,
-# `undefined`. Naming the directory here is the one place that cannot be moved by
-# a bundler, and it is `$PWD` because of the `cd` above, so the store is beside
-# this script however the script was invoked. Somebody who has already set the
-# variable keeps their own answer.
-export CHECKLIST_DATA="${CHECKLIST_DATA:-$PWD/data}"
 
 if [ ! -d node_modules ]; then
   echo "installing…" >&2

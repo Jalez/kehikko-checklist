@@ -57,11 +57,67 @@ import { MAX_TARGET_PART, readTarget, targetKey, targetName, type Target } from 
 
 const MAX_FROM = 80
 
+/**
+ * As long as a project path may be: the protocol package's own `LIMITS.PATH`.
+ *
+ * Bounded here as well as in `store.ts`, and the two are not redundant. This one
+ * stops an unbounded string being carried around and interpolated into a refusal
+ * sentence somebody is going to read; that one decides whether the path names a
+ * folder this app will write under. A string has a length before it has a
+ * meaning.
+ */
+const MAX_PROJECT = 4096
+
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
   if (typeof value !== 'string') return ''
   return value.trim().slice(0, max)
 }
+
+/**
+ * Which project a request is about, bounded — or null, meaning none was named.
+ *
+ * ## Why every door takes one, and why none of them defaults
+ *
+ * This app's store moved into the project: `<projectPath>/.kehikot/checklist/checklists.json`.
+ * So "which checklists" is not answerable without "whose", and the string that
+ * answers it arrives on the request. The page reads it from
+ * `roadmap.context.projectPath` and passes it on; an agent over MCP says it in
+ * the `project` argument and is refused without one.
+ *
+ * The refusal is the part worth defending, because a default was available and
+ * every default on offer is wrong. The argument is made at length in the
+ * Learning module's `quiz/projects.ts` and it holds here unchanged:
+ *
+ * - `process.cwd()` is THIS module's own directory, not the caller's. It would
+ *   file every checklist under `/Users/…/kehikko-checklist`, where no page would
+ *   ever show one and no project would ever carry one.
+ * - "The only project that exists, if there is exactly one" is correct until the
+ *   day there are two, at which point lists silently start landing in whichever
+ *   was seen first.
+ * - Nothing at all — one store beside the program — is the arrangement being
+ *   removed, and it is precisely what let one project's checklists sit on screen
+ *   while somebody was working in another.
+ *
+ * So it is refused, in a sentence saying what to pass. A refusal an agent can
+ * act on costs one round trip; a wrong default costs somebody their work in a
+ * folder they will never open.
+ *
+ * The path is NOT resolved here. `store.ts` does that, with `realpathSync`, and
+ * fences what it resolves to inside the project it claims to be inside —
+ * because this is a string off a request that is about to become a directory.
+ */
+function project(value: unknown): string | null {
+  const raw = str(value, MAX_PROJECT)
+  return raw || null
+}
+
+/** What a caller is told when it did not say which project. Written once, read by every door. */
+const NO_PROJECT =
+  'this needs project: the absolute path of the project folder these checklists belong to, e.g. '
+  + '"/Users/you/Projects/thing". Checklists live inside the project they are about, in its .kehikot/checklist '
+  + 'folder, so there is no such thing as "the checklists" without one — and this app will not guess at which '
+  + 'project was meant, because a guess writes somebody’s list into a repository they will never look in.'
 
 /**
  * The ticket a write has to carry.
@@ -116,6 +172,25 @@ const AGENT = process.env.CHECKLIST_AGENT ?? process.env.ROADMAP_AGENT ?? 'an ag
  * `epic` without `ref` is unambiguous, and a typo in a section id produces a new
  * section rather than a new kind of thing.
  */
+/**
+ * How every tool says which project it means, written once for the same reason
+ * the target properties are.
+ *
+ * On every tool and required by every tool, including the read. A read that
+ * defaulted would answer with some other project's lists, which is worse than
+ * refusing: an agent shown the wrong checklist has no way to tell, and will tick
+ * items off it.
+ */
+const PROJECT_PROPERTY = {
+  project: {
+    type: 'string',
+    description:
+      'The absolute path of the project folder these checklists belong to, e.g. "/Users/you/Projects/thing". '
+      + 'Checklists live inside the project, in its .kehikot/checklist folder, so every call needs to say which '
+      + 'project. This is the same path the host shows for the open project.',
+  },
+} as const
+
 const TARGET_PROPERTIES = {
   ref: {
     type: 'string',
@@ -173,9 +248,11 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id. Omit to list every checklist.' },
           ...TARGET_PROPERTIES,
         },
+        required: ['project'],
       },
     },
     {
@@ -188,10 +265,11 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           name: { type: 'string', description: `What this list is for. Up to ${MAX_NAME} characters.` },
           agent: { type: 'string', description: 'Your own name, so the list says who started it' },
         },
-        required: ['name'],
+        required: ['project', 'name'],
       },
     },
     {
@@ -205,11 +283,12 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
           text: { type: 'string', description: `What is owed. Up to ${MAX_TEXT} characters.` },
           agent: { type: 'string', description: 'Your own name, so the list says who wrote the line' },
         },
-        required: ['checklist', 'text'],
+        required: ['project', 'checklist', 'text'],
       },
     },
     {
@@ -224,6 +303,7 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id, as the checklists tool prints it beside the line' },
           ...TARGET_PROPERTIES,
@@ -231,7 +311,7 @@ function tools() {
           done: { type: 'boolean', description: 'Defaults to true' },
           agent: { type: 'string' },
         },
-        required: ['checklist', 'item'],
+        required: ['project', 'checklist', 'item'],
       },
     },
     {
@@ -242,12 +322,13 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id' },
           text: { type: 'string', description: `The new wording. Up to ${MAX_TEXT} characters.` },
           agent: { type: 'string' },
         },
-        required: ['checklist', 'item', 'text'],
+        required: ['project', 'checklist', 'item', 'text'],
       },
     },
     {
@@ -259,12 +340,13 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id' },
           position: { type: 'integer', description: 'Where it should end up, counting from 1' },
           agent: { type: 'string' },
         },
-        required: ['checklist', 'item', 'position'],
+        required: ['project', 'checklist', 'item', 'position'],
       },
     },
     {
@@ -276,11 +358,12 @@ function tools() {
       inputSchema: {
         type: 'object',
         properties: {
+          ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id' },
           agent: { type: 'string' },
         },
-        required: ['checklist', 'item'],
+        required: ['project', 'checklist', 'item'],
       },
     },
   ]
@@ -290,18 +373,19 @@ function tools() {
  * The answers, in words
  * ------------------------------------------------------------------ */
 
-/** Every checklist, for an agent that was not told which one. */
-function listsText(): string {
-  const { lists, trouble } = checklists()
+/** Every checklist in one project, for an agent that was not told which one. */
+function listsText(where: string): string {
+  const { lists, trouble } = checklists(where)
   if (trouble) return trouble
   if (!lists.length) {
     return (
-      'There are no checklists here yet. Nothing is wrong: this app ships no lists at all, so an empty store means '
-      + 'nobody has made one. create_checklist starts the first, and then add_checklist_item puts lines on it.'
+      `There are no checklists in ${where} yet. Nothing is wrong: this app ships no lists at all, and a project `
+      + 'that has never had one has no .kehikot/checklist/checklists.json in it. create_checklist starts the '
+      + 'first, and then add_checklist_item puts lines on it.'
     )
   }
   return [
-    'Checklists here:',
+    `Checklists in ${where}:`,
     ...lists.map(
       (list) =>
         `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, held against `
@@ -313,13 +397,14 @@ function listsText(): string {
 }
 
 /** One checklist, with the ticks for a target where one was named. */
-function listText(id: string, target: Target | null): string {
-  const { held: on, trouble } = held(id, target)
+function listText(id: string, target: Target | null, where: string): string {
+  const { held: on, trouble } = held(id, target, where)
   if (trouble) return trouble
   if (!on) {
     return (
-      `There is no checklist "${id}" here. Checklists are addressed by the id the checklists tool prints beside each `
-      + 'name. Call checklists with no arguments to see what exists.'
+      `There is no checklist "${id}" in ${where}. Checklists are addressed by the id the checklists tool prints `
+      + 'beside each name, and they belong to one project — a list made in another project is not here. Call '
+      + 'checklists with just the project to see what exists.'
     )
   }
   const head = target
@@ -333,7 +418,7 @@ function listText(id: string, target: Target | null): string {
     const who = done ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''})` : ''
     return `${at + 1}. [${done ? 'x' : ' '}] ${row.item.id} — ${row.item.text}${who}`
   })
-  const others = targetsOf(id).filter((row) => !target || targetKey(row.target) !== targetKey(target))
+  const others = targetsOf(id, where).filter((row) => !target || targetKey(row.target) !== targetKey(target))
   const tail = others.length
     ? `\n\nAlso held against: ${others.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
     : ''
@@ -349,7 +434,7 @@ function listText(id: string, target: Target | null): string {
  * so the page and this door cannot end up telling somebody two different things
  * about the same press.
  */
-function call(name: string, args: Record<string, unknown>): string {
+function call(name: string, args: Record<string, unknown>, where: string): string {
   const by = str(args.agent, MAX_FROM) || AGENT
 
   if (name === 'create_checklist') {
@@ -360,9 +445,9 @@ function call(name: string, args: Record<string, unknown>): string {
         + 'only thing that tells the next person what this one is.',
       )
     }
-    const out = change({ op: 'create', name: listName, by, viaMcp: true })
+    const out = change({ op: 'create', name: listName, by, viaMcp: true }, where)
     if (!out.ok) throw new Error(out.error)
-    return `${out.said}.\n\n${listText(out.id, null)}`
+    return `${out.said}.\n\n${listText(out.id, null, where)}`
   }
 
   const id = str(args.checklist, MAX_ID)
@@ -436,9 +521,9 @@ function call(name: string, args: Record<string, unknown>): string {
     }
   }
 
-  const out = change(op)
+  const out = change(op, where)
   if (!out.ok) throw new Error(out.error)
-  return `${out.said}.\n\n${listText(id, target)}`
+  return `${out.said}.\n\n${listText(id, target, where)}`
 }
 
 /** A status and a document. Nothing here writes bytes; the adapter does that. */
@@ -525,9 +610,16 @@ function mcp(rpc: Rpc): Reply {
     })
 
     try {
+      /* Every tool here reads or writes a store that lives inside a project, so
+         the project is checked once, above the dispatch, rather than seven times
+         inside it. Refused rather than defaulted — see `project()` above for why
+         every available default is wrong. */
+      const where = project(args.project)
+      if (!where) return text(NO_PROJECT, true)
+
       if (name === 'checklists') {
         const id = str(args.checklist, MAX_ID)
-        if (!id) return text(listsText())
+        if (!id) return text(listsText(where))
         /* A target is optional here and refused only when it was GIVEN and is
            not a name. Asking about a list with no target is a perfectly good
            question — "what does this list say" — and answering it with a
@@ -543,7 +635,7 @@ function mcp(rpc: Rpc): Reply {
             true,
           )
         }
-        return text(listText(id, target))
+        return text(listText(id, target, where))
       }
       if (
         name === 'create_checklist'
@@ -553,7 +645,7 @@ function mcp(rpc: Rpc): Reply {
         || name === 'move_checklist_item'
         || name === 'drop_checklist_item'
       ) {
-        return text(call(name, args))
+        return text(call(name, args, where))
       }
     } catch (e) {
       /* A refusal is an answer, and the sentence is the useful half — every one
@@ -585,9 +677,24 @@ export function answer(
   body: Record<string, unknown> | null,
   ticket: string | null,
 ): Reply | null {
+  /*
+   * The health check, which no longer counts anything.
+   *
+   * It used to answer with how many checklists were in the store, because there
+   * was one store and this process owned it. There is no such store now: the
+   * lists live in whichever project somebody is looking at, and a number here
+   * would have to be a number for SOME project — a project this door was not
+   * told about and would have to pick. A health check that picked one would be
+   * reporting on a folder nobody asked about, and would report `ok: false` for a
+   * project that simply has no checklists yet.
+   *
+   * So it answers about the PROGRAM, which is the only thing it can vouch for:
+   * this app is running, here is its id and its version. Whether a particular
+   * project's file is readable is a question `/api/checklists?project=…` answers
+   * honestly, with the path in the sentence.
+   */
   if (path === '/healthz') {
-    const { lists, trouble } = checklists()
-    return ok({ ok: !trouble, id: ID, version: VERSION, checklists: lists.length })
+    return ok({ ok: true, id: ID, version: VERSION })
   }
 
   if (path === '/mcp') {
@@ -601,8 +708,12 @@ export function answer(
   /* Every checklist that exists — which is what the pick-or-create screen is
      drawn from, and the first thing the page asks for. */
   if (path === '/api/checklists' && method === 'GET') {
-    const { lists, trouble } = checklists()
-    return ok({ ok: true, lists, trouble })
+    const { lists, trouble, nowhere } = checklists(project(query.get('project')))
+    /* `nowhere` travels beside the lists rather than as a refusal, because it is
+       not one: the page draws its own screen for it, and a 400 here would make
+       an ordinary state — no project open — look like the page had asked
+       something wrong. */
+    return ok({ ok: true, lists, trouble, nowhere })
   }
 
   /*
@@ -627,9 +738,20 @@ export function answer(
         + 'or a slash.',
       )
     }
-    const { held: on, trouble } = held(id, target)
-    if (!on) return ok({ ok: false, error: trouble ?? `there is no checklist "${id}" here.` })
-    return ok({ ok: true, held: on, targets: targetsOf(id), trouble })
+    const where = project(query.get('project'))
+    const { held: on, trouble, nowhere } = held(id, target, where)
+    if (!on) {
+      return ok({
+        ok: false,
+        nowhere,
+        error:
+          trouble
+          ?? (nowhere
+            ? 'no project is open, so there is nowhere to read a checklist from.'
+            : `there is no checklist "${id}" in this project.`),
+      })
+    }
+    return ok({ ok: true, held: on, targets: targetsOf(id, where), trouble, nowhere })
   }
 
   /*
@@ -656,23 +778,30 @@ export function answer(
     if (!body) return bad('that was not a request')
 
     if (path === '/api/checklist') {
+      /* The project comes off the body on a write and off the query on a read,
+         which is the ordinary split rather than a special case: a POST already
+         carries a document, and putting one field of it in the URL would make
+         the same fact arrive two ways. Refused here rather than deep inside the
+         store, so that "which project" is answered before "what edit". */
+      const where = project(body.project)
+      if (!where) return bad(NO_PROJECT)
       const op = str(body.op, 16)
       const id = str(body.id, MAX_ID)
       const item = str(body.item, MAX_ID)
       const text = str(body.text, MAX_TEXT)
       const by = OWNER
 
-      if (op === 'create') return ok(change({ op: 'create', name: str(body.name, MAX_NAME), by }))
+      if (op === 'create') return ok(change({ op: 'create', name: str(body.name, MAX_NAME), by }, where))
       if (!id) return bad('that edit did not say which checklist it was about.')
-      if (op === 'rename') return ok(change({ op: 'rename', id, name: str(body.name, MAX_NAME), by }))
-      if (op === 'forget') return ok(change({ op: 'forget', id, by }))
-      if (op === 'add') return ok(change({ op: 'add', id, text, by }))
-      if (op === 'reword') return ok(change({ op: 'reword', id, item, text, by }))
-      if (op === 'drop') return ok(change({ op: 'drop', id, item, by }))
+      if (op === 'rename') return ok(change({ op: 'rename', id, name: str(body.name, MAX_NAME), by }, where))
+      if (op === 'forget') return ok(change({ op: 'forget', id, by }, where))
+      if (op === 'add') return ok(change({ op: 'add', id, text, by }, where))
+      if (op === 'reword') return ok(change({ op: 'reword', id, item, text, by }, where))
+      if (op === 'drop') return ok(change({ op: 'drop', id, item, by }, where))
       if (op === 'move') {
         const to = typeof body.to === 'number' && Number.isFinite(body.to) ? body.to : null
         if (to === null) return bad('a move needs a position to move to, and nothing was moved.')
-        return ok(change({ op: 'move', id, item, to, by }))
+        return ok(change({ op: 'move', id, item, to, by }, where))
       }
       if (op === 'tick') {
         const target = readTarget(body)
@@ -683,15 +812,18 @@ export function answer(
           )
         }
         return ok(
-          change({
-            op: 'tick',
-            id,
-            item,
-            target,
-            done: body.done !== false,
-            by,
-            note: str(body.note, MAX_NOTE) || undefined,
-          }),
+          change(
+            {
+              op: 'tick',
+              id,
+              item,
+              target,
+              done: body.done !== false,
+              by,
+              note: str(body.note, MAX_NOTE) || undefined,
+            },
+            where,
+          ),
         )
       }
       /* Named rather than shrugged at, because the page and this store are one

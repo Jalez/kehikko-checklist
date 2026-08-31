@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+
+import { ID } from '../manifest.ts'
 
 /**
  * The store, which is now the whole of what this app decides.
@@ -10,27 +14,51 @@ import { join } from 'node:path'
  * test on `change()` is a test on both, and the two can never end up telling
  * somebody different things about the same press.
  */
+/**
+ * `dir` is a PROJECT now, not this app's data directory.
+ *
+ * That is the whole of what moved: the store lives at
+ * `<project>/.kehikot/checklist/checklists.json`, so a temp directory standing in for a
+ * project is all a test needs, and every call below says which project it is
+ * about. There is no environment variable left to set — see `store.ts`.
+ */
 let dir = ''
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'checklist-store-'))
-  process.env.CHECKLIST_DATA = dir
 })
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
-  delete process.env.CHECKLIST_DATA
 })
 
 async function store() {
   return import('../list/checklists.ts')
 }
 
+/** The store file for the project under test. */
+function file(): string {
+  return join(dir, KEHIKOT_DIR, moduleFolder(ID), 'checklists.json')
+}
+
+/**
+ * Put bytes where the store will look for them.
+ *
+ * The folder has to be made first, because reading never makes it — that is the
+ * rule `store.ts` keeps so that opening a pane against a repository does not
+ * leave a directory in it. A test writing the file by hand is standing in for a
+ * project that already has one.
+ */
+function put(text: string): void {
+  mkdirSync(join(dir, KEHIKOT_DIR, moduleFolder(ID)), { recursive: true })
+  writeFileSync(file(), text)
+}
+
 async function aList(name = 'What a change owes'): Promise<{ list: string; item: string }> {
   const { change } = await store()
-  const made = change({ op: 'create', name, by: 'a test' })
+  const made = change({ op: 'create', name, by: 'a test' }, dir)
   if (!made.ok) throw new Error(made.error)
-  const added = change({ op: 'add', id: made.id, text: 'A test that fails without the change', by: 'a test' })
+  const added = change({ op: 'add', id: made.id, text: 'A test that fails without the change', by: 'a test' }, dir)
   if (!added.ok) throw new Error(added.error)
   return { list: made.id, item: added.held!.rows[0]!.item.id }
 }
@@ -38,17 +66,17 @@ async function aList(name = 'What a change owes'): Promise<{ list: string; item:
 describe('what the store holds', () => {
   test('nothing, on a fresh directory, because nothing ships a list', async () => {
     const { checklists } = await store()
-    expect(checklists().lists).toEqual([])
-    expect(checklists().trouble).toBeNull()
+    expect(checklists(dir).lists).toEqual([])
+    expect(checklists(dir).trouble).toBeNull()
   })
 
   test('a list somebody made, with its items in the order they were added', async () => {
     const { change, held } = await store()
-    const made = change({ op: 'create', name: 'Mine', by: 'a test' })
+    const made = change({ op: 'create', name: 'Mine', by: 'a test' }, dir)
     if (!made.ok) throw new Error(made.error)
-    change({ op: 'add', id: made.id, text: 'first', by: 'a test' })
-    change({ op: 'add', id: made.id, text: 'second', by: 'a test' })
-    const rows = held(made.id, null).held!.rows
+    change({ op: 'add', id: made.id, text: 'first', by: 'a test' }, dir)
+    change({ op: 'add', id: made.id, text: 'second', by: 'a test' }, dir)
+    const rows = held(made.id, null, dir).held!.rows
     expect(rows.map((r) => r.item.text)).toEqual(['first', 'second'])
   })
 
@@ -57,28 +85,28 @@ describe('what the store holds', () => {
        fact, and a partial write leaves two items claiming position 3. This
        asserts the consequence — the file itself carries the order and nothing
        else does. */
-    const { change, checklistsFile, held } = await store()
-    const made = change({ op: 'create', name: 'Mine', by: 'a test' })
+    const { change, held } = await store()
+    const made = change({ op: 'create', name: 'Mine', by: 'a test' }, dir)
     if (!made.ok) throw new Error(made.error)
-    change({ op: 'add', id: made.id, text: 'first', by: 'a test' })
-    const second = change({ op: 'add', id: made.id, text: 'second', by: 'a test' })
+    change({ op: 'add', id: made.id, text: 'first', by: 'a test' }, dir)
+    const second = change({ op: 'add', id: made.id, text: 'second', by: 'a test' }, dir)
     if (!second.ok) throw new Error(second.error)
     const id = second.held!.rows[1]!.item.id
-    change({ op: 'move', id: made.id, item: id, to: 0, by: 'a test' })
+    change({ op: 'move', id: made.id, item: id, to: 0, by: 'a test' }, dir)
 
-    const raw = JSON.parse(readFileSync(checklistsFile(), 'utf8')) as {
+    const raw = JSON.parse(readFileSync(file(), 'utf8')) as {
       checklists: Record<string, { items: { text: string; order?: number }[] }>
     }
     expect(raw.checklists[made.id]!.items.map((i) => i.text)).toEqual(['second', 'first'])
     expect(raw.checklists[made.id]!.items[0]).not.toHaveProperty('order')
-    expect(held(made.id, null).held!.rows.map((r) => r.item.text)).toEqual(['second', 'first'])
+    expect(held(made.id, null, dir).held!.rows.map((r) => r.item.text)).toEqual(['second', 'first'])
   })
 
   test('a move past the end is clamped, because "put it last" is a clear intention', async () => {
     const { change } = await store()
     const { list, item } = await aList()
-    change({ op: 'add', id: list, text: 'second', by: 'a test' })
-    const out = change({ op: 'move', id: list, item, to: 99, by: 'a test' })
+    change({ op: 'add', id: list, text: 'second', by: 'a test' }, dir)
+    const out = change({ op: 'move', id: list, item, to: 99, by: 'a test' }, dir)
     expect(out.ok).toBe(true)
     expect(out.ok && out.said).toContain('position 2 of 2')
   })
@@ -88,9 +116,9 @@ describe('ticks belong to a checklist, a target and an item together', () => {
   test('the same list against two refs keeps two sets', async () => {
     const { change, held } = await store()
     const { list, item } = await aList()
-    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#105' }, done: true, by: 'a test' })
-    expect(held(list, { kind: 'ref', ref: 'gh#105' }).held!.done).toBe(1)
-    expect(held(list, { kind: 'ref', ref: 'gh#106' }).held!.done).toBe(0)
+    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#105' }, done: true, by: 'a test' }, dir)
+    expect(held(list, { kind: 'ref', ref: 'gh#105' }, dir).held!.done).toBe(1)
+    expect(held(list, { kind: 'ref', ref: 'gh#106' }, dir).held!.done).toBe(0)
   })
 
   test('a paper and a section of it are different targets', async () => {
@@ -103,16 +131,16 @@ describe('ticks belong to a checklist, a target and an item together', () => {
       target: { kind: 'paper', epic: 'modes', section: 'ch:bridge' },
       done: true,
       by: 'a test',
-    })
-    expect(held(list, { kind: 'paper', epic: 'modes', section: null }).held!.done).toBe(0)
-    expect(held(list, { kind: 'paper', epic: 'modes', section: 'ch:bridge' }).held!.done).toBe(1)
+    }, dir)
+    expect(held(list, { kind: 'paper', epic: 'modes', section: null }, dir).held!.done).toBe(0)
+    expect(held(list, { kind: 'paper', epic: 'modes', section: 'ch:bridge' }, dir).held!.done).toBe(1)
   })
 
   test('every tick names its author and whether it came through the MCP door', async () => {
     const { change, held } = await store()
     const { list, item } = await aList()
-    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: '!44' }, done: true, by: 'claude', viaMcp: true })
-    const tick = held(list, { kind: 'ref', ref: '!44' }).held!.rows[0]!.done
+    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: '!44' }, done: true, by: 'claude', viaMcp: true }, dir)
+    const tick = held(list, { kind: 'ref', ref: '!44' }, dir).held!.rows[0]!.done
     expect(tick?.by).toBe('claude')
     expect(tick?.viaMcp).toBe(true)
   })
@@ -120,26 +148,26 @@ describe('ticks belong to a checklist, a target and an item together', () => {
   test('an untick leaves nothing behind, so a target with no ticks is not offered as one', async () => {
     const { change, targetsOf } = await store()
     const { list, item } = await aList()
-    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' })
-    expect(targetsOf(list)).toHaveLength(1)
-    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: false, by: 'a test' })
-    expect(targetsOf(list)).toEqual([])
+    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' }, dir)
+    expect(targetsOf(list, dir)).toHaveLength(1)
+    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: false, by: 'a test' }, dir)
+    expect(targetsOf(list, dir)).toEqual([])
   })
 
   test('targets a list has ticks against come back, so nothing recorded becomes unreachable', async () => {
     const { change, targetsOf } = await store()
     const { list, item } = await aList()
-    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' })
-    change({ op: 'tick', id: list, item, target: { kind: 'paper', epic: 'modes', section: null }, done: true, by: 'a test' })
-    expect(targetsOf(list).map((t) => t.target.kind).sort()).toEqual(['paper', 'ref'])
+    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: { kind: 'paper', epic: 'modes', section: null }, done: true, by: 'a test' }, dir)
+    expect(targetsOf(list, dir).map((t) => t.target.kind).sort()).toEqual(['paper', 'ref'])
   })
 
   test('forgetting a list takes every tick on it, on every target', async () => {
-    const { change, checklistsFile } = await store()
+    const { change } = await store()
     const { list, item } = await aList()
-    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' })
-    change({ op: 'forget', id: list, by: 'a test' })
-    const raw = JSON.parse(readFileSync(checklistsFile(), 'utf8')) as { ticks: Record<string, unknown> }
+    change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' }, dir)
+    change({ op: 'forget', id: list, by: 'a test' }, dir)
+    const raw = JSON.parse(readFileSync(file(), 'utf8')) as { ticks: Record<string, unknown> }
     expect(raw.ticks[list]).toBeUndefined()
   })
 })
@@ -150,22 +178,22 @@ describe('the file, when it cannot be read', () => {
        prose, "empty" and "broken" must not be indistinguishable — there is no
        shipped list behind these, and the material is sentences nobody can retype
        from memory. */
-    const { checklists, checklistsFile } = await store()
-    writeFileSync(checklistsFile(), '{ not json')
-    const out = checklists()
+    const { checklists } = await store()
+    put('{ not json')
+    const out = checklists(dir)
     expect(out.lists).toEqual([])
     expect(out.trouble).toContain('could not be read')
     expect(out.trouble).toContain('recoverable')
   })
 
   test('blocks every write, so a corrupt byte cannot become a flattened store', async () => {
-    const { change, checklistsFile } = await store()
+    const { change } = await store()
     const before = 'lists: "everything somebody typed"'
-    writeFileSync(checklistsFile(), before)
-    const out = change({ op: 'create', name: 'Mine', by: 'a test' })
+    put(before)
+    const out = change({ op: 'create', name: 'Mine', by: 'a test' }, dir)
     expect(out.ok).toBe(false)
     expect(out.ok === false && out.error).toContain('nothing was changed')
-    expect(readFileSync(checklistsFile(), 'utf8')).toBe(before)
+    expect(readFileSync(file(), 'utf8')).toBe(before)
   })
 })
 
@@ -175,14 +203,13 @@ describe('migration is additive', () => {
        file parses and gains the default rather than failing to parse — and a
        failed parse here is not a missing field, it is the whole store read as
        trouble. `origin` is the field this rule was last exercised on. */
-    const { checklists, checklistsFile } = await store()
-    writeFileSync(
-      checklistsFile(),
+    const { checklists } = await store()
+    put(
       JSON.stringify({
         checklists: { abc: { id: 'abc', name: 'Old', at: '2026-01-01T00:00:00Z', by: 'somebody', items: [] } },
       }),
     )
-    const out = checklists()
+    const out = checklists(dir)
     expect(out.trouble).toBeNull()
     expect(out.lists[0]?.name).toBe('Old')
   })

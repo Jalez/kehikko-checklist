@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+
+import { ID } from '../manifest.ts'
 
 /**
  * The one-time, idempotent migration of the hand-written paper lists.
@@ -64,16 +68,31 @@ const YESTERDAY = {
   },
 }
 
+/**
+ * `dir` is a PROJECT, and `papers.json` is inside this module's own folder.
+ *
+ * The migration reads the old paper store from wherever this app's store now
+ * lives, which is inside the project. A migration that went on looking beside
+ * the program would find nothing on every machine where the data has moved — so
+ * the file moves with the rest, and this is what says so.
+ */
+let mine = ''
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'checklist-migration-'))
-  process.env.CHECKLIST_DATA = dir
-  writeFileSync(join(dir, 'papers.json'), `${JSON.stringify(YESTERDAY, null, 2)}\n`)
+  mine = join(dir, KEHIKOT_DIR, moduleFolder(ID))
+  mkdirSync(mine, { recursive: true })
+  writeFileSync(join(mine, 'papers.json'), `${JSON.stringify(YESTERDAY, null, 2)}\n`)
 })
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
-  delete process.env.CHECKLIST_DATA
 })
+
+/** The store file for the project under test. */
+function file(): string {
+  return join(mine, 'checklists.json')
+}
 
 async function store() {
   return import('../list/checklists.ts')
@@ -82,7 +101,7 @@ async function store() {
 describe('a papers.json from yesterday', () => {
   test('opens as checklists today, one per paper that had anything written on it', async () => {
     const { checklists } = await store()
-    const names = checklists().lists.map((l) => l.name)
+    const names = checklists(dir).lists.map((l) => l.name)
     expect(names).toContain('modes-are-modules — what the paper owes')
     expect(names).toContain('practices-are-the-only-governor — what the paper owes')
     /* And nothing for the epic somebody cleared: an empty list is a paper with no
@@ -92,7 +111,7 @@ describe('a papers.json from yesterday', () => {
 
   test('loses nothing somebody typed, in the order they put it in', async () => {
     const { held } = await store()
-    const rows = held('paper-modes-are-modules', null).held!.rows
+    const rows = held('paper-modes-are-modules', null, dir).held!.rows
     expect(rows.map((r) => r.item.text)).toEqual([
       YESTERDAY.papers['modes-are-modules'].items[0]!.text,
       YESTERDAY.papers['modes-are-modules'].items[1]!.text,
@@ -104,7 +123,7 @@ describe('a papers.json from yesterday', () => {
 
   test('keeps the tick, with who made it, when, whether it came over MCP, and the note', async () => {
     const { held } = await store()
-    const on = held('paper-modes-are-modules', { kind: 'paper', epic: 'modes-are-modules', section: null }).held!
+    const on = held('paper-modes-are-modules', { kind: 'paper', epic: 'modes-are-modules', section: null }, dir).held!
     expect(on.done).toBe(1)
     const tick = on.rows[1]!.done
     expect(tick?.by).toBe('claude')
@@ -117,40 +136,40 @@ describe('a papers.json from yesterday', () => {
     /* Inventing a section here would be the migration claiming to know something
        the file never said — and it would put ticks on a target nobody can find. */
     const { held } = await store()
-    expect(held('paper-modes-are-modules', { kind: 'paper', epic: 'modes-are-modules', section: 'ch:bridge' }).held!.done).toBe(0)
+    expect(held('paper-modes-are-modules', { kind: 'paper', epic: 'modes-are-modules', section: 'ch:bridge' }, dir).held!.done).toBe(0)
   })
 
   test('is idempotent: reading twenty times makes one copy, not twenty', async () => {
     const { checklists } = await store()
-    for (let i = 0; i < 20; i += 1) checklists()
-    const mine = checklists().lists.filter((l) => l.name.startsWith('modes-are-modules'))
+    for (let i = 0; i < 20; i += 1) checklists(dir)
+    const mine = checklists(dir).lists.filter((l) => l.name.startsWith('modes-are-modules'))
     expect(mine).toHaveLength(1)
   })
 
   test('leaves papers.json on disk, because deleting somebody’s file as a side effect of reading is not a thing a program should do', async () => {
     const { checklists } = await store()
-    checklists()
-    expect(JSON.parse(readFileSync(join(dir, 'papers.json'), 'utf8'))).toEqual(YESTERDAY)
+    checklists(dir)
+    expect(JSON.parse(readFileSync(join(mine, 'papers.json'), 'utf8'))).toEqual(YESTERDAY)
   })
 
   test('does not run when the checklists file cannot be parsed', async () => {
     /* Writing somebody's paper lists into a store this app has just failed to
        read would flatten whatever is in it. The order inside `read()` is what
        stops that, and this is what asserts the order. */
-    const { checklists, checklistsFile } = await store()
+    const { checklists } = await store()
     const broken = '{ half a file'
-    writeFileSync(checklistsFile(), broken)
-    expect(checklists().trouble).toContain('could not be read')
-    expect(readFileSync(checklistsFile(), 'utf8')).toBe(broken)
+    writeFileSync(file(), broken)
+    expect(checklists(dir).trouble).toContain('could not be read')
+    expect(readFileSync(file(), 'utf8')).toBe(broken)
   })
 
   test('shrugs at an unreadable papers.json rather than refusing to open the checklists', async () => {
     /* `papers.json` is a backup now: nothing writes it and nothing else reads
        it. A broken one must not be able to disable the app. */
     const { change, checklists } = await store()
-    writeFileSync(join(dir, 'papers.json'), 'not json at all')
-    expect(checklists().trouble).toBeNull()
-    expect(change({ op: 'create', name: 'Made after', by: 'a test' }).ok).toBe(true)
+    writeFileSync(join(mine, 'papers.json'), 'not json at all')
+    expect(checklists(dir).trouble).toBeNull()
+    expect(change({ op: 'create', name: 'Made after', by: 'a test' }, dir).ok).toBe(true)
   })
 
   test('a list migrated on one machine and one copied from another are the same list, not two', async () => {
@@ -158,6 +177,6 @@ describe('a papers.json from yesterday', () => {
        `data/` copyable between machines — the claim `store.ts` makes about this
        whole directory. */
     const { checklists } = await store()
-    expect(checklists().lists.map((l) => l.id)).toContain('paper-modes-are-modules')
+    expect(checklists(dir).lists.map((l) => l.id)).toContain('paper-modes-are-modules')
   })
 })

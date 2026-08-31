@@ -59,6 +59,32 @@ export interface Roadmap {
   /** The epic the canvas is on, or null. What makes a paper target offerable without typing a slug. */
   epic: string | null
   /**
+   * Where the open project is on this machine, or null.
+   *
+   * The single most load-bearing field this hook reads, now that this app's
+   * store lives inside the project: `<projectPath>/.kehikot/checklist/checklists.json`.
+   * Every fetch below carries it, and a fetch without it comes back saying there
+   * is nowhere to look.
+   *
+   * Null is a REAL state and not a missing one, twice over: nothing is framing
+   * this page, or a host knows the project's NAME and has no folder to point at
+   * — a hosted roadmap, a demo, a test harness. Both get a screen saying so
+   * rather than a guess, because a guess here means writing somebody's checklist
+   * into a repository they will never open. See `src/view/nowhere.tsx`.
+   */
+  projectPath: string | null
+  /**
+   * What the open project is CALLED, or null.
+   *
+   * Read only to put in a sentence. The pair is what makes the "no project"
+   * screen able to say something specific: a host that sends a name and no path
+   * has told this pane which project it is looking at and given it nowhere to
+   * open, which is a different sentence from a host that has said nothing at
+   * all. Never used to locate anything — a name is not a path, and the protocol
+   * says so at length on `projectPath`.
+   */
+  project: string | null
+  /**
    * The kehikko this pane is on, or null.
    *
    * Null is a REAL state and not a missing one: a host need not have canvases at
@@ -100,6 +126,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [where, setWhere] = useState<Where>('listening')
   const [selection, setSelection] = useState<string[]>([])
   const [epic, setEpic] = useState<string | null>(null)
+  const [projectPath, setProjectPath] = useState<string | null>(null)
+  const [projectName, setProjectName] = useState<string | null>(null)
   const [kehikko, setKehikko] = useState<Kehikko | null>(null)
   const [kept, setKept] = useState<Kept>([])
   const host = useRef<Host | null>(null)
@@ -148,6 +176,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      */
     const arrived = (context: {
       epic: string | null
+      project: string | null
+      projectPath: string | null
       theme: 'light' | 'dark'
       selection: string[]
       kehikko: Kehikko | null
@@ -159,6 +189,22 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       setWhere('hosted')
       setSelection(context.selection)
       setEpic(context.epic)
+      /*
+       * Normalised to null the moment it arrives, rather than at each call site.
+       *
+       * A host that sends `projectPath: ""` — or omits it, against an older
+       * protocol — means "there is no project", and so does `null`. Two spellings
+       * of one state would eventually be compared two ways in two effects, and
+       * the effect that got it wrong would fetch with an empty project and paint
+       * an empty pane that looked like a project with no checklists.
+       *
+       * A plain string comparison is enough to make this a no-op when nothing
+       * moved, which matters because a context arrives after every selection
+       * change anywhere on the canvas and this value is a dependency of the
+       * fetch.
+       */
+      setProjectPath(typeof context.projectPath === 'string' && context.projectPath ? context.projectPath : null)
+      setProjectName(typeof context.project === 'string' && context.project ? context.project : null)
       standingOn.current = context.epic
       /*
        * Written unconditionally rather than only when it changed.
@@ -200,7 +246,14 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      * assignment is done. Not deferred to a microtask: that would fix the symptom
      * and leave the next reader to work out why the order mattered.
      */
-    type Context = { epic: string | null; theme: 'light' | 'dark'; selection: string[]; kehikko: Kehikko | null }
+    type Context = {
+      epic: string | null
+      project: string | null
+      projectPath: string | null
+      theme: 'light' | 'dark'
+      selection: string[]
+      kehikko: Kehikko | null
+    }
     type Arrival = [context: Context, state: string | null | undefined]
     let ready = false
     /* A box rather than a bare `let`, and only because of the compiler: this is
@@ -288,7 +341,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
   return useMemo(
-    () => ({ where, epic, kehikko, selection, kept, remember, resize }),
-    [where, epic, kehikko, selection, kept, remember, resize],
+    () => ({ where, epic, projectPath, project: projectName, kehikko, selection, kept, remember, resize }),
+    [where, epic, projectPath, projectName, kehikko, selection, kept, remember, resize],
   )
 }

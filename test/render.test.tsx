@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { Held } from '../list/checklists.ts'
 import { ChecklistView } from '../src/view/checklist.tsx'
 import { Choose, Unplaced } from '../src/view/choose.tsx'
+import { Nowhere } from '../src/view/nowhere.tsx'
 
 /**
  * The components, rendered for real.
@@ -253,5 +254,38 @@ describe('a pane that cannot tell which kehikko it is on', () => {
     /* And the pick screen is still there. Refusing to work would make a usable
        checklist unreachable because of a field a host declined to fill in. */
     expect(screen.getByText('Pick a checklist')).toBeTruthy()
+  })
+})
+
+describe('the screen for "there is nowhere to keep a checklist"', () => {
+  /* Not an error screen and not the pick screen. The distinction is the whole
+     reason this component exists: an empty pane would look exactly like a
+     project with no checklists yet, and that screen has a button on it that
+     would do nothing. */
+  test('says a project has to be open, and offers nothing to press', () => {
+    const { container } = render(<Nowhere unhosted={false} project={null} />)
+    expect(screen.getByText(/No project is open/)).toBeTruthy()
+    expect(screen.getByText(/kept inside the project/)).toBeTruthy()
+    expect(container.querySelectorAll('button')).toHaveLength(0)
+  })
+
+  test('says nothing has been lost, because that is the reader’s actual question', () => {
+    render(<Nowhere unhosted={false} project={null} />)
+    expect(screen.getByText(/Nothing has been lost and nothing has been written/)).toBeTruthy()
+  })
+
+  /* A host that sends a NAME and no path has told this pane which project it is
+     looking at and given it nowhere to open. That is a different sentence from a
+     host that has said nothing, and the reader can act on the difference. */
+  test('names the project when the host gave a name but no folder', () => {
+    render(<Nowhere unhosted={false} project="Roadmap" />)
+    expect(screen.getByText(/“Roadmap”/)).toBeTruthy()
+    expect(screen.getByText(/did not say where it is on this machine/)).toBeTruthy()
+  })
+
+  test('says something different again when nothing is framing the page at all', () => {
+    render(<Nowhere unhosted project={null} />)
+    expect(screen.getByText(/Nothing is framing this page/)).toBeTruthy()
+    expect(screen.getByText(/Opened directly/)).toBeTruthy()
   })
 })

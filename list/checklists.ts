@@ -1,8 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { z } from 'zod'
 
-import { dataDir } from '../store.ts'
+import { dataFile, makeDir, oldPapersFile } from '../store.ts'
 import { readKey, targetKey, type Target } from './targets.ts'
 
 /**
@@ -186,8 +185,16 @@ const storeSchema = z.object({
 })
 type Store = z.infer<typeof storeSchema>
 
-export function checklistsFile(): string {
-  return join(dataDir(), 'checklists.json')
+/**
+ * This project's file, or null when there is no project and nothing to open.
+ *
+ * A thin pass-through to `store.ts`, kept exported because the tests assert
+ * against the bytes on disk and because `dev/migrate.ts` writes to exactly the
+ * path this names — two programs agreeing about a location by calling the same
+ * function rather than by joining the same strings.
+ */
+export function checklistsFile(projectPath: string | null | undefined): string | null {
+  return dataFile(projectPath).path
 }
 
 const empty = (): Store => storeSchema.parse({})
@@ -236,8 +243,8 @@ const oldPapersSchema = z.object({
     .default({}),
 })
 
-export function papersFile(): string {
-  return join(dataDir(), 'papers.json')
+export function papersFile(projectPath: string | null | undefined): string | null {
+  return oldPapersFile(projectPath)
 }
 
 /**
@@ -275,9 +282,9 @@ export function papersFile(): string {
  * effect of reading is not a thing a program should do, and keeping it means a
  * migration that went wrong can be looked at rather than reconstructed.
  */
-function migrate(store: Store): boolean {
-  const path = papersFile()
-  if (!existsSync(path)) return false
+function migrate(store: Store, projectPath: string | null | undefined): boolean {
+  const path = papersFile(projectPath)
+  if (path === null || !existsSync(path)) return false
   let old: z.infer<typeof oldPapersSchema>
   try {
     old = oldPapersSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
@@ -343,8 +350,34 @@ function migrate(store: Store): boolean {
  * Reading and writing the file
  * ------------------------------------------------------------------ */
 
-function read(): { store: Store; trouble: string | null } {
-  const path = checklistsFile()
+/**
+ * What opening this project's store can produce.
+ *
+ * Three states rather than two, and the middle one is what the move into the
+ * project added. They are kept apart all the way to the screen, because they
+ * send a reader to three different places:
+ *
+ * - `here` — a project was named and the file was read, or was simply not there
+ *   yet, which is an empty store and not a fault.
+ * - `nowhere` — no project is open. There is nothing to show and nothing to
+ *   write, and neither of those is an error.
+ * - `trouble` — a project was named and something is wrong with it: the path
+ *   escapes the project, the folder is not on this machine, or the file will not
+ *   parse. The sentence says which.
+ *
+ * `nowhere` deliberately does NOT come back as an empty store with no trouble,
+ * even though that would draw a blank pane and look perfectly fine. An empty
+ * store is a thing a later write may flatten a real file with; "there is nowhere
+ * to write" has to be refused rather than written, and this one field is what
+ * keeps those two apart at every call site below.
+ */
+type Opened = { store: Store; where: 'here' | 'nowhere'; trouble: string | null }
+
+function read(projectPath: string | null | undefined): Opened {
+  const { path, trouble: refused } = dataFile(projectPath)
+  if (refused) return { store: empty(), where: 'here', trouble: refused }
+  if (path === null) return { store: empty(), where: 'nowhere', trouble: null }
+
   let store: Store
   if (!existsSync(path)) {
     store = empty()
@@ -354,6 +387,7 @@ function read(): { store: Store; trouble: string | null } {
     } catch (e) {
       return {
         store: empty(),
+        where: 'here',
         trouble:
           `${path} could not be read (${e instanceof Error ? e.message.split('\n')[0] : String(e)}), so no ` +
           'checklist is being shown and nothing will be written over it. Every list and every tick in that file is ' +
@@ -365,13 +399,50 @@ function read(): { store: Store; trouble: string | null } {
      only safe order: bringing somebody's paper lists across into a store this
      app has just failed to parse would write them over the file it could not
      read. */
-  if (migrate(store)) save(store)
-  return { store, trouble: null }
+  if (migrate(store, projectPath)) save(store, projectPath)
+  return { store, where: 'here', trouble: null }
 }
 
-function save(store: Store): void {
-  writeFileSync(checklistsFile(), `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+/**
+ * Write the store into this project's folder, making the folder if it is not
+ * there — and answering with a sentence rather than throwing when there is
+ * nowhere to make it.
+ *
+ * `makeDir` is called HERE and nowhere on the read path, which is what stops
+ * this app leaving a `.kehikot/` in every repository somebody happens to open a
+ * checklist pane against. The folder appears on the first save, which is the
+ * first moment this project actually has a checklist to hold — and that is also
+ * the one moment the project's `.gitignore` is told about it.
+ *
+ * A refusal comes back as a string because every caller already has somewhere to
+ * put one: `change()` answers `{ ok: false, error }`, and that sentence reaches
+ * both the page and an agent. An exception here would surface at the door as a
+ * 500 with nothing anybody could act on.
+ */
+function save(store: Store, projectPath: string | null | undefined): string | null {
+  const made = makeDir(projectPath)
+  if (made.trouble) return made.trouble
+  if (made.dir === null) return NOWHERE
+  const { path, trouble } = dataFile(projectPath)
+  if (trouble) return trouble
+  if (path === null) return NOWHERE
+  writeFileSync(path, `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+  return null
 }
+
+/**
+ * What a write is told when nothing said which project this is.
+ *
+ * Written once and shared by every refusal below, because it is the same fact
+ * every time and because a person who sees it in the pane and an agent who reads
+ * it out of a tool call should be reading the same sentence. It says where a
+ * checklist lives, which is the part that makes the refusal actionable rather
+ * than merely true.
+ */
+const NOWHERE =
+  'there is no project open, so there is nowhere to keep a checklist. A checklist lives in the project it is '
+  + 'about — in its .kehikot/checklist folder — and this app will not guess at which project that is: a guess '
+  + 'would write somebody’s list into a repository they will never look in, under a screen saying it had been saved.'
 
 /* ------------------------------------------------------------------ *
  * What arrives, bounded before it is looked at
@@ -437,11 +508,20 @@ export interface Held {
 export interface Store_ {
   lists: Summary[]
   trouble: string | null
+  /**
+   * True when nothing said which project this is, so there is nowhere to look.
+   *
+   * Beside `trouble` rather than folded into it, because it is not a fault and
+   * must not be drawn as one. A pane that printed "no project open" in the same
+   * red box as "this file will not parse" would be teaching a reader that the
+   * ordinary state is a breakage.
+   */
+  nowhere: boolean
 }
 
-/** Every checklist that exists, newest name first by creation, then by name. */
-export function checklists(): Store_ {
-  const { store, trouble } = read()
+/** Every checklist in this project, by name. */
+export function checklists(projectPath: string | null | undefined): Store_ {
+  const { store, where, trouble } = read(projectPath)
   const lists = Object.values(store.checklists)
     .map((list) => ({
       id: list.id,
@@ -452,7 +532,7 @@ export function checklists(): Store_ {
       targets: Object.keys(store.ticks[list.id] ?? {}).length,
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
-  return { lists, trouble }
+  return { lists, trouble, nowhere: where === 'nowhere' }
 }
 
 /**
@@ -463,21 +543,27 @@ export function checklists(): Store_ {
  * target with no ticks yet, and the page says which it is: a list with no target
  * is not something anybody can tick.
  */
-export function held(id: string, target: Target | null): { held: Held | null; trouble: string | null } {
-  const { store, trouble } = read()
+export function held(
+  id: string,
+  target: Target | null,
+  projectPath: string | null | undefined,
+): { held: Held | null; trouble: string | null; nowhere: boolean } {
+  const { store, where, trouble } = read(projectPath)
+  const nowhere = where === 'nowhere'
   const checklist = store.checklists[id]
-  if (!checklist) return { held: null, trouble }
+  if (!checklist) return { held: null, trouble, nowhere }
   const on = target ? (store.ticks[id]?.[targetKey(target)] ?? {}) : {}
   const rows = checklist.items.map((item) => ({ item, done: on[item.id] ?? null }))
   return {
     held: { checklist, target, rows, done: rows.filter((r) => r.done).length, total: rows.length },
     trouble,
+    nowhere,
   }
 }
 
 /** Every target one checklist has ticks against, so nothing recorded becomes unreachable. */
-export function targetsOf(id: string): { target: Target; done: number }[] {
-  const { store } = read()
+export function targetsOf(id: string, projectPath: string | null | undefined): { target: Target; done: number }[] {
+  const { store } = read(projectPath)
   return Object.entries(store.ticks[id] ?? {})
     .map(([key, ticks]) => {
       const target = readKey(key)
@@ -513,15 +599,33 @@ export type Result =
  * written once and read by both. Each names what was wrong and what to do
  * instead; a bare "no" is the kind of refusal an agent routes around.
  */
-export function change(input: Op): Result {
-  const { store, trouble } = read()
-  if (trouble) return { ok: false, error: `nothing was changed. ${trouble}` }
+export function change(input: Op, projectPath: string | null | undefined): Result {
+  const opened = read(projectPath)
+  const store = opened.store
+  if (opened.trouble) return { ok: false, error: `nothing was changed. ${opened.trouble}` }
+  /* Refused BEFORE anything is decided, and refused rather than being allowed to
+     succeed against an empty store nobody will ever see again. This is the
+     failure the whole move has to not have: a checklist written into a store
+     with no file behind it is a list somebody typed, watched appear, and cannot
+     find tomorrow. */
+  if (opened.where === 'nowhere') return { ok: false, error: `nothing was changed. ${NOWHERE}` }
 
   const by = input.by.trim().slice(0, MAX_BY) || 'somebody who did not say'
   const at = new Date().toISOString()
 
+  /**
+   * Write, and answer with what is now true — or hand back the refusal the
+   * write produced.
+   *
+   * The saved-then-read shape matters here. `save` can fail for reasons that
+   * only appear at the moment of writing — a `.kehikot` that became a symlink
+   * between the read and the write, a folder that went away — and a function
+   * that reported success on a write it had not checked would tell the page a
+   * tick had landed when nothing had been written at all.
+   */
   const answer = (id: string, said: string, target: Target | null): Result => {
-    save(store)
+    const refused = save(store, projectPath)
+    if (refused) return { ok: false, error: `nothing was changed. ${refused}` }
     const list = store.checklists[id]
     const on = target && list ? (store.ticks[id]?.[targetKey(target)] ?? {}) : {}
     const rows = (list?.items ?? []).map((item) => ({ item, done: on[item.id] ?? null }))
@@ -529,7 +633,7 @@ export function change(input: Op): Result {
       ok: true,
       said,
       id,
-      lists: checklists().lists,
+      lists: checklists(projectPath).lists,
       held: list ? { checklist: list, target, rows, done: rows.filter((r) => r.done).length, total: rows.length } : null,
     }
   }

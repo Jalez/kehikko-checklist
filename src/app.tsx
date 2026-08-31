@@ -8,6 +8,7 @@ import { edit, everyChecklist, openChecklist, type Edit, type Opened, type Summa
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 import { ChecklistView } from '@/view/checklist.tsx'
 import { Choose, Unplaced } from '@/view/choose.tsx'
+import { Nowhere } from '@/view/nowhere.tsx'
 
 /**
  * The page.
@@ -39,6 +40,30 @@ import { Choose, Unplaced } from '@/view/choose.tsx'
  * screens: the pane says it cannot tell where it is, and then works anyway for
  * the session. Refusing to work would make a usable checklist unreachable
  * because of a field a host declined to fill in.
+ *
+ * ## A null projectPath is a real state too, and this one DOES stop the pane
+ *
+ * The two nullable facts are not the same and are not treated the same, which is
+ * worth saying out loud because the pair looks symmetrical.
+ *
+ * `kehikko` decides where a CHOICE is remembered. Without one the pick still
+ * works and simply does not survive a reload — a smaller thing than not working.
+ *
+ * `projectPath` decides where the checklists ARE. This app's store moved into
+ * the project (`<projectPath>/.kehikot/checklist/checklists.json`), so without one there is
+ * no file to read and nowhere to write; every list on screen would have to be
+ * invented and every press would have to go somewhere guessed. So the pane says
+ * so and offers nothing to press — see `src/view/nowhere.tsx`, and `store.ts`
+ * for why a guessed location is worse than an absent one.
+ *
+ * ## Switching project repaints, without a reload
+ *
+ * `projectPath` is a dependency of both fetches below. A host that moves a
+ * person to another project sends one `roadmap.context`, this hook sets one piece
+ * of state, and both effects run: the lists are re-read from the new project's
+ * folder and the open checklist is re-opened from it. Nothing is cached across
+ * the change and nothing is filtered — the path IS the partition, so a different
+ * project is a different file rather than a different subset of one.
  *
  * ## Identity is printed only when nothing is framing this page
  *
@@ -113,7 +138,31 @@ export function App() {
 
   const onDoor = useCallback(() => setDoorbell((was) => was + 1), [])
 
-  const { where, epic, kehikko, selection, kept, remember, resize } = useRoadmap(ID, onGoto, onDoor)
+  const { where, epic, projectPath, project, kehikko, selection, kept, remember, resize } = useRoadmap(
+    ID,
+    onGoto,
+    onDoor,
+  )
+
+  /**
+   * Whether there is anywhere at all to read from or write to.
+   *
+   * Held from the server's answer rather than derived from `projectPath` alone,
+   * because the server is the one that knows: a path may be present and still
+   * name nothing this app will write under — a folder that is not there, a
+   * `.kehikot` that resolves outside the project. `store.ts` decides that, and
+   * this is what it decided, so the page and the store can never disagree about
+   * whether there is a store.
+   *
+   * It starts false and is only ever DRAWN once the greeting has settled — see
+   * the guard on `screen` below. At mount there is no context yet, so the first
+   * fetch goes out with no project and comes back `nowhere: true`, which is
+   * true and is not yet worth saying: a page that announced "no project is
+   * open" for one frame and was then greeted would teach the reader that this
+   * screen is noise. That is the same argument as the greeting grace in
+   * `use-roadmap.ts`, applied to the same 700 milliseconds.
+   */
+  const [nowhere, setNowhere] = useState(false)
 
   /** Which checklist is in front: the remembered one for this kehikko, or a session pick. */
   const remembered = chosenOn(kept, kehikko?.id ?? null)
@@ -122,13 +171,17 @@ export function App() {
   /* Every checklist that exists. This app's own material, so it is read at load
      and on the doorbell rather than being tied to anything on the wire. */
   useEffect(() => {
-    void everyChecklist()
-      .then(({ lists: got, trouble: bad }) => {
+    /* `projectPath` is in the dependency list, which is the whole of "switching
+       project repaints without a reload": a new context sets one piece of state
+       and this runs again against a different folder. */
+    void everyChecklist(projectPath)
+      .then(({ lists: got, trouble: bad, nowhere: none }) => {
         setLists(got)
         setStoreTrouble(bad)
+        setNowhere(none)
       })
       .catch(() => setLists([]))
-  }, [doorbell])
+  }, [doorbell, projectPath])
 
   /**
    * The targets the CONTEXT is proposing, in the order a reader would want them.
@@ -211,7 +264,7 @@ export function App() {
       return
     }
     let alive = true
-    void openChecklist(chosen, target)
+    void openChecklist(chosen, target, projectPath)
       .then((answer) => {
         if (!alive) return
         if ('error' in answer) {
@@ -229,7 +282,7 @@ export function App() {
     return () => {
       alive = false
     }
-  }, [chosen, target, doorbell, forget])
+  }, [chosen, target, doorbell, forget, projectPath])
 
   const pick = useCallback(
     (id: string) => {
@@ -245,7 +298,7 @@ export function App() {
     async (change: Edit) => {
       setBusy(true)
       try {
-        const answer = await edit(change)
+        const answer = await edit(change, projectPath)
         if (!answer.ok) {
           setTrouble(answer.error)
           return
@@ -273,14 +326,14 @@ export function App() {
         /* And the targets are re-read, because a tick may have made a new one or
            emptied the last one — which is what the target switch is drawn from. */
         if (chosen) {
-          const again = await openChecklist(chosen, target)
+          const again = await openChecklist(chosen, target, projectPath)
           if (!('error' in again)) setOpened(again)
         }
       } finally {
         setBusy(false)
       }
     },
-    [chosen, kehikko, remember, target],
+    [chosen, kehikko, projectPath, remember, target],
   )
 
   const onCreate = useCallback((name: string) => void onEdit({ op: 'create', name }), [onEdit])
@@ -315,8 +368,13 @@ export function App() {
             ? 'Nothing is framing this page, so there is no kehikko to remember a choice against. Everything below is held here, on this machine, and works with nothing else running — the pick will last until this page is reloaded.'
             : 'Pick the checklist this work is held to, or start one. Nothing here ships a list.'
 
-  const screen =
-    opened && chosen ? (
+  const screen = nowhere && where !== 'listening' ? (
+    /* Above every other screen, and above `chosen`, because it is not a variant
+       of the pick screen — there is nothing to pick FROM. A remembered choice
+       from another project is deliberately left alone rather than forgotten:
+       come back to that project and the same list is in front of you. */
+    <Nowhere unhosted={where === 'unhosted'} project={project} />
+  ) : opened && chosen ? (
       <ChecklistView
         held={opened.held}
         targets={opened.targets}

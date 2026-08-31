@@ -4,9 +4,12 @@ Checklists somebody wrote, held against one issue, merge request, pull request
 or paper at a time. **Nothing here ships a list.**
 
 An app first. It holds every checklist a person or an agent has made, and every
-tick anybody has filed on one, in its own store beside the program. It has its
-own page, its own port and its own MCP door. A host may frame it, and then it
-learns which kehikko it is standing on and what the canvas has picked out.
+tick anybody has filed on one — **inside the project those checklists are
+about**, at `<project>/.kehikot/checklist/checklists.json`, as plain JSON beside
+the work.
+It has its own page, its own port and its own MCP door. A host may frame it, and
+then it learns which project is open, which kehikko it is standing on, and what
+the canvas has picked out.
 
 ```bash
 ./run.sh                 # http://127.0.0.1:7860/app
@@ -37,10 +40,45 @@ its ticks when the paper changes underneath them.
 - **The checklist, and only the checklist.** One list, its items, and the ticks
   for whichever target is in front. There is no directory of references and no
   tab row; the target switch is one row, not a screen.
-- **Its own store.** `data/checklists.json` holds every list, every item and
-  every tick. `CHECKLIST_DATA` moves the directory. The whole claim of the module
-  is that this directory can be copied to another machine, run, and be somebody's
-  checklist.
+- **A store inside the project.**
+  `<projectPath>/.kehikot/checklist/checklists.json` holds every list, every item
+  and every tick for that project, with the `papers.json` it migrates from beside
+  it. The folder names, the joins and the `.gitignore` text are
+  `roadmap-module-protocol`'s, so four modules cannot spell them four ways.
+
+  `.kehikot` is the app; a *kehikko* is one canvas. Both words appear in this
+  repository and they do not mean the same thing — the folder takes the app's
+  name because what is in it belongs to every canvas a person has rather than to
+  one of them. Each module gets a folder of its own inside it, named after its id
+  with `roadmap.` taken off, which is what lets this app keep two files without
+  either needing a name that says whose it is, and what makes
+  `rm -r .kehikot/checklist` a sentence somebody can say.
+
+  **The path is the partition.** Nothing here is keyed by project, because the
+  file that was opened is already one project's — switching project is opening a
+  different file, not filtering a bigger one. Two projects cannot see each
+  other's lists, and there is no code path by which they could.
+
+  **`projectPath` is nullable, and null is not a guess.** No project open, or a
+  host with no filesystem, and the pane says there is nowhere to read or write
+  and offers nothing to press. It does not fall back to this app's folder or to
+  `process.cwd()`: a guessed location writes somebody's list into a repository
+  they will never open, under a screen saying it was saved.
+
+  **The folder is ignored, once.** `.kehikot/` — the whole of it, not this one
+  module's folder inside it — is appended to the project's `.gitignore` the first
+  time this module's folder is made, with a comment saying what it is and that
+  removing the rule is how you share it. Append-only, never a rewrite: this is a
+  file in the user's own repository.
+
+  The search for a repository walks UP from the project, and the write stays at
+  the project root. A real case forced that: the thesis at
+  `…/CS-DEGREE/05_drafts/thesis_latex` has no `.git` of its own and sits inside
+  the CS-DEGREE repository, so a `<project>/.git` check would have left its
+  `.kehikot/` turning up in somebody's `git status` with nothing ignoring it. Git
+  honours a `.gitignore` in any directory, so a rule beside the folder does the
+  job without this app editing a file three levels up. A project with no `.git`
+  anywhere above it gets nothing.
 - **Its MCP door**, `/mcp`, with seven tools:
 
 ```
@@ -112,6 +150,21 @@ tick with its author, its time, its `viaMcp` and its note comes across, and
 `papers.json` is left on disk. See `list/checklists.ts` and
 `test/migration.test.ts`.
 
+The move out of `data/` is a second one, and it is a script rather than a read
+because this store has no project column — nothing in the old file says which
+project any of it belongs to, so a program that picked one would be guessing:
+
+```bash
+bun dev/migrate.ts /absolute/path/to/project           # says what would move
+bun dev/migrate.ts /absolute/path/to/project --apply   # moves it
+```
+
+It copies, reads the new file back **off disk**, checks every checklist, item
+and tick survived, and only then renames `data/checklists.json` to
+`data/checklists.json.migrated` — renamed, never deleted. A migration that
+half-happens leaves somebody's lists in two places with nothing to say which is
+current, which is worse than one that never started. See `test/migrate.test.ts`.
+
 Two arguments from the deleted files were carried rather than deleted with them,
 because they are still true: the store **refuses to write when its file will not
 parse** (for authored prose, "empty" and "broken" must not be indistinguishable,
@@ -164,9 +217,13 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 106 tests across the store, the
-migration of a real `papers.json`, the per-kehikko memory, target identity, every
-MCP tool's argument validation, and the components. The rest was driven in a real
+`bun test` covers the wire-independent half — 153 tests across the store, where
+it lives and what it refuses (a null project, a relative path, and either level
+of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
+`realpath`), the `.gitignore` gaining its rule exactly once and being found
+through a repository several levels up, the move out of `data/`, the migration of
+a real `papers.json`, the per-kehikko memory, target identity, every MCP tool's
+argument validation, and the components. The rest was driven in a real
 browser with Playwright; the probes are in the job scratch directory as
 `ck-new.mjs` (the pick-or-create screen, a checklist created in the UI and read
 back after a reload, the same list against two targets holding two independent
