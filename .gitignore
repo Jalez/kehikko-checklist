@@ -26,3 +26,10 @@ dist
 # own lists and every tick they filed, and it belongs to the machine the app runs
 # on rather than to any repository this directory happens to be sitting in.
 data
+
+# Modules on a kehikot host keep this project's data here — checklists, notes,
+# journeys, questions — as plain JSON, one folder per module, so it sits beside
+# the work instead of inside somebody else's app. It is ignored because it is
+# one person's working material and not the project's. Remove these lines to
+# share it with everyone who clones this repository.
+.kehikot/
