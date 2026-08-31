@@ -1,15 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { choose, reading, unchoose, writing, type Kept } from '../../list/keep.ts'
-import { connect, type Host, type HostEvents } from './host.ts'
+import { connect, type Connection, type HostEvents } from 'roadmap-module-protocol/client'
 import { pump } from './emit.ts'
 
 /**
  * The bridge, as one React value.
  *
- * `host.ts` is the wire and knows no React; this is the only file that turns
- * messages into state, and it is deliberately the only one. Two places driving
- * "what can this page see" would eventually disagree.
+ * The wire itself is `roadmap-module-protocol/client` and knows no React; this
+ * is the only file that turns messages into state, and it is deliberately the
+ * only one. Two places driving "what can this page see" would eventually
+ * disagree.
+ *
+ * ## What used to be underneath this, and where it went
+ *
+ * `wire/host.ts` and `wire/mailbox.ts` — 418 lines, byte-identical to the copy
+ * in eleven sibling modules. They are now one import. Nothing this page says on
+ * the wire changed; what changed is that the essays explaining WHY the orderings
+ * are what they are live in one place, next to the code that depends on them,
+ * instead of in twelve places free to drift apart. Two of those copies had
+ * already grown the same two bugs independently.
+ *
+ * The core client is used here rather than `…/client/react`, and the reason is
+ * the state below: this hook compares a kehikko by id before writing it, holds
+ * the kept map in a ref beside the state, and normalises two spellings of "no
+ * project" to one. A generic hook that handed back the whole context would make
+ * every one of those a thing done downstream, on a fresh object identity every
+ * two seconds. The client is a convenience and this is what it looks like to
+ * take the half of it that helps.
  *
  * ## What this hook stopped doing, and it is most of what it used to do
  *
@@ -130,7 +148,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [projectName, setProjectName] = useState<string | null>(null)
   const [kehikko, setKehikko] = useState<Kehikko | null>(null)
   const [kept, setKept] = useState<Kept>([])
-  const host = useRef<Host | null>(null)
+  const host = useRef<Connection | null>(null)
 
   /**
    * The kept list as the sender sees it, beside the state the page renders from.
@@ -228,23 +246,28 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
     }
 
     /**
-     * The connection is stored BEFORE the greeting is acted on, and the order is
-     * the whole of a bug that made a sibling module hang forever.
+     * The connection is stored BEFORE it is told to listen, and the order is the
+     * whole of a bug that made two sibling modules hang forever.
      *
-     * `connect` subscribes to the mailbox, and the mailbox replays what has
+     * `listen()` subscribes to the mailbox, and the mailbox replays what has
      * already arrived SYNCHRONOUSLY, inside that call. The greeting almost always
      * arrives before React mounts — that is the entire reason the mailbox exists
-     * — so `onHello` fires on this line, before `host.current` has been assigned.
-     * Anything reading `host.current` then finds null and quietly does nothing.
+     * — so `onHello` fires on that line. If `connect` also subscribed, it would
+     * fire before `host.current` had been assigned, and anything reading
+     * `host.current` then finds null and quietly does nothing.
      *
      * Worse, it works often enough to look fine. When the host happens to greet
      * after this effect returns — a slow module, a reload, a busy machine — the
      * assignment has already happened and everything behaves. A race whose good
      * outcome is the common one is the kind that ships.
      *
-     * So anything that fires too early is held and delivered the moment the
-     * assignment is done. Not deferred to a microtask: that would fix the symptom
-     * and leave the next reader to work out why the order mattered.
+     * What used to stand here was twenty lines that caught the too-early arrival
+     * in a box and replayed it once the assignment was done. It worked, and it
+     * was the wrong shape: it fixed one module's copy of a hazard every module
+     * had. `connect` and `listen` are two calls now, so the ordering is three
+     * plain lines that read in the order they happen, and the protocol package
+     * has a test that holds a one-step connect against the same greeting and
+     * watches it fail.
      */
     type Context = {
       epic: string | null
@@ -254,13 +277,6 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       kehikko: Kehikko | null
     }
-    type Arrival = [context: Context, state: string | null | undefined]
-    let ready = false
-    /* A box rather than a bare `let`, and only because of the compiler: this is
-       assigned inside a callback that `connect` invokes, which the flow analysis
-       cannot see, so a plain variable is narrowed to `null` for the rest of this
-       function and the replay below stops type-checking. */
-    const early: { arrival: Arrival | null } = { arrival: null }
     const deliver = (context: Context, state: string | null | undefined) => {
       /* The kept string arrives ONLY in the greeting, and is read before the
          context is applied so the first render already has the remembered
@@ -274,18 +290,14 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       }
       arrived(context)
     }
-    const heldEarly = (...arrival: Arrival) => {
-      if (ready) deliver(...arrival)
-      else early.arrival = arrival
-    }
 
-    host.current = connect(id, {
-      onHello: (context, state) => heldEarly(context as Context, state),
-      onContext: (context) => heldEarly(context as Context, undefined),
+    const live = connect(id, {
+      onHello: (context, state) => deliver(context as Context, state),
+      onContext: (context) => deliver(context as Context, undefined),
       onGoto: (message, answer) => goto.current(message, answer),
     })
-    ready = true
-    if (early.arrival) deliver(...early.arrival)
+    host.current = live
+    live.listen()
 
     const grace = setTimeout(() => {
       setWhere((was) => (was === 'listening' ? 'unhosted' : was))
@@ -313,8 +325,11 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
     return () => {
       stopPump()
       clearTimeout(grace)
-      host.current?.stop()
-      host.current = null
+      live.stop()
+      /* Cleared only if it is still ours. Under StrictMode the second mount has
+         already assigned its own connection by the time some cleanups run, and
+         a blind `null` here would leave the surviving mount holding nothing. */
+      if (host.current === live) host.current = null
     }
   }, [id])
 
