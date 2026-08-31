@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { Held, Target } from '@/store/ask.ts'
 import type { Edit } from '@/store/ask.ts'
+import { briefOf, saidOf, type Narrowed } from '../../list/scope.ts'
 import { targetKey, targetName, targetNoun } from '../../list/targets.ts'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -75,7 +76,9 @@ export function ChecklistView({
   held,
   targets,
   candidates,
+  narrowed,
   onTarget,
+  onWiden,
   onEdit,
   onAnother,
   trouble,
@@ -87,7 +90,11 @@ export function ChecklistView({
   targets: { target: Target; done: number }[]
   /** Targets the context is offering: the canvas's selection, and this epic's paper. */
   candidates: Target[]
+  /** Which rung of a paper this is, and how many ticks that rung is not showing. */
+  narrowed: Narrowed
   onTarget: (target: Target | null) => void
+  /** Climb one rung out of a narrowed paper. Never called when `narrowed.wider` is null. */
+  onWiden: () => void
   onEdit: (edit: Edit) => void
   /** Go back to the pick screen, forgetting the remembered choice for this kehikko. */
   onAnother: () => void
@@ -198,7 +205,9 @@ export function ChecklistView({
         target={target}
         targets={targets}
         candidates={candidates}
+        narrowed={narrowed}
         onTarget={onTarget}
+        onWiden={onWiden}
         busy={busy}
         room={room}
         open={sheet === 'target'}
@@ -402,7 +411,9 @@ function TargetRow({
   target,
   targets,
   candidates,
+  narrowed,
   onTarget,
+  onWiden,
   busy,
   room,
   open,
@@ -411,7 +422,9 @@ function TargetRow({
   target: Target | null
   targets: { target: Target; done: number }[]
   candidates: Target[]
+  narrowed: Narrowed
   onTarget: (target: Target | null) => void
+  onWiden: () => void
   busy: boolean
   room: Room
   /** Whether this is the overlay showing. Held by the card, so only one ever is. */
@@ -511,12 +524,36 @@ function TargetRow({
     </div>
   )
 
+  /*
+   * What the row CALLS the target, which is not always what the target is
+   * called.
+   *
+   * `targetName` prints a paper target as `epic · chapters:3_methods#sec:meth-design`.
+   * That is the right answer for an agent — it is an address — and it is sixty
+   * characters of one in a column that is two hundred and twenty pixels wide,
+   * most of it a slug this reader wrote as a `\label` and does not need read back
+   * to them. So on a paper the row prints the rung: the whole paper, the file's
+   * own name, or the words at the top of the section. A ref is left exactly as it
+   * was: `gh#105` is short, it is what a person typed, and there is no ladder
+   * over it.
+   *
+   * Nothing is lost. `saidOf` is the `title`, so the full address is one hover
+   * away, and the switcher below still lists every target by its real name.
+   */
+  const scoped = narrowed.scope.kind !== 'elsewhere'
+  const name = target ? (scoped ? briefOf(narrowed.scope) : targetName(target)) : 'nothing yet'
+
   return (
     <div className="shrink-0 border-t bg-muted/40 px-2 py-1.5">
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span className="shrink-0 text-[0.65rem] text-muted-foreground">Held against</span>
-        <span className="min-w-0 flex-1 break-words text-[0.75rem] font-medium" data-target>
-          {target ? targetName(target) : 'nothing yet'}
+        <span
+          className="min-w-0 flex-1 break-words text-[0.75rem] font-medium"
+          data-target
+          data-rung={narrowed.scope.kind}
+          title={scoped ? saidOf(narrowed.scope) : undefined}
+        >
+          {name}
         </span>
         <Button
           type="button"
@@ -553,6 +590,42 @@ function TargetRow({
           Nothing has said what this list is being held against, so nothing below can be ticked. Pick or type a target.
         </p>
       )}
+
+      {/*
+        * What the narrowing is hiding, and the one press that undoes it.
+        *
+        * This never folds away at any size, and that is the whole point of it.
+        * The ticks on this list belong to (list, target, item), so walking from
+        * a paper into one of its sections replaces every tick on screen with
+        * none — and a reader who ticked eight items yesterday and now reads
+        * `0/12` has no way to tell narrowing from this app having lost them. A
+        * container that cannot say what it is hiding is indistinguishable from a
+        * broken one, which is a sentence this workspace has learned the hard way
+        * more than once today.
+        *
+        * A number and a button, not a paragraph: the owner's standing complaint
+        * is too much prose in a narrow column, and the number is the fact. The
+        * list behind the number is already one press further on, in the switcher,
+        * which names every target with a count beside it.
+        */}
+      {narrowed.wider ? (
+        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[0.65rem] leading-4 text-muted-foreground">
+          {narrowed.elsewhere ? (
+            <span data-elsewhere={narrowed.elsewhere}>
+              {narrowed.elsewhere} ticked elsewhere in this paper.
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="underline underline-offset-2"
+            data-widen
+            onClick={onWiden}
+            title={saidOf(narrowed.wider)}
+          >
+            Show {briefOf(narrowed.wider)}
+          </button>
+        </p>
+      ) : null}
 
       {showing && !overlaid ? picking : null}
       {showing && overlaid ? (

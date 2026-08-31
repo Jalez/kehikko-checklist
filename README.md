@@ -1,7 +1,8 @@
 # Checklist
 
-Checklists somebody wrote, held against one issue, merge request, pull request
-or paper at a time. **Nothing here ships a list.**
+Checklists somebody wrote, held against one thing at a time: an issue, a merge
+request, a pull request, or a paper — the whole of it, one file of it, or the
+section somebody is reading. **Nothing here ships a list.**
 
 An app first. It holds every checklist a person or an agent has made, and every
 tick anybody has filed on one — **inside the project those checklists are
@@ -29,6 +30,22 @@ A **target** is a tracker reference (`gh#105`, `!44`, `#12`) or a place in a
 paper (an epic, optionally with a section of it). See `list/targets.ts` for what
 a paper target IS and, in particular, for the honest account of what happens to
 its ticks when the paper changes underneath them.
+
+On a paper the target **follows the reader**. The host broadcasts a `passage` — a
+file, a place in it, and the words that were there — and this module opens the
+file through its own fence, finds the heading those bytes fall under, and holds
+the list against **the whole paper**, **the file**, or **the section**: a title
+and the paragraphs beneath it, up to the next heading of the same or a shallower
+level. Three rungs, no passage rung, and the reason there is no fourth is in
+`list/scope.ts`. Narrowing hides ticks, so the row always says how many it is
+hiding and always offers one press back out. None of this touches a target that
+is a ref: an issue has no document, and nothing on that path so much as stats a
+disk.
+
+The scanner is this module's own, small, and honest about what it does not read —
+`file/sections.ts` — for the reason `kehikko-notes/notes/annotations.ts` argues:
+modules meet through the host or not at all, and making the paper module this
+one's data source would be a dependency neither manifest declares.
 
 ## What it does with nothing else running
 
@@ -217,13 +234,16 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 181 tests across the store, where
+`bun test` covers the wire-independent half — 254 tests across the store, where
 it lives and what it refuses (a null project, a relative path, and either level
 of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
 `realpath`), the `.gitignore` gaining its rule exactly once and being found
 through a repository several levels up, the move out of `data/`, the migration of
 a real `papers.json`, the per-kehikko memory, target identity, every MCP tool's
-argument validation, and the components. The rest was driven in a real
+argument validation, the components, the section scanner against the owner's real
+thesis, the scope ladder as a table of cases, and the fence — `test/confine.test.ts`
+exists entirely to try to get past it, because this module now opens documents a
+passage named. The rest was driven in a real
 browser with Playwright; the probes are in the job scratch directory as
 `ck-new.mjs` (the pick-or-create screen, a checklist created in the UI and read
 back after a reload, the same list against two targets holding two independent
@@ -242,7 +262,22 @@ directory, because what they measure is a claim the code makes and can lose:
 PLAYWRIGHT=/path/to/playwright CHROME=/path/to/chrome-headless-shell \
   node dev/room.probe.mjs     # what fits at 220x300, 320x200, 460x360, 900x700
   node dev/theme.probe.mjs    # the host's theme, both ways, at both machine settings
+
+ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4184" ./run.sh
+PLAYWRIGHT=… CHROME=… node dev/passage.probe.mjs
+                            # the container following a reader through a real thesis
 ```
+
+`passage.probe.mjs` is the reading the passage ladder is built on, and it runs
+against the owner's own thesis rather than a fixture. Before: six movements —
+`main.tex`, two chapters, two sections of one chapter, and nothing open — and the
+row said `thesis (the paper)` all six times, with a tick made in one section
+showing in the next. That is the report, reproduced. After: six distinct rows,
+`main.tex` / `1_introduction.tex` / `Research design` / `Model selection` /
+`5_discussion.tex` / `the whole paper`, each with its own ticks and each saying
+how many it is hiding. It also found the bug where pressing the way out landed
+back where it started, because `{epic, section: null}` on the wire is
+indistinguishable from a target nobody has narrowed.
 
 `room.probe.mjs` is the reading `src/view/room.ts` is built on. At 220x300 with
 six ordinary items this module used to spend 160 of its 300 pixels above the

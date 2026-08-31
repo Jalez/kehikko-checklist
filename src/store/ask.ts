@@ -1,4 +1,5 @@
 import type { Held, Summary } from '../../list/checklists.ts'
+import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
 
 /**
@@ -67,7 +68,7 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return response.json()
 }
 
-export type { Held, Summary, Target }
+export type { Held, Placed, Summary, Target }
 
 /**
  * Which project every request below is about.
@@ -114,13 +115,73 @@ export async function everyChecklist(projectPath: string | null): Promise<Everyt
   }
 }
 
-/** The target, spelled into a query the server reads back with the same rules. */
-function query(id: string, target: Target | null): string {
+/**
+ * Where the reader is pointing, as this page holds it: the wire's flattened
+ * string, parsed once.
+ *
+ * The parse lives here rather than in `use-roadmap.ts` because this is the file
+ * that spells it back onto a request, and a value that is flattened in one file
+ * and re-inflated in another is a format with two owners. See the essay on
+ * `passage` in the hook for why it travels flat at all.
+ */
+export interface Pointing {
+  path: string
+  from: number | null
+  to: number | null
+}
+
+export function pointing(passage: string): Pointing | null {
+  if (!passage) return null
+  const [path, , from, to] = passage.split('\t')
+  if (!path) return null
+  const start = from === '' || from === undefined ? null : Number(from)
+  const end = to === '' || to === undefined ? null : Number(to)
+  const ranged = start !== null && end !== null && Number.isFinite(start) && Number.isFinite(end) && end > start
+  return { path, from: ranged ? start : null, to: ranged ? end : null }
+}
+
+/**
+ * The target and the passage, spelled into a query the server reads back with
+ * the same rules.
+ *
+ * Both, and not one or the other, because they answer two different questions
+ * and the server needs both to answer honestly — see the essay on
+ * `/api/checklist` in `doors.ts`. The passage says where the reader IS; the
+ * target says what the ticks are about, which differs the moment somebody
+ * widens.
+ *
+ * ## `pick=1`, which is the whole of the difference between the two
+ *
+ * The path is sent whether or not the reader picked their target by hand,
+ * because the heading wants the file's real name and the words at the top of the
+ * section either way. What `pick` says is who DECIDED: without it the server may
+ * derive the target from the path, and with it the target is somebody's choice
+ * and the path is only there to be described.
+ *
+ * It exists because of a bug this probe found rather than one anybody predicted.
+ * Pressing "show the whole paper" produced `{epic, section: null}`, which is
+ * indistinguishable on the wire from a target nobody has narrowed yet — so the
+ * server dutifully resolved the path back into the section the reader had just
+ * climbed out of, and the control appeared to do nothing. A derivation must
+ * never overrule a decision, and this is the one bit that says which it is
+ * looking at.
+ */
+function query(id: string, target: Target | null, at: Pointing | null, picked: boolean): string {
   const parts = [`id=${encodeURIComponent(id)}`]
   if (target?.kind === 'ref') parts.push(`ref=${encodeURIComponent(target.ref)}`)
   if (target?.kind === 'paper') {
     parts.push(`epic=${encodeURIComponent(target.epic)}`)
     if (target.section) parts.push(`section=${encodeURIComponent(target.section)}`)
+  }
+  /* Sent only with a paper target. A checklist held against an issue has no
+     document and never will, and putting a path on that request would be asking
+     the server to open a file in order to answer a question that does not
+     involve one. That is the whole of "non-document targets keep working exactly
+     as they do", enforced one line above the fence rather than inside it. */
+  if (at && target?.kind === 'paper') {
+    parts.push(`path=${encodeURIComponent(at.path)}`)
+    if (at.from !== null && at.to !== null) parts.push(`from=${at.from}`, `to=${at.to}`)
+    if (picked) parts.push('pick=1')
   }
   return parts.join('&')
 }
@@ -129,6 +190,16 @@ export interface Opened {
   held: Held
   /** Every target this list has ticks against, so nothing recorded becomes unreachable. */
   targets: { target: Target; done: number }[]
+  /**
+   * Where the reader turned out to be, as the server read the file — not as this
+   * page guessed.
+   *
+   * Null whenever nothing narrowed: no passage, a ref target, a path the fence
+   * refused, a file with no headings this app recognises. Every one of those is
+   * the same instruction to the screen — say the paper — which is why they are
+   * one value rather than four.
+   */
+  placed: Placed | null
 }
 
 /**
@@ -144,13 +215,22 @@ export async function openChecklist(
   id: string,
   target: Target | null,
   projectPath: string | null,
+  at: Pointing | null = null,
+  picked = false,
 ): Promise<Opened | { error: string }> {
-  const response = await fetch(withProject(`/api/checklist?${query(id, target)}`, projectPath))
-  const body = (await response.json()) as { ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }
+  const response = await fetch(withProject(`/api/checklist?${query(id, target, at, picked)}`, projectPath))
+  const body = (await response.json()) as {
+    ok?: unknown
+    held?: unknown
+    targets?: unknown
+    placed?: unknown
+    error?: unknown
+  }
   if (body.ok === true && body.held) {
     return {
       held: body.held as Held,
       targets: Array.isArray(body.targets) ? (body.targets as { target: Target; done: number }[]) : [],
+      placed: (body.placed as Placed | null) ?? null,
     }
   }
   return { error: typeof body.error === 'string' ? body.error : 'this app could not read that checklist.' }

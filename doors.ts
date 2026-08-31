@@ -11,7 +11,9 @@ import {
   type Op,
 } from './list/checklists.ts'
 import { announce, since } from './list/outbox.ts'
+import { narrow, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
+import { placeOf } from './file/open.ts'
 
 /**
  * Every door this app answers on that is not the page itself.
@@ -211,7 +213,78 @@ const TARGET_PROPERTIES = {
       + 'describing different prose. Omit it to hold the list against the whole paper, which is a different target '
       + 'from any section in it.',
   },
+  /*
+   * The passage arguments, which are how an agent asks about the place a person
+   * is actually standing rather than about the whole paper.
+   *
+   * They exist because the page grew the same ability and the two doors have to
+   * be answerable in the same terms. A person moving between chapters of their
+   * thesis sees the checklist follow them; an agent that could only ask about
+   * the whole paper would be looking at a different list from the one on the
+   * owner's screen, and would tick against a target nobody is reading.
+   *
+   * `path` and `section` are two spellings of one thing and `section` wins when
+   * both are given, deliberately: a named section is somebody's decision and a
+   * path is this program's derivation from one, and a derivation must not
+   * overrule a decision. See `resolve()` below.
+   */
+  path: {
+    type: 'string',
+    description:
+      'Optional, and only with an epic: the file of the paper being looked at, e.g. '
+      + '"chapters/3_methods.tex" or its absolute path. This app opens the file and works out which section '
+      + 'the offsets below fall in, so you do not have to know the section id. Ignored if section is given.',
+  },
+  from: {
+    type: 'number',
+    description:
+      'Optional, with path: the first BYTE of what is being looked at in that file. Give both from and to, or '
+      + 'neither — with neither, the target is the file rather than a section in it.',
+  },
+  to: {
+    type: 'number',
+    description: 'Optional, with path and from: one byte past the last.',
+  },
 } as const
+
+/**
+ * The target a set of arguments names, with a passage resolved into a section
+ * where one was given.
+ *
+ * One function for the MCP door and the page's own read door, so an agent and a
+ * person cannot end up naming the same place two ways — which is the split this
+ * module keeps everywhere: a door bounds, a store decides, and target identity
+ * is decided once.
+ *
+ * A `ref` short-circuits everything below it. That is not a special case, it is
+ * the whole guarantee that non-document targets are untouched by this change: an
+ * issue has no file, no offsets and no sections, and nothing here so much as
+ * stats a disk on the way to answering about one.
+ */
+function resolve(args: Record<string, unknown>, where: string | null): Target | null {
+  const named = readTarget(args)
+  if (!named || named.kind === 'ref' || named.section) return named
+  /* `pick` says the caller DECIDED this target rather than leaving it to be
+     derived. It exists for one case that is otherwise inexpressible: a reader
+     who widened to the whole paper sends `{epic, section: null}`, which looks
+     exactly like a target nobody has narrowed yet, and without this the path
+     below would resolve them straight back into the section they climbed out of.
+     A derivation must never overrule a decision. Only the page sends it; an
+     agent naming an epic and a path plainly wants the path read. */
+  if (args.pick) return named
+  const path = str(args.path, MAX_PROJECT)
+  if (!path) return named
+  const from = typeof args.from === 'number' && Number.isFinite(args.from) ? Math.trunc(args.from) : null
+  const to = typeof args.to === 'number' && Number.isFinite(args.to) ? Math.trunc(args.to) : null
+  /* A half-range is refused rather than half-honoured, which is the protocol's
+     own rule for a passage: "a half-range is not a coarser answer, it is a
+     malformed one". Answered by staying on the file rung, since that is the
+     coarser answer the caller would have got by sending neither. */
+  const range = from !== null && to !== null && to > from ? { from, to } : null
+  const placed = placeOf(where, path, range?.from ?? null, range?.to ?? null)
+  const scope = scopeOf(named.epic, placed)
+  return targetOf(scope) ?? named
+}
 
 /**
  * The seven tools, which are the whole of what an agent can do here.
@@ -418,11 +491,40 @@ function listText(id: string, target: Target | null, where: string): string {
     const who = done ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''})` : ''
     return `${at + 1}. [${done ? 'x' : ' '}] ${row.item.id} — ${row.item.text}${who}`
   })
-  const others = targetsOf(id, where).filter((row) => !target || targetKey(row.target) !== targetKey(target))
+  const all = targetsOf(id, where)
+  const others = all.filter((row) => !target || targetKey(row.target) !== targetKey(target))
   const tail = others.length
     ? `\n\nAlso held against: ${others.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
     : ''
-  return `${head}\n${lines.join('\n')}${tail}`
+  /*
+   * What the narrowing is hiding, said in the answer rather than left to be
+   * inferred from the tail above.
+   *
+   * The tail lists every other target this list has ticks against, which an
+   * agent could add up for itself — but an agent that did not add it up would
+   * read `0/12` on a section of a paper somebody has half finished and conclude
+   * that nothing has been done, which is the same lie the page is careful not to
+   * tell. So the count is stated, in the same terms the page states it, with the
+   * one word that undoes it: drop `path`, or drop `section`.
+   */
+  const narrowed = target && target.kind === 'paper' && target.section
+    ? narrow(
+      /* The scope is built here rather than read back through `scopeOf`,
+         because `scopeOf` starts from a passage and this starts from a target
+         somebody typed — there may be no file at all behind a section id an
+         agent named directly. `narrow` reads the epic and the rung and nothing
+         else, so the file and the title are the id itself: it is what would be
+         printed if either were ever shown, and nothing here shows them. */
+      { kind: 'section', epic: target.epic, file: target.section, id: target.section, title: target.section },
+      all,
+    ).elsewhere
+    : 0
+  const hidden = narrowed
+    ? `\n\nThis is one place in that paper, not the whole of it: ${narrowed} tick${narrowed === 1 ? ' is' : 's are'} `
+      + `held against somewhere else in ${target?.kind === 'paper' ? target.epic : 'this paper'}, and not shown `
+      + 'above. Ask again without a section (or without a path) to see the paper whole.'
+    : ''
+  return `${head}\n${lines.join('\n')}${tail}${hidden}`
 }
 
 /**
@@ -498,8 +600,11 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
   } else if (name === 'drop_checklist_item') {
     op = { op: 'drop', id, item, by, viaMcp: true }
   } else {
-    /* check_item, and the one operation that involves a target at all. */
-    target = readTarget(args)
+    /* check_item, and the one operation that involves a target at all. It gets
+       the same passage resolution the reading tool does, so an agent that asked
+       "what is owed here" and then ticks something is ticking against the place
+       it was answered about rather than against the whole paper. */
+    target = resolve(args, where)
     if (!target) {
       throw new Error(
         'check_item needs to say WHAT is being ticked off: a ref (an issue, merge request or pull request, e.g. '
@@ -626,7 +731,7 @@ function mcp(rpc: Rpc): Reply {
            complaint about a ref nobody sent would be a refusal of the wrong
            thing. */
         const gave = args.ref !== undefined || args.epic !== undefined
-        const target = gave ? readTarget(args) : null
+        const target = gave ? resolve(args, where) : null
         if (gave && !target) {
           return text(
             'checklists was given something that is not a target. It takes a ref like "gh#105" or "!44", or an epic '
@@ -723,13 +828,43 @@ export function answer(
    * three parts and a path would have to encode them into one — which is exactly
    * the ambiguity `list/targets.ts` builds its key to avoid. Reads are ungated
    * like every other read here; a checklist is not a secret.
+   *
+   * ## Where the reader is standing is answered HERE, and not on a door of its own
+   *
+   * The obvious build was `/api/where`: the page sends the passage, gets back a
+   * file and a section, and then asks this door for the ticks. Two round trips,
+   * and — the part that decided it — two answers that can disagree. Between the
+   * first and the second the reader moves, the second is about a target the
+   * first never named, and the container prints one heading over another
+   * heading's ticks. That is the "two halves quietly disagreeing" failure this
+   * workspace keeps finding, built in on purpose.
+   *
+   * So the passage rides on this request, the section is resolved before the
+   * ticks are read, and `placed` comes back beside them: one answer, about one
+   * place, or none. The page draws its heading from what came back rather than
+   * from what it asked for.
    */
   if (path === '/api/checklist' && method === 'GET') {
     const id = str(query.get('id'), MAX_ID)
     if (!id) return bad('that did not say which checklist. Ask /api/checklists for the ids.')
+    const where = project(query.get('project'))
     const gave = query.has('ref') || query.has('epic')
     const target = gave
-      ? readTarget({ ref: query.get('ref'), epic: query.get('epic'), section: query.get('section') })
+      ? resolve(
+        {
+          ref: query.get('ref'),
+          epic: query.get('epic'),
+          section: query.get('section'),
+          path: query.get('path'),
+          /* `undefined` and not `Number(null)`, which is zero. A zero-to-zero
+             range is a half-answer this door would then have to un-invent, and
+             `resolve` would be reading a claim nobody made. */
+          from: query.has('from') ? Number(query.get('from')) : undefined,
+          to: query.has('to') ? Number(query.get('to')) : undefined,
+          pick: query.get('pick') === '1',
+        },
+        where,
+      )
       : null
     if (gave && !target) {
       return bad(
@@ -738,7 +873,6 @@ export function answer(
         + 'or a slash.',
       )
     }
-    const where = project(query.get('project'))
     const { held: on, trouble, nowhere } = held(id, target, where)
     if (!on) {
       return ok({
@@ -751,7 +885,27 @@ export function answer(
             : `there is no checklist "${id}" in this project.`),
       })
     }
-    return ok({ ok: true, held: on, targets: targetsOf(id, where), trouble, nowhere })
+    /*
+     * `placed` is answered from the passage EVEN WHEN a section was named, and
+     * that is not redundant with the target above.
+     *
+     * The two say different things. The target is what the ticks belong to,
+     * which is whatever the reader last settled on — including a widened one,
+     * where they climbed out of a section on purpose. `placed` is where the
+     * reader's document actually is. The page needs both: one to draw the ticks,
+     * the other to know that widening is still undoable and that the passage has
+     * moved out from under a pick.
+     */
+    const passage = str(query.get('path'), MAX_PROJECT)
+    const placed = passage
+      ? placeOf(
+        where,
+        passage,
+        query.has('from') ? Number(query.get('from')) : null,
+        query.has('to') ? Number(query.get('to')) : null,
+      )
+      : null
+    return ok({ ok: true, held: on, targets: targetsOf(id, where), placed, trouble, nowhere })
   }
 
   /*

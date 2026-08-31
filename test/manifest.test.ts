@@ -88,6 +88,29 @@ describe('the manifest', () => {
     expect(MANIFEST.declares.prompt).toBe(false)
   })
 
+  test('says it reacts to a passage as well as a selection, because it now does', () => {
+    /* The claim and the behaviour are asserted in two places on purpose. This
+       one is the REGISTRY's half — it is what a person browsing the module list
+       sees, and the whole point of the field is that a relationship somebody can
+       read is drawn from it. The behaviour's half is `test/scope.test.ts` for
+       the ladder and `dev/passage.probe.mjs` for a real host moving between two
+       files of a real thesis. A `reacts` entry with nothing behind it would be a
+       name in somebody's registry that is not true of this program, which is
+       exactly what the essay this replaced refused to write. */
+    expect(MANIFEST.reacts).toEqual(['selection', 'passage'])
+  })
+
+  test('still does not ask to SET a passage, so there is no echo to guard against', () => {
+    /* This module reads where the reader is and never says where they should be.
+       That is why there is no echo guard anywhere in it, and why there should not
+       be one: two sibling modules on this canvas need one and a third was found
+       not to, and copying either answer would be machinery against a hazard this
+       program does not have. The day this flips, the guard has to arrive with
+       it. */
+    expect(MANIFEST.declares.uses).not.toContain('passage:set')
+    expect(MANIFEST.declares.uses).not.toContain('selection:set')
+  })
+
   test('keeps its id, so ticks already filed under it are still this module’s', () => {
     expect(ID).toBe('roadmap.checklist')
   })

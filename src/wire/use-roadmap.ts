@@ -123,6 +123,30 @@ export interface Roadmap {
    * somebody to type it.
    */
   selection: string[]
+  /**
+   * Where in a document the reader is pointing, as the host last said it.
+   *
+   * The other half of the same question `selection` answers, and new here. A
+   * `selection` is a set of tracker references somebody clicked; a `passage` is a
+   * file, a place in it and the words that were there. This module reacted to
+   * the first and not the second, which is exactly the report this change
+   * answers: the container did not move when the reader moved between the files
+   * of their thesis, because nothing on this page had ever been told that they
+   * had.
+   *
+   * Held as ONE STRING rather than as the protocol's object, and that is
+   * load-bearing rather than tidy. A context arrives after every selection
+   * change anywhere on the canvas, and a fresh `{path, from, to, …}` with
+   * identical contents each time would be a new identity in every memo and every
+   * effect downstream — including the fetch, which would then re-run several
+   * times a second while a reader does nothing. A string compares by value, so
+   * React bails out of the render when nothing moved. `src/app.tsx` parses it
+   * back in one memo.
+   *
+   * `''` means no document is open, which is the protocol's `passage: null` and
+   * is a real state rather than a missing one.
+   */
+  passage: string
   /** Which checklist was last picked, per kehikko, as the host kept it for us. */
   kept: Kept
   /** Remember a pick for one kehikko, or forget it. Silent when nothing is framing this page. */
@@ -144,6 +168,7 @@ export type GotoHandler = NonNullable<HostEvents['onGoto']>
 export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void): Roadmap {
   const [where, setWhere] = useState<Where>('listening')
   const [selection, setSelection] = useState<string[]>([])
+  const [passage, setPassage] = useState('')
   const [epic, setEpic] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [projectName, setProjectName] = useState<string | null>(null)
@@ -201,12 +226,32 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       projectPath: string | null
       theme: 'light' | 'dark'
       selection: string[]
+      passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
     }) => {
       wearTheme(document.documentElement, context.theme)
 
       setWhere('hosted')
       setSelection(context.selection)
+      /*
+       * Flattened on arrival, for the reason `passage` above gives, and
+       * flattened HERE rather than at the one place that reads it — because the
+       * whole value of doing it is that the setter is a no-op when nothing
+       * moved, and a setter given a fresh object is never a no-op.
+       *
+       * The spelling is the four fields a target can be derived from, tab
+       * separated, in a fixed order. `quoted` is deliberately not among them:
+       * this module never re-anchors anything by its words — a tick is filed
+       * against a section id, not against a range — so carrying a quote would be
+       * carrying a document through a frame for nothing, and would make this
+       * string change when only the highlight did.
+       */
+      const here = context.passage
+      setPassage(
+        here && typeof here.path === 'string' && here.path
+          ? [here.path, here.page ?? '', here.from ?? '', here.to ?? ''].join('\t')
+          : '',
+      )
       setEpic(context.epic)
       /*
        * Normalised to null the moment it arrives, rather than at each call site.
@@ -276,6 +321,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       projectPath: string | null
       theme: 'light' | 'dark'
       selection: string[]
+      passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
     }
     const deliver = (context: Context, state: string | null | undefined) => {
@@ -357,7 +403,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
   return useMemo(
-    () => ({ where, epic, projectPath, project: projectName, kehikko, selection, kept, remember, resize }),
-    [where, epic, projectPath, projectName, kehikko, selection, kept, remember, resize],
+    () => ({ where, epic, projectPath, project: projectName, kehikko, selection, passage, kept, remember, resize }),
+    [where, epic, projectPath, projectName, kehikko, selection, passage, kept, remember, resize],
   )
 }

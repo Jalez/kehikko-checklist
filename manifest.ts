@@ -190,8 +190,17 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   id: ID,
   name: 'Checklist',
   version: VERSION,
+  /*
+   * The granularity in this sentence is the thing that changed, so the sentence
+   * changed with it. It used to say "or paper", which was true and is now too
+   * coarse to be honest: a paper target is the whole paper, one file of it, or
+   * one section of one file, and the container follows the reader between them.
+   * A summary that still said "paper" would be describing the program this was
+   * before the passage arrived.
+   */
   summary:
-    'Checklists somebody wrote, held against one issue, merge request, pull request or paper at a time — nothing here ships a list.',
+    'Checklists somebody wrote, held against one thing at a time: an issue, a change, or a paper — the whole of it, '
+    + 'one file, or the section being read. Nothing here ships a list.',
   /**
    * What an agent should do about this module, given that it is here.
    *
@@ -214,8 +223,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'about the other. Before calling anything done, satisfy each item or say plainly which you could not, and '
     + 'why. You MAY tick, with `check_item`, under your own name — every tick records that it came through the MCP '
     + 'door and a person can take it back with one press. So tick what you actually did, and leave what you cannot '
-    + 'judge. If no list fits, `create_checklist` makes one, but look first: two lists saying nearly the same thing '
-    + 'is the easiest damage to do here.',
+    + 'judge. On a paper, give `path` (and `from`/`to`) instead of a section: this answers about the file or the '
+    + 'heading those bytes fall in, which is what the reader is looking at. If no list fits, `create_checklist` '
+    + 'makes one — but look first.',
   entry: '/app',
   modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
   mcp: {
@@ -225,7 +235,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   },
   extensions: { emits: [FORMAT], consumes: [] },
   /**
-   * ## `reacts: ['selection']`, which is a description and not a request
+   * ## `reacts: ['selection', 'passage']`, which is a description and not a request
    *
    * The selection decides what a tick can be filed against. `src/app.tsx`
    * builds its candidate targets out of the selected refs and drops a locally
@@ -247,12 +257,34 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * asked for and nothing is granted; see the essay on `reacts` in the
    * protocol's `manifest.ts`.
    *
-   * `passage` is deliberately not here. A checklist is filed against a ref, and a byte
-   * range in a document is not one. Ticking a word here that the code does
-   * not act on would put a name in somebody's registry that is not true of
-   * this program.
+   * ## `passage`, which used to be refused here and is now earned
+   *
+   * What stood here said: *"`passage` is deliberately not here. A checklist is
+   * filed against a ref, and a byte range in a document is not one."* The first
+   * half of that was never true — `list/targets.ts` has held a paper target
+   * since the day it was written — and the second half is still true and is the
+   * reason this took a ladder rather than a field. A tick is NOT filed against a
+   * byte range. It is filed against a section id: a `\label{}` the author chose,
+   * or the file the reader is in. So the passage is read, resolved against the
+   * document, and thrown away, and what is written down is a name that will
+   * still mean the same thing next week. The whole argument is at the top of
+   * `list/scope.ts`, including why the ladder stops before a passage rung.
+   *
+   * The line is earned rather than aspirational, which is the test this field
+   * has to pass: the page is DIFFERENT after a passage arrives — a different
+   * target, a different set of ticks, a different heading — and
+   * `dev/passage.probe.mjs` moves a host between two files of a real thesis and
+   * asserts it.
+   *
+   * `passage:set` is deliberately still not declared, and there is nothing here
+   * that would use it. This module reads passages and never sets one, so it
+   * cannot hear its own echo and needs no guard against one. That is worth
+   * saying because two sibling modules on this canvas DO need such a guard and a
+   * third was found not to: the reasoning differs each time and copying either
+   * answer would be adding machinery against a hazard this program does not
+   * have.
    */
-  reacts: ['selection'],
+  reacts: ['selection', 'passage'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['events:emit', 'state:keep'],

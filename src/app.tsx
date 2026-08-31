@@ -4,7 +4,9 @@ import { ID } from '../manifest.ts'
 import { chosenOn } from '../list/keep.ts'
 import type { Target } from '../list/targets.ts'
 
-import { edit, everyChecklist, openChecklist, type Edit, type Opened, type Summary } from '@/store/ask.ts'
+import { narrow, scopeOfTarget, targetOf } from '../list/scope.ts'
+
+import { edit, everyChecklist, openChecklist, pointing, type Edit, type Opened, type Summary } from '@/store/ask.ts'
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 import { ChecklistView } from '@/view/checklist.tsx'
 import { Choose, Unplaced } from '@/view/choose.tsx'
@@ -141,11 +143,20 @@ export function App() {
 
   const onDoor = useCallback(() => setDoorbell((was) => was + 1), [])
 
-  const { where, epic, projectPath, project, kehikko, selection, kept, remember, resize } = useRoadmap(
+  const { where, epic, projectPath, project, kehikko, selection, passage, kept, remember, resize } = useRoadmap(
     ID,
     onGoto,
     onDoor,
   )
+
+  /**
+   * Where the reader is pointing, inflated once from the string the wire holds.
+   *
+   * Memoised on that string, so a context that re-states the same passage — which
+   * is every context, since one arrives after any change anywhere on the canvas —
+   * hands back the same object and does not re-run the fetch below.
+   */
+  const at = useMemo(() => pointing(passage), [passage])
 
   /**
    * Whether there is anywhere at all to read from or write to.
@@ -221,10 +232,51 @@ export function App() {
    */
   const target = picked ?? candidates[0] ?? null
 
+  /**
+   * Whether the target in front was DECIDED here or derived from the passage.
+   *
+   * A bug the probe found rather than one this comment anticipated: pressing
+   * "show the whole paper" from a file set `picked` to `{epic, section: null}`,
+   * the next fetch sent that target alongside the path, and the server — which
+   * cannot tell a deliberate "no section" from an unfilled one — resolved the
+   * path straight back into the section the reader had just climbed out of. The
+   * control appeared to do nothing, twice, and looked exactly like the bug it
+   * was written to fix.
+   *
+   * The rule this settles is worth more than the fix: a passage exists to DERIVE
+   * a default, and a derivation must never overrule a decision. The path still
+   * travels, because the heading wants the file's real name and the section's
+   * real words either way; what this bit says is which of the two the server may
+   * act on. The pick is dropped the moment the reader moves to another passage,
+   * so it cannot strand anybody on a rung of a file they have left.
+   */
+  const decided = picked !== null
+
   const selected = selection.join(' ')
   useEffect(() => {
     if (selected) setPicked(null)
   }, [selected])
+
+  /**
+   * And dropped again when the reader moves to somewhere else in the document.
+   *
+   * The same argument as the line above it, for the other half of "what am I
+   * looking at" — and the more important half here, because the pick this drops
+   * is usually a WIDEN. Somebody standing in section 3 who climbs out to the
+   * whole file has made a claim about section 3's chapter, not a standing
+   * preference; carry it into the next chapter they open and the container shows
+   * one file's ticks under another file's heading. That is the two-halves-
+   * disagreeing failure, and it is the reason this module keeps no scope in its
+   * `state:keep` string either: a remembered scope outlives the context that
+   * justified it, and this session-local one is dropped the moment its context
+   * does.
+   *
+   * Keyed on the flat passage string rather than on `at`, so the effect and the
+   * hook are comparing the same thing by value.
+   */
+  useEffect(() => {
+    setPicked((was) => (was?.kind === 'paper' ? null : was))
+  }, [passage])
 
   /**
    * Go back to the pick screen, forgetting the choice for this kehikko.
@@ -267,7 +319,7 @@ export function App() {
       return
     }
     let alive = true
-    void openChecklist(chosen, target, projectPath)
+    void openChecklist(chosen, target, projectPath, at, decided)
       .then((answer) => {
         if (!alive) return
         if ('error' in answer) {
@@ -285,7 +337,7 @@ export function App() {
     return () => {
       alive = false
     }
-  }, [chosen, target, doorbell, forget, projectPath])
+  }, [chosen, target, doorbell, forget, projectPath, at, decided])
 
   const pick = useCallback(
     (id: string) => {
@@ -325,18 +377,24 @@ export function App() {
         /* Painted from what came back, never toggled locally. The server holds
            the order and the ticks, and a list that reordered itself on a write
            that was refused would be showing an order the file does not have. */
-        if (answer.held) setOpened((was) => ({ held: answer.held!, targets: was?.targets ?? [] }))
+        /* `placed` is carried through rather than cleared. It is a fact about
+           where the reader's document is, and a tick did not move them — dropping
+           it here would make the heading fall back to the file for one frame
+           after every press, which reads as the container losing its place. */
+        if (answer.held) {
+          setOpened((was) => ({ held: answer.held!, targets: was?.targets ?? [], placed: was?.placed ?? null }))
+        }
         /* And the targets are re-read, because a tick may have made a new one or
            emptied the last one — which is what the target switch is drawn from. */
         if (chosen) {
-          const again = await openChecklist(chosen, target, projectPath)
+          const again = await openChecklist(chosen, target, projectPath, at, decided)
           if (!('error' in again)) setOpened(again)
         }
       } finally {
         setBusy(false)
       }
     },
-    [chosen, kehikko, projectPath, remember, target],
+    [at, chosen, decided, kehikko, projectPath, remember, target],
   )
 
   const onCreate = useCallback((name: string) => void onEdit({ op: 'create', name }), [onEdit])
@@ -403,6 +461,40 @@ export function App() {
             ? 'Nothing is framing this page, so there is no kehikko to remember a choice against. Everything below is held here, on this machine, and works with nothing else running — the pick will last until this page is reloaded.'
             : 'Pick the checklist this work is held to, or start one. Nothing here ships a list.'
 
+  /**
+   * Which rung of the paper this container is on, and what that rung is not
+   * showing.
+   *
+   * Both derived from the ANSWER rather than from the request: `held.target` is
+   * the target the server actually read the ticks for — which is the passage
+   * resolved to a section, unless somebody widened — and `placed` is where the
+   * reader's document actually is. Deriving the heading from what this page
+   * asked for instead would let the two disagree for exactly as long as a fetch
+   * takes, which is the whole class of bug the single round trip was arranged to
+   * remove. See the essay on `/api/checklist` in `doors.ts`.
+   *
+   * `narrow` is pure and lives in `list/scope.ts` with a table of cases beside
+   * it, for the same reason `src/view/room.ts` does: the ladder is a decision,
+   * decisions are testable without a browser, and a decision made inline in a
+   * component is one nobody can put a case to.
+   */
+  const scope = scopeOfTarget(opened?.held.target ?? null, opened?.placed ?? null)
+  const narrowed = narrow(scope, opened?.targets ?? [])
+
+  /**
+   * Climb one rung out, by picking the wider target by hand.
+   *
+   * A pick and not a mode, deliberately. Widening is the same act as choosing a
+   * target off the switcher — it says "hold this list against that instead" —
+   * so it goes through the same state, is overruled by the same things, and is
+   * dropped when the passage moves for the reason the effect above gives. A
+   * separate `widened` flag would be a second answer to "what are these ticks
+   * about", which is the thing this app refuses everywhere else.
+   */
+  const onWiden = useCallback(() => {
+    if (narrowed.wider) setPicked(targetOf(narrowed.wider))
+  }, [narrowed.wider])
+
   const screen = nowhere && where !== 'listening' ? (
     /* Above every other screen, and above `chosen`, because it is not a variant
        of the pick screen — there is nothing to pick FROM. A remembered choice
@@ -414,7 +506,9 @@ export function App() {
         held={opened.held}
         targets={opened.targets}
         candidates={candidates}
+        narrowed={narrowed}
         onTarget={setPicked}
+        onWiden={onWiden}
         onEdit={(change) => void onEdit(change)}
         onAnother={another}
         trouble={trouble}

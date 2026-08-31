@@ -43,10 +43,33 @@
  *
  * So a paper target is **the epic plus a section id**, where the section id is a
  * name somebody chose to be stable: a `\label{}`, the stem of a chapter file,
- * the id an outline already uses. This app does not read the paper, does not
- * invent the id, and does not check that it exists — it cannot do any of those
- * without becoming a second, worse copy of `kehikko-paper`. It stores the name
- * it was given.
+ * the id an outline already uses. This file stores the name it is given and has
+ * no opinion about where it came from.
+ *
+ * ## One sentence here used to be broader than it is now
+ *
+ * It read: *"This app does not read the paper, does not invent the id, and does
+ * not check that it exists."* Two of those three are still true and the middle
+ * one is not. This app now **does** open a `.tex` file — through its own fence,
+ * with its own small scanner, because the reader's container has to follow them
+ * between the files and sections of a paper (`file/sections.ts`, `list/scope.ts`)
+ * — and where the reader is standing inside one, it **derives** the id rather
+ * than waiting to be handed one.
+ *
+ * What has not changed is the shape of the id or who it belongs to. The
+ * derivation prefers the author's own `\label{}` over anything this program
+ * could invent, falls back to the file's path when there is no heading above the
+ * reader, and refuses to narrow at all rather than mint an id it would have to
+ * truncate. It is not a page number and it is not a byte range, which is what
+ * every paragraph below is about. And it is still never CHECKED: nothing here
+ * asks whether a stored id still names a section, because a target with ticks on
+ * it is a record of work done and not a claim about today's document.
+ *
+ * The other half of that old sentence — that this app must not become a second,
+ * worse copy of `kehikko-paper` — is exactly why the scanner is forty lines that
+ * find headings and nothing else, and why the alternative (asking the paper
+ * module) was refused rather than taken. The argument is at the top of
+ * `file/sections.ts`.
  *
  * **What breaks, said plainly, because a scheme that is honest about its failure
  * is worth more than one that pretends not to have one:**

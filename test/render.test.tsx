@@ -6,6 +6,19 @@ import { ChecklistView } from '../src/view/checklist.tsx'
 import { Choose, Unplaced } from '../src/view/choose.tsx'
 import { Nowhere } from '../src/view/nowhere.tsx'
 import { room } from '../src/view/room.ts'
+import { narrow, scopeOf } from '../list/scope.ts'
+
+/**
+ * The scope every case here is in unless it says otherwise: no paper, so no
+ * ladder.
+ *
+ * These cases were all written before the container followed a reader, and every
+ * one of them is about something else — the words on a row, who ticked it, what
+ * a narrow container stops drawing. Handing them the `elsewhere` rung keeps them
+ * asking what they were written to ask. The ladder's own cases are in
+ * `test/scope.test.ts`, where they can be a table.
+ */
+const NOWHERE = narrow({ kind: 'elsewhere' }, [])
 
 /**
  * The components, rendered for real.
@@ -133,7 +146,7 @@ describe('the pick screen', () => {
 describe('the checklist', () => {
   test('says which target it is held against, and that ticks belong to the pair', () => {
     render(
-      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <ChecklistView narrowed={NOWHERE} onWiden={noop} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('gh#105')).toBeTruthy()
     expect(screen.getByText(/keeps its own/)).toBeTruthy()
@@ -142,14 +155,14 @@ describe('the checklist', () => {
   test('prints who ticked an item and that it came through the MCP door', () => {
     /* Never a bare checkmark. An agent's claim has to be legible as one. */
     render(
-      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <ChecklistView narrowed={NOWHERE} onWiden={noop} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
   })
 
   test('draws a 400-character item as wrapped prose in a min-w-0 column', () => {
     render(
-      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <ChecklistView narrowed={NOWHERE} onWiden={noop} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     const text = screen.getByText(LONG)
     expect(text.className).toContain('break-words')
@@ -161,6 +174,8 @@ describe('the checklist', () => {
     const sent: unknown[] = []
     render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -178,6 +193,8 @@ describe('the checklist', () => {
   test('with no target the rows are text rather than controls, and the row above says why', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
         targets={[]}
         candidates={[]}
@@ -200,6 +217,8 @@ describe('the checklist', () => {
     const sent: unknown[] = []
     render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -221,6 +240,8 @@ describe('the checklist', () => {
   test('the target switch offers what the context proposes and what the list already has ticks against', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
         candidates={[{ kind: 'ref', ref: 'gh#105' }]}
@@ -239,6 +260,8 @@ describe('the checklist', () => {
   test('a target proposed by the canvas and already ticked against is drawn once, not twice', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[{ target: { kind: 'ref', ref: 'gh#105' }, done: 1 }]}
         candidates={[{ kind: 'ref', ref: 'gh#105' }]}
@@ -316,6 +339,8 @@ describe('a small container', () => {
     const sent: unknown[] = []
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -342,6 +367,8 @@ describe('a small container', () => {
   test('leaving and removing are still reachable, from the one press that is left', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -366,6 +393,8 @@ describe('a small container', () => {
        exactly what `list/checklists.ts` refuses. */
     render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -383,6 +412,8 @@ describe('a small container', () => {
   test('who WROTE an unticked line moves into the row’s title rather than a line of its own', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -403,6 +434,8 @@ describe('a small container', () => {
     const sent: unknown[] = []
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -426,6 +459,8 @@ describe('a small container', () => {
        name and the target away, which is worse than not snapping at all. */
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -449,6 +484,8 @@ describe('a small container', () => {
   test('the paragraph explaining a target goes; the sentence saying nothing can be ticked does not', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -467,6 +504,8 @@ describe('a small container', () => {
     cleanup()
     render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
         targets={[]}
         candidates={[]}
@@ -484,6 +523,8 @@ describe('a small container', () => {
   test('the target switch opens over the frame rather than pushing the list off the bottom', () => {
     const { container } = render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
         candidates={[{ kind: 'ref', ref: 'gh#105' }]}
@@ -507,6 +548,8 @@ describe('a small container', () => {
        the way out and takes the sentence with it. */
     render(
       <ChecklistView
+        narrowed={NOWHERE}
+        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -572,5 +615,131 @@ describe('a small container', () => {
     expect(note.title).toContain('cannot tell which kehikko it is on')
     /* And the pick screen is still there, at every size. */
     expect(screen.getByText('Pick a checklist')).toBeTruthy()
+  })
+})
+
+describe('the checklist, following a reader through a paper', () => {
+  const inSection = scopeOf('thesis', {
+    file: 'chapters/3_methods.tex',
+    section: 'chapters:3_methods#sec:meth-design',
+    title: 'Research design',
+  })
+  const onPaper = { kind: 'paper' as const, epic: 'thesis', section: null }
+  const ticked = [
+    { target: onPaper, done: 8 },
+    { target: { kind: 'paper' as const, epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' }, done: 2 },
+  ]
+
+  test('says the words at the top of the section, not the id it files ticks under', () => {
+    /* `targetName` would print `thesis · chapters:3_methods#sec:meth-design`,
+       which is sixty characters of an address in a 220-pixel column, most of it
+       a slug the reader wrote as a \label. The address is still one hover
+       away. */
+    render(
+      <ChecklistView
+        narrowed={narrow(inSection, ticked)}
+        onWiden={noop}
+        held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
+        targets={ticked}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText('Research design')).toBeTruthy()
+  })
+
+  test('says how many ticks the narrowing is hiding, and offers the way out', () => {
+    /* The whole of "nothing is hidden without being counted". Without this line a
+       reader who ticked eight items against the paper walks into section 3, reads
+       0/12, and has no way to tell narrowing from this app losing their work. */
+    render(
+      <ChecklistView
+        narrowed={narrow(inSection, ticked)}
+        onWiden={noop}
+        held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
+        targets={ticked}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText(/8 ticked elsewhere in this paper/)).toBeTruthy()
+    expect(screen.getByText(/Show 3_methods.tex/)).toBeTruthy()
+  })
+
+  test('keeps saying it in the narrowest container there is', () => {
+    /* This row never folds away at any size, unlike almost everything else on
+       this page. A count that vanished at 220 pixels would be a count nobody
+       reads, in the container the owner actually uses. */
+    const { container } = render(
+      <ChecklistView
+        narrowed={narrow(inSection, ticked)}
+        onWiden={noop}
+        held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
+        targets={ticked}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(container.querySelector('[data-elsewhere="8"]')).toBeTruthy()
+    expect(container.querySelector('[data-widen]')).toBeTruthy()
+  })
+
+  test('climbs one rung when the way out is pressed', () => {
+    let climbed = 0
+    const { container } = render(
+      <ChecklistView
+        narrowed={narrow(inSection, ticked)}
+        onWiden={() => (climbed += 1)}
+        held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
+        targets={ticked}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={ROOMY}
+      />,
+    )
+    fireEvent.click(container.querySelector('[data-widen]')!)
+    expect(climbed).toBe(1)
+  })
+
+  test('draws none of it for a list held against an issue', () => {
+    /* The half of this change that had to break nothing. A ref has no document,
+       no rung and no widen, and the row it gets is the row it always had. */
+    const { container } = render(
+      <ChecklistView
+        narrowed={narrow({ kind: 'elsewhere' }, ticked)}
+        onWiden={noop}
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText('gh#105')).toBeTruthy()
+    expect(container.querySelector('[data-widen]')).toBe(null)
+    expect(container.querySelector('[data-elsewhere]')).toBe(null)
   })
 })
