@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { ID } from '../manifest.ts'
 import { chosenOn } from '../list/keep.ts'
@@ -9,6 +9,9 @@ import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 import { ChecklistView } from '@/view/checklist.tsx'
 import { Choose, Unplaced } from '@/view/choose.tsx'
 import { Nowhere } from '@/view/nowhere.tsx'
+import { wantedHeight } from '@/view/room.ts'
+import { useRoom } from '@/view/use-room.ts'
+import { cn } from '@/lib/utils.ts'
 
 /**
  * The page.
@@ -338,13 +341,45 @@ export function App() {
 
   const onCreate = useCallback((name: string) => void onEdit({ op: 'create', name }), [onEdit])
 
-  /** Say how tall we would like to be, whenever what is drawn changes size. */
-  const shell = useRef<HTMLDivElement | null>(null)
+  /**
+   * The shell element, held as STATE rather than in a ref.
+   *
+   * `useRoom` attaches a `ResizeObserver` to it, and an effect keyed on a ref
+   * cannot know when the ref was filled — it would observe null on the first
+   * pass and never run again, so the width would stay at its opening guess for
+   * the life of the page. A callback ref that sets state re-runs the effect on
+   * the render the node exists, which is the ordinary fix and the only one that
+   * does not involve observing something on every render.
+   */
+  const [shell, setShell] = useState<HTMLDivElement | null>(null)
+
+  /** What this container has room for, and therefore what is drawn. See `src/view/room.ts`. */
+  const room = useRoom(shell)
+
+  /**
+   * Say how tall we would like to be, whenever what is drawn changes size.
+   *
+   * Pinned, the shell is exactly as tall as the frame, so its own height says
+   * nothing — `wantedHeight` adds back whatever the inner scroller is hiding, so
+   * a host willing to grow this container is still asked to. Flowing, there is no
+   * scroller and this is the same number it always was. See the essay on
+   * `wantedHeight`.
+   */
   useEffect(() => {
-    const node = shell.current
-    if (!node || typeof ResizeObserver === 'undefined') return
-    const watch = new ResizeObserver(() => resize(Math.ceil(node.getBoundingClientRect().height) + 16))
-    watch.observe(node)
+    if (!shell || typeof ResizeObserver === 'undefined') return
+    const say = () => {
+      const scroller = shell.querySelector<HTMLElement>('[data-scroller]')
+      resize(
+        wantedHeight(
+          shell.getBoundingClientRect().height,
+          scroller?.scrollHeight ?? 0,
+          scroller?.clientHeight ?? 0,
+        ) + 16,
+      )
+    }
+    const watch = new ResizeObserver(say)
+    watch.observe(shell)
+    say()
     return () => watch.disconnect()
   })
 
@@ -384,6 +419,7 @@ export function App() {
         onAnother={another}
         trouble={trouble}
         busy={busy}
+        room={room}
       />
     ) : chosen ? (
       /* A list is chosen and has not come back yet — or came back refused, which
@@ -401,30 +437,55 @@ export function App() {
         ) : null}
       </p>
     ) : (
-      <Choose lists={lists} onPick={pick} onCreate={onCreate} trouble={trouble} busy={busy} said={said} />
+      <Choose
+        lists={lists}
+        onPick={pick}
+        onCreate={onCreate}
+        trouble={trouble}
+        busy={busy}
+        said={said}
+        room={room}
+      />
     )
 
+  /**
+   * The shell, and the one line that decides whether this page scrolls or its
+   * list does.
+   *
+   * Flowing, it is what it always was: a column as tall as what it draws, in a
+   * document the frame scrolls. Pinned, it is exactly the height of the frame
+   * with `min-h-0` on it, which is what lets the one scroller inside it — the
+   * items — actually be shorter than its content instead of growing the column.
+   * `h-dvh` and not `h-screen`: inside an iframe the two agree, and `dvh` is the
+   * one that stays right when a mobile host's own chrome moves.
+   */
   return (
-    <div ref={shell} className="flex flex-col gap-2 p-2 text-foreground">
+    <div
+      ref={setShell}
+      className={cn('flex flex-col gap-2 p-2 text-foreground', room.pinned && 'h-dvh min-h-0')}
+      data-room={room.pinned ? 'pinned' : 'flowing'}
+    >
       {framed ? null : (
-        <header>
+        <header className="shrink-0">
           <h1 className="text-sm font-semibold">Checklist</h1>
           <p className="text-[0.7rem] leading-4 text-muted-foreground">
-            Checklists somebody wrote, and what has been ticked off against one issue, change or paper. Nothing here
-            ships a list and nothing is computed: every item is a line a person or an agent typed, and every tick
-            belongs to a checklist, an item and a target together. The lists and the ticks are held here, on this
-            machine, in this app’s own store.
+            {room.prose
+              ? 'Checklists somebody wrote, and what has been ticked off against one issue, change or paper. Nothing '
+                + 'here ships a list and nothing is computed: every item is a line a person or an agent typed, and '
+                + 'every tick belongs to a checklist, an item and a target together. The lists and the ticks are held '
+                + 'here, on this machine, in this app’s own store.'
+              : 'Lists somebody wrote, ticked off against one issue, change or paper.'}
           </p>
         </header>
       )}
 
       {storeTrouble ? (
-        <p className="rounded border border-failed/40 bg-failed/5 px-2 py-1.5 text-[0.7rem] leading-4 text-failed">
+        <p className="shrink-0 rounded border border-failed/40 bg-failed/5 px-2 py-1.5 text-[0.7rem] leading-4 text-failed">
           {storeTrouble}
         </p>
       ) : null}
 
-      {where === 'hosted' && !kehikko ? <Unplaced>{screen}</Unplaced> : screen}
+      {where === 'hosted' && !kehikko ? <Unplaced room={room}>{screen}</Unplaced> : screen}
     </div>
   )
 }

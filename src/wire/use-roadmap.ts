@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { choose, reading, unchoose, writing, type Kept } from '../../list/keep.ts'
 import { connect, type Connection, type HostEvents } from 'roadmap-module-protocol/client'
 import { pump } from './emit.ts'
+import { wearTheme } from './theme.ts'
 
 /**
  * The bridge, as one React value.
@@ -188,9 +189,11 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      *
      * The theme is applied here rather than in a component, because it is a fact
      * about the document rather than about any part of it: the host says light or
-     * dark and the root element carries it. `light` is set explicitly as well as
-     * `dark`, so that a host asking for light over a machine set to dark actually
-     * gets it — see the media query in `index.css`.
+     * dark and the root element carries it — on every context, not only the
+     * greeting, because a person changes the mode in a session that is already
+     * running. `wearTheme` is the one place that knows what carrying it means;
+     * see the essay there for `light` being written down rather than left to the
+     * machine, and for the `color-scheme` that decides the scrollbar.
      */
     const arrived = (context: {
       epic: string | null
@@ -200,9 +203,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       kehikko: Kehikko | null
     }) => {
-      const root = document.documentElement
-      root.classList.toggle('dark', context.theme === 'dark')
-      root.classList.toggle('light', context.theme === 'light')
+      wearTheme(document.documentElement, context.theme)
 
       setWhere('hosted')
       setSelection(context.selection)

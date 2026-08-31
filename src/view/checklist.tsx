@@ -5,6 +5,8 @@ import type { Edit } from '@/store/ask.ts'
 import { targetKey, targetName, targetNoun } from '../../list/targets.ts'
 
 import { Button } from '@/components/ui/button.tsx'
+import { Sheet } from '@/view/sheet.tsx'
+import type { Room } from '@/view/room.ts'
 import { cn } from '@/lib/utils.ts'
 
 /**
@@ -52,6 +54,22 @@ import { cn } from '@/lib/utils.ts'
  * the one thing about this feature that is easy to get quietly wrong is also the
  * one thing nothing measures. Two arrows move an item one place; the store
  * rewrites the whole order and answers with it.
+ *
+ * ## Two shapes, and `room` decides which
+ *
+ * In a container with height to spare this is one card that flows: header, target,
+ * items, a box to type in, a footer. That is what it always was and it is still
+ * right whenever the frame can hold it.
+ *
+ * Short, it is a card the height of the frame with exactly one scroller in it —
+ * the items — and everything that says WHAT you are looking at pinned above
+ * them: the list's name, the count, the target. Measured before this existed, at
+ * 220×300 with six ordinary items, 160 of the 300 pixels were spent above the
+ * first item and not one item was fully visible; the add box took another 147.
+ * Now the items get what is left of the frame, they snap, and the things a
+ * reader does occasionally — typing a line, switching target, leaving — are one
+ * press away over the whole frame instead of a permanent strip. See `room.ts`
+ * for every threshold and the reading it came from.
  */
 export function ChecklistView({
   held,
@@ -62,6 +80,7 @@ export function ChecklistView({
   onAnother,
   trouble,
   busy,
+  room,
 }: {
   held: Held
   /** Every target this list already has ticks against. */
@@ -74,10 +93,14 @@ export function ChecklistView({
   onAnother: () => void
   trouble: string | null
   busy: boolean
+  /** What this container has room for. See `src/view/room.ts`. */
+  room: Room
 }) {
   const [typing, setTyping] = useState('')
-  const [arming, setArming] = useState(false)
+  /** Which thing, if any, is being done over the whole frame. Only ever one. */
+  const [sheet, setSheet] = useState<null | 'add' | 'target' | 'more'>(null)
   const target = held.target
+  const overlaid = room.compose === 'overlay'
 
   const add = () => {
     const text = typing.trim()
@@ -87,12 +110,76 @@ export function ChecklistView({
        nothing typed can be lost by clearing it, and a box that stayed full after
        a successful add is the fastest way to file the same item twice. */
     setTyping('')
+    setSheet(null)
     onEdit({ op: 'add', id: held.checklist.id, text })
   }
 
+  const compose = (
+    <div className="flex flex-col gap-1">
+      {/* The label goes when the overlay's own title already says it. Two "Add a
+          line"s stacked in a 220-pixel column is the padding this whole change
+          is against — and the field keeps the name for anything not reading the
+          screen. */}
+      {overlaid ? null : (
+        <label className="text-[0.65rem] leading-4 text-muted-foreground" htmlFor="add-item">
+          Add a line
+        </label>
+      )}
+      <textarea
+        id="add-item"
+        aria-label="Add a line"
+        rows={overlaid ? 5 : 2}
+        value={typing}
+        onChange={(e) => setTyping(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            add()
+          }
+        }}
+        placeholder="What is still owed?"
+        className="w-full resize-y rounded border bg-background px-1.5 py-1 text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={add}>
+          Add
+        </Button>
+        {room.prose ? (
+          <span className="min-w-0 flex-1 text-[0.65rem] leading-4 text-muted-foreground">
+            An item belongs to the list, so it is added for every target this list is held against.
+          </span>
+        ) : null}
+      </div>
+      {trouble ? <p className="text-[0.7rem] leading-4 text-failed">{trouble}</p> : null}
+    </div>
+  )
+
+  const leaving = (
+    <div className={cn('flex flex-wrap items-center gap-1.5', !overlaid && 'border-t bg-muted/40 px-2 py-1.5')}>
+      <Button type="button" variant="outline" size="container" onClick={onAnother} data-another>
+        Use another checklist
+      </Button>
+      <Forget id={held.checklist.id} name={held.checklist.name} busy={busy} onEdit={onEdit} />
+    </div>
+  )
+
   return (
-    <section className="overflow-hidden rounded-lg border bg-card" data-checklist={held.checklist.id}>
-      <div className="flex items-baseline gap-1.5 px-2 py-1.5">
+    <section
+      /* `relative` is load-bearing and not decoration.
+         Every button on this page carries an `sr-only` label, and Tailwind's
+         `sr-only` is `position: absolute`. An absolutely positioned box is
+         clipped by an ancestor's `overflow` only if that ancestor is ALSO its
+         containing block — so without this, the sr-only label on the sixteenth
+         item resolved against the initial containing block, escaped the scroller
+         it lives in, and made the document itself 188 pixels taller than the
+         frame. Measured: the whole card scrolled off the top of a 200-pixel
+         container that was supposed to have no page scroll at all, and every
+         element on it measured as fitting. */
+      className={cn('relative overflow-hidden rounded-lg border bg-card', room.pinned && 'flex min-h-0 flex-1 flex-col')}
+      data-checklist={held.checklist.id}
+      data-room={room.pinned ? 'pinned' : 'flowing'}
+    >
+      <div className="flex shrink-0 items-baseline gap-1.5 px-2 py-1.5">
         <h2 className="min-w-0 flex-1 text-[0.8rem] font-semibold">
           <span className="break-words">{held.checklist.name}</span>
         </h2>
@@ -107,10 +194,28 @@ export function ChecklistView({
         </span>
       </div>
 
-      <TargetRow target={target} targets={targets} candidates={candidates} onTarget={onTarget} busy={busy} />
+      <TargetRow
+        target={target}
+        targets={targets}
+        candidates={candidates}
+        onTarget={onTarget}
+        busy={busy}
+        room={room}
+        open={sheet === 'target'}
+        onOpen={(want) => setSheet(want ? 'target' : null)}
+      />
 
       {held.rows.length ? (
-        <ul className="border-t">
+        <ul
+          className={cn(
+            'border-t',
+            room.pinned && 'min-h-0 flex-1 overflow-y-auto',
+            /* `proximity`, never `mandatory`, and only where there is a scroller
+               of our own to snap in. See the essay on `snap` in `room.ts`. */
+            room.snap && 'snap-y snap-proximity',
+          )}
+          data-scroller={room.pinned ? 'items' : undefined}
+        >
           {held.rows.map((row, at) => (
             <ItemRow
               key={row.item.id}
@@ -121,103 +226,147 @@ export function ChecklistView({
               target={target}
               onEdit={onEdit}
               busy={busy}
+              room={room}
             />
           ))}
         </ul>
       ) : (
         <p className="border-t px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground">
-          This checklist has no items yet. That is not an error and not a gap this app can fill for you: what a piece
-          of work owes is a judgement, and the first line below is where it starts.
+          {room.prose
+            ? 'This checklist has no items yet. That is not an error and not a gap this app can fill for you: what a '
+              + 'piece of work owes is a judgement, and the first line below is where it starts.'
+            : 'No items yet. Nothing ships a list — the first line is yours to write.'}
         </p>
       )}
 
-      <div className="flex flex-col gap-1 border-t p-2">
-        <label className="text-[0.65rem] leading-4 text-muted-foreground" htmlFor="add-item">
-          Add a line
-        </label>
-        <textarea
-          id="add-item"
-          rows={2}
-          value={typing}
-          onChange={(e) => setTyping(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              add()
-            }
-          }}
-          placeholder="What is still owed?"
-          className="w-full resize-y rounded border bg-background px-1.5 py-1 text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        />
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={add}>
-            Add
+      {overlaid ? (
+        /* The bar that replaced the strip. Two presses live here instead of 250
+           pixels of permanent controls: one to write a line, one for the things
+           a reader does rarely. */
+        <div className="flex shrink-0 items-center gap-1.5 border-t bg-muted/40 px-2 py-1.5">
+          <Button
+            type="button"
+            size="container"
+            className="flex-1"
+            disabled={busy}
+            data-open-add
+            onClick={() => setSheet('add')}
+          >
+            Add a line
           </Button>
-          <span className="min-w-0 flex-1 text-[0.65rem] leading-4 text-muted-foreground">
-            An item belongs to the list, so it is added for every target this list is held against.
-          </span>
+          <Button type="button" variant="ghost" size="container" data-open-more onClick={() => setSheet('more')}>
+            <span aria-hidden="true">⋯</span>
+            <span className="sr-only">More</span>
+          </Button>
         </div>
-        {trouble ? <p className="text-[0.7rem] leading-4 text-failed">{trouble}</p> : null}
-      </div>
+      ) : (
+        <>
+          <div className="border-t p-2">{compose}</div>
+          {leaving}
+        </>
+      )}
 
-      <div className="flex flex-wrap items-center gap-1.5 border-t bg-muted/40 px-2 py-1.5">
-        <Button type="button" variant="outline" size="container" onClick={onAnother} data-another>
-          Use another checklist
-        </Button>
-        {/*
-          Removing takes two presses, and it used to be a `window.confirm()`.
+      {/* A refusal is drawn where it was caused. With the box behind a press
+          there is no "where" left on the card, and a sentence that only appeared
+          inside a sheet nobody had open would be a refusal nobody ever read. */}
+      {overlaid && trouble && sheet === null ? (
+        <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-failed">{trouble}</p>
+      ) : null}
 
-          The asymmetry with everything else on this page is deliberate: this is
-          the one irreversible act here — it takes every tick anybody ever made on
-          this list, against every target, and none of it can be got back.
+      {sheet === 'add' ? (
+        <Sheet title="Add a line" onClose={() => setSheet(null)}>
+          {compose}
+        </Sheet>
+      ) : null}
 
-          What changed is HOW the second press is asked for, and it changed
-          because the old way was measured and found dead:
-
-              [console] Ignored call to 'confirm()'. The document is sandboxed,
-                        and the 'allow-modals' keyword is not set.
-              confirm() inside the checklist frame returns: false
-
-          The host frames this module with `allow-scripts allow-forms
-          allow-popups allow-same-origin` and no `allow-modals` — a reasonable
-          sandbox, and not something this module should ask to widen for one
-          dialog. The consequence was the worst shape a failure can have:
-          `confirm` returns `false`, the handler returns early, the button does
-          nothing at all, and there is nothing on screen saying why. A person
-          would press it, watch it not move, and conclude it could not be done.
-
-          So the second press is asked for IN the row. It needs no permission
-          from anybody's sandbox, it is visible rather than modal, it can be
-          abandoned by simply not pressing again, and it says the same sentence
-          the dialog used to.
-        */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="container"
-          disabled={busy}
-          data-forget
-          onClick={() => {
-            if (!arming) {
-              setArming(true)
-              return
-            }
-            setArming(false)
-            onEdit({ op: 'forget', id: held.checklist.id })
-          }}
-          onBlur={() => setArming(false)}
-        >
-          {arming ? 'Press again to remove it' : 'Remove this checklist'}
-        </Button>
-        {arming ? (
-          <p className="w-full text-[0.7rem] leading-4 text-pending">
-            Pressing again removes “{held.checklist.name}” for good, along with every tick made on it against every
-            target. Nobody gets it back. “Use another checklist” is what you want if you only meant to look at a
-            different one.
-          </p>
-        ) : null}
-      </div>
+      {sheet === 'more' ? (
+        <Sheet title="This checklist" onClose={() => setSheet(null)}>
+          <div className="flex flex-col gap-2">
+            {leaving}
+            <p className="text-[0.7rem] leading-4 text-muted-foreground">
+              {target
+                ? `Held against ${targetName(target)}, a ${targetNoun(target)}. Ticks belong to this list and this `
+                  + 'target together — the same list held against something else keeps its own.'
+                : 'Nothing has said what this list is being held against, so nothing can be ticked yet.'}
+            </p>
+          </div>
+        </Sheet>
+      ) : null}
     </section>
+  )
+}
+
+/**
+ * Removing the checklist, which takes two presses — and it used to be a
+ * `window.confirm()`.
+ *
+ * The asymmetry with everything else on this page is deliberate: this is the one
+ * irreversible act here — it takes every tick anybody ever made on this list,
+ * against every target, and none of it can be got back.
+ *
+ * What changed is HOW the second press is asked for, and it changed because the
+ * old way was measured and found dead:
+ *
+ *     [console] Ignored call to 'confirm()'. The document is sandboxed,
+ *               and the 'allow-modals' keyword is not set.
+ *     confirm() inside the checklist frame returns: false
+ *
+ * The host frames this module with `allow-scripts allow-forms allow-popups
+ * allow-same-origin` and no `allow-modals` — a reasonable sandbox, and not
+ * something this module should ask to widen for one dialog. The consequence was
+ * the worst shape a failure can have: `confirm` returns `false`, the handler
+ * returns early, the button does nothing at all, and there is nothing on screen
+ * saying why. A person would press it, watch it not move, and conclude it could
+ * not be done.
+ *
+ * So the second press is asked for IN the row. It needs no permission from
+ * anybody's sandbox, it is visible rather than modal, it can be abandoned by
+ * simply not pressing again, and it says the same sentence the dialog used to.
+ *
+ * It is a component of its own because it is now drawn in two places — the
+ * card's footer where there is room for one, and the overlay where there is not
+ * — and two copies of a two-press arm is two places for one of them to lose its
+ * second sentence.
+ */
+function Forget({
+  id,
+  name,
+  busy,
+  onEdit,
+}: {
+  id: string
+  name: string
+  busy: boolean
+  onEdit: (edit: Edit) => void
+}) {
+  const [arming, setArming] = useState(false)
+  return (
+    <>
+      <Button
+        type="button"
+        variant="ghost"
+        size="container"
+        disabled={busy}
+        data-forget
+        onClick={() => {
+          if (!arming) {
+            setArming(true)
+            return
+          }
+          setArming(false)
+          onEdit({ op: 'forget', id })
+        }}
+        onBlur={() => setArming(false)}
+      >
+        {arming ? 'Press again to remove it' : 'Remove this checklist'}
+      </Button>
+      {arming ? (
+        <p className="w-full text-[0.7rem] leading-4 text-pending">
+          Pressing again removes “{name}” for good, along with every tick made on it against every target. Nobody gets
+          it back. “Use another checklist” is what you want if you only meant to look at a different one.
+        </p>
+      ) : null}
+    </>
   )
 }
 
@@ -236,6 +385,18 @@ export function ChecklistView({
  * A target with no ticks yet and no context proposing it simply does not appear,
  * and that is correct: it is not a thing that exists, it is a thing somebody
  * could type.
+ *
+ * ## What the switch does when there is nowhere to open downwards
+ *
+ * The same thing, over the frame. Opened inline it puts a wrapping strip of
+ * target buttons and a text box between the header and the list — at 220×300
+ * that pushed every item off the bottom, so a reader choosing a target could not
+ * see the ticks they were choosing it for. As an overlay the offered targets get
+ * the full width, and the list is where they left it when they come back.
+ *
+ * The ROW itself never moves and never folds away at any size. It is the answer
+ * to "what are these ticks about", and a tick whose target is off screen is a
+ * tick that means nothing.
  */
 function TargetRow({
   target,
@@ -243,15 +404,24 @@ function TargetRow({
   candidates,
   onTarget,
   busy,
+  room,
+  open,
+  onOpen,
 }: {
   target: Target | null
   targets: { target: Target; done: number }[]
   candidates: Target[]
   onTarget: (target: Target | null) => void
   busy: boolean
+  room: Room
+  /** Whether this is the overlay showing. Held by the card, so only one ever is. */
+  open: boolean
+  onOpen: (want: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [inline, setInline] = useState(false)
   const [typing, setTyping] = useState('')
+  const overlaid = room.compose === 'overlay'
+  const showing = overlaid ? open : inline
 
   /* Deduplicated on the key rather than on the object, because a candidate the
      canvas is proposing and a target this list already has ticks against are
@@ -272,90 +442,123 @@ function TargetRow({
     offered.push({ target: one.target, done: one.done })
   }
 
+  const close = () => (overlaid ? onOpen(false) : setInline(false))
+
   const type = () => {
     const ref = typing.trim()
     if (!ref) return
     setTyping('')
-    setOpen(false)
+    close()
     onTarget({ kind: 'ref', ref })
   }
 
+  const picking = (
+    <div className={cn('flex flex-col gap-1', !overlaid && 'mt-1')}>
+      {offered.length ? (
+        <div className="flex flex-wrap gap-1">
+          {offered.map(({ target: one, done }) => {
+            const key = targetKey(one)
+            return (
+              <Button
+                key={key}
+                type="button"
+                variant={target && targetKey(target) === key ? 'default' : 'outline'}
+                size="container"
+                disabled={busy}
+                data-pick-target={key}
+                className="max-w-full"
+                onClick={() => {
+                  close()
+                  onTarget(one)
+                }}
+              >
+                {/* `min-w-0 truncate` inside a `max-w-full` button: a target
+                    name is short by construction — every component of one is
+                    bounded at 80 characters and may not contain a space — so
+                    truncation here loses a suffix rather than a sentence, and
+                    the full name is printed above the moment it is picked. */}
+                <span className="min-w-0 truncate">{targetName(one)}</span>
+                {done === null ? null : <span className="shrink-0 tabular-nums opacity-70">{done}</span>}
+              </Button>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="text-[0.65rem] leading-4 text-muted-foreground">
+          Nothing is proposing a target: no canvas has selected a reference, no epic is open, and this list has no
+          ticks against anything yet. Type one below.
+        </p>
+      )}
+      <div className="flex items-center gap-1">
+        <input
+          value={typing}
+          onChange={(e) => setTyping(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              type()
+            }
+          }}
+          placeholder="gh#105, !44, #12"
+          aria-label="Hold this checklist against a reference"
+          data-type-target
+          className="min-w-0 flex-1 rounded border bg-background px-1.5 py-1 font-mono text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+        <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={type}>
+          Hold
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
-    <div className="border-t bg-muted/40 px-2 py-1.5">
+    <div className="shrink-0 border-t bg-muted/40 px-2 py-1.5">
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span className="shrink-0 text-[0.65rem] text-muted-foreground">Held against</span>
         <span className="min-w-0 flex-1 break-words text-[0.75rem] font-medium" data-target>
           {target ? targetName(target) : 'nothing yet'}
         </span>
-        <Button type="button" variant="ghost" size="container" onClick={() => setOpen((was) => !was)} data-switch>
-          {open ? 'done' : 'change'}
+        <Button
+          type="button"
+          variant="ghost"
+          size="container"
+          onClick={() => (overlaid ? onOpen(!open) : setInline((was) => !was))}
+          data-switch
+          /* The paragraph below is dropped in a narrow container; the fact it carries
+             is not. A `title` is a poor place for a sentence nobody can reach on
+             a touch screen, and the right place for one they can do without. */
+          title={
+            target
+              ? `A ${targetNoun(target)}. Ticks belong to this list and this target together — the same list held against something else keeps its own.`
+              : 'Nothing has said what this list is held against.'
+          }
+        >
+          {showing && !overlaid ? 'done' : 'change'}
         </Button>
       </div>
-      <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground">
-        {target
-          ? `A ${targetNoun(target)}. Ticks belong to this list and this target together — the same list held against something else keeps its own.`
-          : 'Nothing has said what this list is being held against, so nothing below can be ticked. Pick or type a target.'}
-      </p>
 
-      {open ? (
-        <div className="mt-1 flex flex-col gap-1">
-          {offered.length ? (
-            <div className="flex flex-wrap gap-1">
-              {offered.map(({ target: one, done }) => {
-                const key = targetKey(one)
-                return (
-                  <Button
-                    key={key}
-                    type="button"
-                    variant={target && targetKey(target) === key ? 'default' : 'outline'}
-                    size="container"
-                    disabled={busy}
-                    data-pick-target={key}
-                    className="max-w-full"
-                    onClick={() => {
-                      setOpen(false)
-                      onTarget(one)
-                    }}
-                  >
-                    {/* `min-w-0 truncate` inside a `max-w-full` button: a target
-                        name is short by construction — every component of one is
-                        bounded at 80 characters and may not contain a space — so
-                        truncation here loses a suffix rather than a sentence, and
-                        the full name is printed above the moment it is picked. */}
-                    <span className="min-w-0 truncate">{targetName(one)}</span>
-                    {done === null ? null : (
-                      <span className="shrink-0 tabular-nums opacity-70">{done}</span>
-                    )}
-                  </Button>
-                )
-              })}
-            </div>
-          ) : (
-            <p className="text-[0.65rem] leading-4 text-muted-foreground">
-              Nothing is proposing a target: no canvas has selected a reference, no epic is open, and this list has no
-              ticks against anything yet. Type one below.
-            </p>
-          )}
-          <div className="flex items-center gap-1">
-            <input
-              value={typing}
-              onChange={(e) => setTyping(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  type()
-                }
-              }}
-              placeholder="gh#105, !44, #12"
-              aria-label="Hold this checklist against a reference"
-              data-type-target
-              className="min-w-0 flex-1 rounded border bg-background px-1.5 py-1 font-mono text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <Button type="button" size="container" disabled={busy || !typing.trim()} onClick={type}>
-              Hold
-            </Button>
-          </div>
-        </div>
+      {/* The paragraph goes when there is no room for it; the SENTENCE about
+          nothing being tickable never does. One of them repeats the row above it
+          and the other is the only thing on screen explaining why every row
+          below is inert. */}
+      {target ? (
+        room.prose ? (
+          <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground">
+            A {targetNoun(target)}. Ticks belong to this list and this target together — the same list held against
+            something else keeps its own.
+          </p>
+        ) : null
+      ) : (
+        <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground">
+          Nothing has said what this list is being held against, so nothing below can be ticked. Pick or type a target.
+        </p>
+      )}
+
+      {showing && !overlaid ? picking : null}
+      {showing && overlaid ? (
+        <Sheet title="Hold this list against" onClose={() => onOpen(false)}>
+          {picking}
+        </Sheet>
       ) : null}
     </div>
   )
@@ -373,6 +576,20 @@ function TargetRow({
  * control — it is text. That is different from a target with nothing ticked yet,
  * and the row above says which is which rather than leaving somebody pressing a
  * button that does nothing.
+ *
+ * ## What a small container stops drawing, and what it never stops drawing
+ *
+ * Folded, the arrows and the × go behind one press on the row that wants them,
+ * and "written by …" moves into the row's `title`. Between them they were a
+ * whole extra line under every single item at 220 pixels — sixteen items became
+ * thirty-two lines, half of them furniture around sentences nobody could finish
+ * reading.
+ *
+ * Who TICKED it does not fold, at any size. `list/checklists.ts` argues that an
+ * agent may tick anything on this list and that what makes that safe is that the
+ * claim is legible as a claim and reversible by the person who can judge it. A
+ * narrow container is not a reason to break that: a bare checkmark with nobody's
+ * name against it is exactly the thing that essay refuses.
  */
 function ItemRow({
   list,
@@ -382,6 +599,7 @@ function ItemRow({
   target,
   onEdit,
   busy,
+  room,
 }: {
   list: string
   row: Held['rows'][number]
@@ -390,10 +608,23 @@ function ItemRow({
   target: Target | null
   onEdit: (edit: Edit) => void
   busy: boolean
+  room: Room
 }) {
   const [arming, setArming] = useState(false)
+  const [unfolded, setUnfolded] = useState(false)
   const done = row.done
   const item = row.item
+  const folded = room.controls === 'folded'
+  const controls = !folded || unfolded
+
+  /** Who ticked it — always — or, where there is room for it, who wrote it. */
+  const said = done
+    ? `ticked by ${done.by}${done.viaMcp ? ', over MCP' : ''}`
+    : room.authorship
+      ? `written by ${item.by}`
+      : null
+
+  const wrote = room.authorship ? '' : ` Written by ${item.by}.`
 
   const mark = (
     <>
@@ -421,83 +652,110 @@ function ItemRow({
   )
 
   return (
-    <li data-item={item.id} data-done={done ? 'yes' : 'no'} className="border-t px-2 py-1.5 first:border-t-0">
-      {target ? (
-        <button
-          type="button"
-          disabled={busy}
-          aria-pressed={Boolean(done)}
-          title={done ? 'Ticked for this target. Press to take it back.' : 'Press when this is actually done here.'}
-          onClick={() => onEdit({ op: 'tick', id: list, item: item.id, target, done: !done })}
-          className="flex w-full items-start gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-        >
-          {mark}
-          <span className="sr-only">{done ? 'ticked' : 'not ticked'}</span>
-        </button>
-      ) : (
-        <div className="flex items-start gap-1.5">{mark}</div>
-      )}
+    <li
+      data-item={item.id}
+      data-done={done ? 'yes' : 'no'}
+      className={cn('border-t px-2 py-1.5 first:border-t-0', room.snap && 'snap-start')}
+    >
+      <div className="flex items-start gap-1.5">
+        {target ? (
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={Boolean(done)}
+            title={
+              (done ? 'Ticked for this target. Press to take it back.' : 'Press when this is actually done here.')
+              + wrote
+            }
+            onClick={() => onEdit({ op: 'tick', id: list, item: item.id, target, done: !done })}
+            className="flex min-w-0 flex-1 items-start gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          >
+            {mark}
+            <span className="sr-only">{done ? 'ticked' : 'not ticked'}</span>
+          </button>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-start gap-1.5" title={wrote.trim() || undefined}>
+            {mark}
+          </div>
+        )}
+        {folded ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="container"
+            className="shrink-0 px-1"
+            data-unfold={unfolded ? 'open' : 'shut'}
+            title={unfolded ? 'Hide move and remove' : 'Move or remove this line'}
+            onClick={() => setUnfolded((was) => !was)}
+          >
+            <span aria-hidden="true">⋯</span>
+            <span className="sr-only">{unfolded ? 'Hide move and remove' : 'Move or remove this line'}</span>
+          </Button>
+        ) : null}
+      </div>
 
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-[1.375rem] text-[0.7rem] text-muted-foreground">
-        <span>
+      {said || controls ? (
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 pl-[1.375rem] text-[0.7rem] text-muted-foreground">
           {/* Who ticked it and whether it came through the MCP door, always, and
               never a bare checkmark. An agent may tick anything on this list —
               every item is a line somebody wrote and an agent is often the one
               who did the work — and what makes that safe is that the claim is
               legible as one and reversible by the person who can judge it. See
               the essay on ticks in `list/checklists.ts`. */}
-          {done ? `ticked by ${done.by}${done.viaMcp ? ', over MCP' : ''}` : `written by ${item.by}`}
-        </span>
-        <span className="flex items-center gap-0.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="container"
-            className="px-1"
-            disabled={busy || at === 0}
-            title="Move up"
-            onClick={() => onEdit({ op: 'move', id: list, item: item.id, to: at - 1 })}
-          >
-            <span aria-hidden="true">↑</span>
-            <span className="sr-only">Move up</span>
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="container"
-            className="px-1"
-            disabled={busy || last}
-            title="Move down"
-            onClick={() => onEdit({ op: 'move', id: list, item: item.id, to: at + 1 })}
-          >
-            <span aria-hidden="true">↓</span>
-            <span className="sr-only">Move down</span>
-          </Button>
-          {/* Two presses again, and for the reason set out above: `window.confirm`
-              is ignored inside the host's sandbox, so the second press is asked
-              for where it can actually be seen. */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="container"
-            className="px-1"
-            disabled={busy}
-            title={arming ? 'Press again to take this off the list' : 'Take this off the list'}
-            onClick={() => {
-              if (!arming) {
-                setArming(true)
-                return
-              }
-              setArming(false)
-              onEdit({ op: 'drop', id: list, item: item.id })
-            }}
-            onBlur={() => setArming(false)}
-          >
-            <span aria-hidden="true">×</span>
-            <span className="sr-only">{arming ? 'Press again to remove' : 'Remove'}</span>
-          </Button>
-        </span>
-      </div>
+          {said ? <span>{said}</span> : null}
+          {controls ? (
+            <span className="flex items-center gap-0.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="container"
+                className="px-1"
+                disabled={busy || at === 0}
+                title="Move up"
+                onClick={() => onEdit({ op: 'move', id: list, item: item.id, to: at - 1 })}
+              >
+                <span aria-hidden="true">↑</span>
+                <span className="sr-only">Move up</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="container"
+                className="px-1"
+                disabled={busy || last}
+                title="Move down"
+                onClick={() => onEdit({ op: 'move', id: list, item: item.id, to: at + 1 })}
+              >
+                <span aria-hidden="true">↓</span>
+                <span className="sr-only">Move down</span>
+              </Button>
+              {/* Two presses again, and for the reason set out above `Forget`:
+                  `window.confirm` is ignored inside the host's sandbox, so the
+                  second press is asked for where it can actually be seen. */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="container"
+                className="px-1"
+                disabled={busy}
+                title={arming ? 'Press again to take this off the list' : 'Take this off the list'}
+                onClick={() => {
+                  if (!arming) {
+                    setArming(true)
+                    return
+                  }
+                  setArming(false)
+                  onEdit({ op: 'drop', id: list, item: item.id })
+                }}
+                onBlur={() => setArming(false)}
+              >
+                <span aria-hidden="true">×</span>
+                <span className="sr-only">{arming ? 'Press again to remove' : 'Remove'}</span>
+              </Button>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {done?.note ? (
         <p className="mt-1 pl-[1.375rem] text-[0.7rem] leading-4 text-muted-foreground">{done.note}</p>

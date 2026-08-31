@@ -217,7 +217,7 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 153 tests across the store, where
+`bun test` covers the wire-independent half — 181 tests across the store, where
 it lives and what it refuses (a null project, a relative path, and either level
 of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
 `realpath`), the `.gitignore` gaining its rule exactly once and being found
@@ -234,3 +234,21 @@ again on a second kehikko, still its own on the first, and the null-kehikko
 screen) and `ck-realhost.mjs` (the same container framed by the real host at 4181,
 opening on the pick screen, the choice surviving a full host reload, and the
 epic's paper offered as the target).
+
+Two of those probes now live in the repository rather than in a scratch
+directory, because what they measure is a claim the code makes and can lose:
+
+```bash
+PLAYWRIGHT=/path/to/playwright CHROME=/path/to/chrome-headless-shell \
+  node dev/room.probe.mjs     # what fits at 220x300, 320x200, 460x360, 900x700
+  node dev/theme.probe.mjs    # the host's theme, both ways, at both machine settings
+```
+
+`room.probe.mjs` is the reading `src/view/room.ts` is built on. At 220x300 with
+six ordinary items this module used to spend 160 of its 300 pixels above the
+first item and show none of them whole; it now spends 78, the items own the rest
+of the frame and scroll inside it with the name and the target pinned above, and
+a small scroll settles one pixel off an item boundary rather than through the
+middle of a line. A component test cannot say any of that: happy-dom has no
+layout, so `test/room.test.ts` holds the thresholds and the probe holds the
+pixels they came from.

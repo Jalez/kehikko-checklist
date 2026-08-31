@@ -41,6 +41,19 @@
   --primary-foreground: oklch(0.985 0 0);
   --radius: 0.5rem;
 
+  /*
+   * What the BROWSER paints, before any host has spoken.
+   *
+   * The scrollbar, the caret, the highlight on selected text and the inside of
+   * a textarea are not drawn from the variables above — they are drawn from
+   * `color-scheme`, and with none declared they follow the machine rather than
+   * the host. `src/wire/theme.ts` overrides this inline the moment a context
+   * arrives; this is what stands for the hundred milliseconds before one does,
+   * and it is paired with the base palette on purpose so the two halves of the
+   * page never disagree about which theme this is.
+   */
+  color-scheme: light;
+
   /**
    * The seven verdicts, each with a colour of its own.
    *
@@ -70,9 +83,15 @@
  * first hundred milliseconds. `.light` is the escape hatch that makes a host's
  * explicit "light" beat a machine set to dark, which is why the media query is
  * guarded on its absence rather than left to win.
+ *
+ * Each of the three carries `color-scheme` beside the variables, because the
+ * variables are only the half of the page this stylesheet paints. See
+ * `src/wire/theme.ts`: a light card with a dark scrollbar down the side of it is
+ * what a module that got only the first half looks like.
  */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
+    color-scheme: dark;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -90,6 +109,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

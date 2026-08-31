@@ -5,6 +5,7 @@ import type { Held } from '../list/checklists.ts'
 import { ChecklistView } from '../src/view/checklist.tsx'
 import { Choose, Unplaced } from '../src/view/choose.tsx'
 import { Nowhere } from '../src/view/nowhere.tsx'
+import { room } from '../src/view/room.ts'
 
 /**
  * The components, rendered for real.
@@ -15,6 +16,17 @@ import { Nowhere } from '../src/view/nowhere.tsx'
  * second press does is a dialog with the sentence removed.
  */
 afterEach(cleanup)
+
+/**
+ * The two containers every component below is drawn in.
+ *
+ * Named rather than inlined because almost every assertion here is about WORDS,
+ * and which words are on screen is now a function of how much room there is.
+ * A test that passed `room(900, 700)` by hand at fourteen call sites would be
+ * fourteen places to forget which layout was being asserted.
+ */
+const ROOMY = room(900, 700)
+const TIGHT = room(220, 300)
 
 const LONG =
   'The bridge chapter still claims the wire is synchronous, which it has not been since the mailbox landed, and the '
@@ -49,7 +61,7 @@ describe('the pick screen', () => {
         onPick={noop}
         onCreate={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
         said="Nothing has been picked for Roadmap yet."
       />,
     )
@@ -57,7 +69,7 @@ describe('the pick screen', () => {
   })
 
   test('says an empty store is not a gap this app can fill, because nothing ships a list', () => {
-    render(<Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} said="x" />)
+    render(<Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} room={ROOMY} said="x" />)
     expect(screen.getByText(/Nothing ships a list/)).toBeTruthy()
   })
 
@@ -74,7 +86,7 @@ describe('the pick screen', () => {
         }}
         onCreate={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
         said="x"
       />,
     )
@@ -92,7 +104,7 @@ describe('the pick screen', () => {
         onPick={noop}
         onCreate={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
         said="x"
       />,
     )
@@ -110,7 +122,7 @@ describe('the pick screen', () => {
         onPick={noop}
         onCreate={noop}
         trouble="there is already a checklist called “What a change owes” (one)."
-        busy={false}
+        busy={false} room={ROOMY}
         said="x"
       />,
     )
@@ -121,7 +133,7 @@ describe('the pick screen', () => {
 describe('the checklist', () => {
   test('says which target it is held against, and that ticks belong to the pair', () => {
     render(
-      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} />,
+      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('gh#105')).toBeTruthy()
     expect(screen.getByText(/keeps its own/)).toBeTruthy()
@@ -130,14 +142,14 @@ describe('the checklist', () => {
   test('prints who ticked an item and that it came through the MCP door', () => {
     /* Never a bare checkmark. An agent's claim has to be legible as one. */
     render(
-      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} />,
+      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
   })
 
   test('draws a 400-character item as wrapped prose in a min-w-0 column', () => {
     render(
-      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} />,
+      <ChecklistView held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     const text = screen.getByText(LONG)
     expect(text.className).toContain('break-words')
@@ -156,7 +168,7 @@ describe('the checklist', () => {
         onEdit={(e) => sent.push(e)}
         onAnother={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
       />,
     )
     fireEvent.click(screen.getByText(LONG))
@@ -173,7 +185,7 @@ describe('the checklist', () => {
         onEdit={noop}
         onAnother={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
       />,
     )
     expect(screen.getByText(/nothing below can be ticked/)).toBeTruthy()
@@ -195,7 +207,7 @@ describe('the checklist', () => {
         onEdit={(e) => sent.push(e)}
         onAnother={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
       />,
     )
     const button = screen.getByText('Remove this checklist')
@@ -216,7 +228,7 @@ describe('the checklist', () => {
         onEdit={noop}
         onAnother={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
       />,
     )
     fireEvent.click(screen.getByText('change'))
@@ -234,7 +246,7 @@ describe('the checklist', () => {
         onEdit={noop}
         onAnother={noop}
         trouble={null}
-        busy={false}
+        busy={false} room={ROOMY}
       />,
     )
     fireEvent.click(screen.getByText('change'))
@@ -245,8 +257,8 @@ describe('the checklist', () => {
 describe('a container that cannot tell which kehikko it is on', () => {
   test('says so, and works anyway for the session', () => {
     render(
-      <Unplaced>
-        <Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} said="x" />
+      <Unplaced room={ROOMY}>
+        <Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} room={ROOMY} said="x" />
       </Unplaced>,
     )
     expect(screen.getByText(/cannot tell which kehikko it is on/)).toBeTruthy()
@@ -287,5 +299,278 @@ describe('the screen for "there is nowhere to keep a checklist"', () => {
     render(<Nowhere unhosted project={null} />)
     expect(screen.getByText(/Nothing is framing this page/)).toBeTruthy()
     expect(screen.getByText(/Opened directly/)).toBeTruthy()
+  })
+})
+
+/**
+ * The same components in the container this module actually spends its life in.
+ *
+ * Every assertion below is one half of a pair: something is not on screen, AND
+ * the thing it did is still reachable. A test that only checked the first would
+ * pass just as happily for a feature that had been deleted.
+ */
+describe('a small container', () => {
+  test('the box to type in is behind one press, and typing into it still adds the line', () => {
+    /* Measured at 220×300 before this existed: the add box was 147 pixels of the
+       300, permanently, in front of the list it is for. */
+    const sent: unknown[] = []
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={(e) => sent.push(e)}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(container.querySelector('#add-item')).toBeNull()
+    fireEvent.click(screen.getByText('Add a line'))
+    const box = container.querySelector('#add-item') as HTMLTextAreaElement
+    expect(box).toBeTruthy()
+    expect(container.querySelector('[data-sheet]')).toBeTruthy()
+    fireEvent.change(box, { target: { value: 'Read the diff again' } })
+    fireEvent.click(screen.getByText('Add'))
+    expect(sent[0]).toEqual({ op: 'add', id: 'list1', text: 'Read the diff again' })
+    /* And it closes itself, because the thing it was opened for is done. */
+    expect(container.querySelector('[data-sheet]')).toBeNull()
+  })
+
+  test('leaving and removing are still reachable, from the one press that is left', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(container.querySelector('[data-another]')).toBeNull()
+    fireEvent.click(container.querySelector('[data-open-more]') as HTMLElement)
+    expect(container.querySelector('[data-another]')).toBeTruthy()
+    expect(container.querySelector('[data-forget]')).toBeTruthy()
+  })
+
+  test('who ticked it, and that it came over MCP, is drawn at every size', () => {
+    /* The one thing a narrow container may not buy space with. An agent may tick
+       anything on this list, and what makes that safe is that the claim is
+       legible as a claim — a bare checkmark with nobody's name against it is
+       exactly what `list/checklists.ts` refuses. */
+    render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
+  })
+
+  test('who WROTE an unticked line moves into the row’s title rather than a line of its own', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.queryByText('written by the owner')).toBeNull()
+    const row = container.querySelector('li[data-item="aaa"] button[aria-pressed]') as HTMLElement
+    expect(row.title).toContain('Written by the owner')
+  })
+
+  test('move and remove are folded behind one press on the row, and unfold in place', () => {
+    const sent: unknown[] = []
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={(e) => sent.push(e)}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    const row = container.querySelector('li[data-item="bbb"]') as HTMLElement
+    expect(row.querySelector('[title="Move up"]')).toBeNull()
+    fireEvent.click(row.querySelector('[data-unfold]') as HTMLElement)
+    fireEvent.click(row.querySelector('[title="Move up"]') as HTMLElement)
+    expect(sent[0]).toEqual({ op: 'move', id: 'list1', item: 'bbb', to: 0 })
+  })
+
+  test('the items are the one scroller, and every item is a snap point', () => {
+    /* Both halves matter: a snap point on the document scroller would snap the
+       name and the target away, which is worse than not snapping at all. */
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    const list = container.querySelector('[data-scroller="items"]') as HTMLElement
+    expect(list.className).toContain('overflow-y-auto')
+    expect(list.className).toContain('snap-proximity')
+    expect(list.className).not.toContain('snap-mandatory')
+    for (const li of container.querySelectorAll('li[data-item]')) {
+      expect(li.className).toContain('snap-start')
+    }
+  })
+
+  test('the paragraph explaining a target goes; the sentence saying nothing can be ticked does not', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.queryByText(/keeps its own/)).toBeNull()
+    /* And the fact is still somewhere a reader can get at. */
+    expect((container.querySelector('[data-switch]') as HTMLElement).title).toContain('keeps its own')
+
+    cleanup()
+    render(
+      <ChecklistView
+        held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText(/nothing below can be ticked/)).toBeTruthy()
+  })
+
+  test('the target switch opens over the frame rather than pushing the list off the bottom', () => {
+    const { container } = render(
+      <ChecklistView
+        held={held()}
+        targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
+        candidates={[{ kind: 'ref', ref: 'gh#105' }]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble={null}
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelector('[data-sheet]')).toBeTruthy()
+    expect(container.querySelector('[data-pick-target="ref:gh#105"]')).toBeTruthy()
+    expect(container.querySelector('[data-pick-target="paper:modes"]')).toBeTruthy()
+  })
+
+  test('a refusal is still drawn on the card when the box it came from is closed', () => {
+    /* The failure this catches: with the only place a refusal was ever printed
+       now behind a press, a refused add would be silent — the sheet closes on
+       the way out and takes the sentence with it. */
+    render(
+      <ChecklistView
+        held={held()}
+        targets={[]}
+        candidates={[]}
+        onTarget={noop}
+        onEdit={noop}
+        onAnother={noop}
+        trouble="that item is already on this list."
+        busy={false}
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText(/already on this list/)).toBeTruthy()
+  })
+
+  test('the pick screen puts the create box behind a press and lets the names scroll', () => {
+    const made: string[] = []
+    const { container } = render(
+      <Choose
+        lists={[{ id: 'one', name: 'What a change owes', at: '', by: 'a test', items: 3, targets: 2 }]}
+        onPick={noop}
+        onCreate={(name) => made.push(name)}
+        trouble={null}
+        busy={false}
+        said="Nothing has been picked for Roadmap yet."
+        room={TIGHT}
+      />,
+    )
+    expect(container.querySelector('#new-checklist')).toBeNull()
+    expect(container.querySelector('[data-scroller="lists"]')).toBeTruthy()
+    fireEvent.click(screen.getByText('Start one'))
+    const box = container.querySelector('#new-checklist') as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: 'What a paper owes' } })
+    fireEvent.click(screen.getByText('Create'))
+    expect(made).toEqual(['What a paper owes'])
+  })
+
+  test('the sentence saying WHY we are on the pick screen is kept, because it is the answer', () => {
+    /* Clamped, not cut: "that checklist is not here any more" is the first thing
+       a reader wants and the last thing a small container should drop. */
+    render(
+      <Choose
+        lists={[]}
+        onPick={noop}
+        onCreate={noop}
+        trouble={null}
+        busy={false}
+        said="That checklist is not here any more — it was removed, here or on another machine."
+        room={TIGHT}
+      />,
+    )
+    expect(screen.getByText(/That checklist is not here any more/)).toBeTruthy()
+  })
+
+  test('an unplaced container says the two facts a reader can act on, and keeps the rest in a title', () => {
+    const { container } = render(
+      <Unplaced room={TIGHT}>
+        <Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} said="x" room={TIGHT} />
+      </Unplaced>,
+    )
+    const note = container.querySelector('[data-unplaced]') as HTMLElement
+    expect(note.textContent).toContain('not remembered')
+    expect(note.textContent).toContain('until this page is reloaded')
+    expect(note.title).toContain('cannot tell which kehikko it is on')
+    /* And the pick screen is still there, at every size. */
+    expect(screen.getByText('Pick a checklist')).toBeTruthy()
   })
 })
