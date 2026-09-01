@@ -51,7 +51,7 @@ export const FORMAT = 'roadmap.notifications@1'
  *
  * ## What it declares, and the longer list of what it does not
  *
- * - **`state:keep` — declared, and it is the newest one.** The user asked that
+ * - **`state:keep` — declared.** The user asked that
  *   somebody looking at this container for the first time IN A KEHIKKO pick an
  *   existing checklist or create one, and that the choice then stick. A module's
  *   page is loaded once and shown on whichever canvas asks for it, so it cannot
@@ -62,6 +62,25 @@ export const FORMAT = 'roadmap.notifications@1'
  *   pick screen and then correct itself. The host's state is keyed by MODULE and
  *   not by kehikko, so the per-kehikko map lives inside the string; see
  *   `list/keep.ts`.
+ * - **`projects:pick` — declared, and it is the newest one.** A checklist lives
+ *   in the project it is about, so reusing one somebody wrote in another
+ *   project is inherently cross-project — and this app is told exactly one
+ *   `projectPath` and may read what it was told. The capability it would have
+ *   been easy to want is "read the projects", and that one hands a framed
+ *   program a listing of somebody's disk. This is the other shape: the host
+ *   asks a person, draws the dialog out of its own material, and answers with
+ *   one path or with nothing. This app cannot name a project, cannot filter the
+ *   dialog, cannot write a word of what is on it, and cannot tell a refusal
+ *   from an empty shelf. The sentence somebody reads before running this
+ *   program says "asks you to choose one of your projects", which is exactly
+ *   what happens.
+ *
+ *   Read the other half in `list/checklists.ts` under `op: 'import'`: the store
+ *   treats a picked path exactly like the open one, through the same fence,
+ *   because a store that trusted a picked path more would be a fence with a
+ *   gate in it. And there is deliberately no MCP tool for it — see the note
+ *   above `tools()` in `doors.ts`. An agent supplying its own `from` would turn
+ *   a copy into an existence oracle over the disk.
  * - **`live:read` — NOT declared, where it used to be the only thing declared,
  *   and this is the biggest single deletion in this file.** It was there for one
  *   reason: `derive()` was a pure function of one `RefState`, so a host's reading
@@ -302,7 +321,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   reacts: ['selection', 'passage'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'state:keep'],
+    uses: ['events:emit', 'projects:pick', 'state:keep'],
     storage: true,
     prompt: false,
   },

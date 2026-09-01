@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { choose, reading, unchoose, writing, type Kept } from '../../list/keep.ts'
-import type { FilterChoice, FilterGroup } from 'roadmap-module-protocol'
-import { connect, type Connection, type HostEvents } from 'roadmap-module-protocol/client'
+import { projectPickResult, type FilterChoice, type FilterGroup } from 'roadmap-module-protocol'
+import {
+  PERSON_ANSWERS_WITHIN_MS,
+  connect,
+  type Connection,
+  type HostEvents,
+} from 'roadmap-module-protocol/client'
 import { pump } from './emit.ts'
 import { wearTheme } from './theme.ts'
 
@@ -189,6 +194,34 @@ export interface Roadmap {
   remember: (kehikko: number, checklist: string | null) => void
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
+  /**
+   * Ask the person which project, and be told where it is — or be told no.
+   *
+   * ## The only way this app will ever learn about a second project
+   *
+   * A checklist lives in the project it is about, so importing one is
+   * inherently cross-project, and this module is told exactly one
+   * `projectPath`. It cannot list the projects on this machine, must never
+   * grow a way to, and would be a different and much worse program if it
+   * could: a module that can ask "what projects exist" has been handed the
+   * disk.
+   *
+   * So it asks the host to ask a person. The host draws the dialog out of its
+   * own material and answers with one path, or with nothing. What comes back
+   * here is `null` for every no — cancelled, declined, refused, no host at all
+   * — because the protocol deliberately makes "there are no projects" and "I
+   * would rather not" indistinguishable, and a page that tried to tell them
+   * apart would be re-inventing the enumeration one bit at a time. One screen
+   * for all of them: nothing was imported, nothing has changed.
+   *
+   * ## It waits on a person, so it waits longer than anything else here
+   *
+   * `PERSON_ANSWERS_WITHIN_MS` rather than the wire's ordinary twelve seconds,
+   * passed per call rather than set on the connection — the other question this
+   * page asks is `state.set`, and a page that waited five minutes to find out
+   * the host was gone would be holding a pick nobody had kept.
+   */
+  pickProject: () => Promise<{ path: string; name: string } | null>
 }
 
 /**
@@ -450,6 +483,34 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
+  /**
+   * Ask the host to ask the person which project. See `pickProject` above.
+   *
+   * The answer is parsed with the protocol's own schema rather than read off
+   * the object, for the reason the package itself gives: a module validating
+   * what a host sent it is the only side that can. This one is worth the care
+   * — what comes back is about to be handed to this app's server as a folder to
+   * read — and the parse is what turns a host that answered something odd into
+   * "nothing was picked" instead of a path-shaped surprise.
+   *
+   * Every refusal is `null`, including a rejected promise. A host that has
+   * never heard of `projects.pick` answers `unknown-method`, which is a `throw`
+   * here, and the honest thing for this page to do about a host too old to be
+   * asked is exactly what it does about a person who pressed Cancel.
+   */
+  const pickProject = useCallback(async (): Promise<{ path: string; name: string } | null> => {
+    const live = host.current
+    if (!live) return null
+    try {
+      const answered = await live.request('projects.pick', {}, { within: PERSON_ANSWERS_WITHIN_MS })
+      const read = projectPickResult.safeParse(answered)
+      if (!read.success || read.data.outcome !== 'picked' || !read.data.project) return null
+      return { path: read.data.project.path, name: read.data.project.name }
+    } catch {
+      return null
+    }
+  }, [])
+
   /* Sent unconditionally: a page with no host posts into nothing, which costs
      nothing, and a page that checked first would have to know whether the
      greeting has arrived yet — which is exactly the race the client's own replay
@@ -470,8 +531,23 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       remember,
       resize,
       filters,
+      pickProject,
     }),
-    [where, epic, projectPath, projectName, kehikko, selection, passage, chosen, kept, remember, resize, filters],
+    [
+      where,
+      epic,
+      projectPath,
+      projectName,
+      kehikko,
+      selection,
+      passage,
+      chosen,
+      kept,
+      remember,
+      resize,
+      filters,
+      pickProject,
+    ],
   )
 }
 

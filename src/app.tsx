@@ -29,6 +29,7 @@ import {
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 import { ChecklistView } from '@/view/checklist.tsx'
 import { Choose, Unplaced } from '@/view/choose.tsx'
+import { Importing } from '@/view/importing.tsx'
 import { Nowhere } from '@/view/nowhere.tsx'
 import { wantedHeight } from '@/view/room.ts'
 import { useRoom } from '@/view/use-room.ts'
@@ -136,6 +137,49 @@ export function App() {
   const [gone, setGone] = useState<string | null>(null)
 
   /**
+   * The project somebody picked to copy a checklist out of, and what is in it.
+   *
+   * ## Why this state exists at all, and what it is not
+   *
+   * The user's ask was one sentence: *"the ability to import a checklist from
+   * some other epic/project so that we dont have to start from scratch every
+   * time. Are all the checklists (not their instances) Saved per project?"*
+   *
+   * They are, in one file: `<project>/.kehikot/checklist/checklists.json`. What
+   * is per-KEHIKKO is only the PICK — which list a canvas shows, in
+   * `list/keep.ts` — so every checklist in a project is already visible to every
+   * canvas in it, and "between epics" is not the axis. Import is inherently
+   * cross-project.
+   *
+   * Which runs straight into the rule this whole family keeps: a module is told
+   * one `projectPath` and may read what the host named. So this state is never
+   * a folder this page went looking for. It is filled only by `pickProject`,
+   * which asks the host to ask a person, and is emptied by anything going wrong.
+   * There is no code path here that can produce a second project on its own, and
+   * there must never be one — a module that could enumerate projects has been
+   * handed the disk.
+   *
+   * `lists` is that project's checklists, read through this app's own door with
+   * the picked path on the query. That door already took a project on every read
+   * for reasons that had nothing to do with this — the store moved into the
+   * project a while ago — so reading a second project needed no new door, which
+   * is a small piece of evidence that the partition was drawn in the right
+   * place.
+   */
+  const [from, setFrom] = useState<{ path: string; name: string } | null>(null)
+  const [importable, setImportable] = useState<Summary[]>([])
+  /**
+   * True from the press until there is something to show, or nothing to show.
+   *
+   * Covers two waits that a person experiences as one: the host asking them
+   * which project — which lasts exactly as long as they take — and this app
+   * reading that project's file afterwards. Splitting them on screen would mean
+   * a button that says "Choosing…" and then blinks to "Reading…" for eighty
+   * milliseconds.
+   */
+  const [choosing, setChoosing] = useState(false)
+
+  /**
    * Bumped whenever an agent comes through this app's MCP door.
    *
    * The pump in `emit.ts` is already polling for exactly that, in order to
@@ -175,6 +219,7 @@ export function App() {
     remember,
     resize,
     filters,
+    pickProject,
   } = useRoadmap(ID, onGoto, onDoor)
 
   /*
@@ -606,11 +651,19 @@ export function App() {
         }
         setTrouble(null)
         setLists(answer.lists)
-        if (change.op === 'create') {
-          /* A list created here is opened here. Making somebody press the name
-             they have just typed is the sort of step that reads as the app not
-             having noticed. */
+        if (change.op === 'create' || change.op === 'import') {
+          /* A list created here is opened here, and so is one copied in. Making
+             somebody press the name they have just typed — or the name of the
+             list they have just chosen out of another project — is the sort of
+             step that reads as the app not having noticed.
+
+             The import screen is put away in the same breath, because the thing
+             it was open for has happened. Leaving it up with the copy's source
+             still listed would invite a second press and a second copy, which
+             would land as `"... (from thesis) 2"` and be nobody's intention. */
           setSession(answer.id)
+          setFrom(null)
+          setImportable([])
           if (kehikko) remember(kehikko.id, answer.id)
           return
         }
@@ -644,6 +697,67 @@ export function App() {
   )
 
   const onCreate = useCallback((name: string) => void onEdit({ op: 'create', name }), [onEdit])
+
+  /**
+   * Ask the host to ask the person which project, then read what is in it.
+   *
+   * ## Two steps, one press, and nothing in between that this page decides
+   *
+   * The host draws the dialog and answers with one path or with nothing. Every
+   * "nothing" — cancelled, declined, no host at all, a host too old to have
+   * heard of the method — comes back the same way and is treated the same way
+   * here: the press un-presses and the screen does not change. That is not
+   * laziness. The protocol deliberately makes "you have no projects" and "I
+   * would rather not" indistinguishable, so a page that drew four different
+   * sentences would be guessing at which of them this was, in front of somebody
+   * who already knows because they were just looking at the dialog.
+   *
+   * The read afterwards goes through this app's own door with the picked path on
+   * the query, exactly as the open project's read does. A project whose file
+   * will not parse comes back as `trouble` and is drawn on the import screen;
+   * one with no checklists comes back as an empty list, which is a different
+   * sentence and a perfectly ordinary answer.
+   */
+  const onImport = useCallback(async () => {
+    setChoosing(true)
+    setTrouble(null)
+    try {
+      const picked = await pickProject()
+      if (!picked) return
+      const { lists: there, trouble: bad } = await everyChecklist(picked.path)
+      setFrom(picked)
+      setImportable(there)
+      /* The refusal from the OTHER project's read, shown on the screen that is
+         about that project. It must not go to `storeTrouble`, which is the box
+         about the open project's own file — a reader would be told their
+         checklists could not be read when it is somebody else's that could
+         not. */
+      setTrouble(bad)
+    } catch {
+      /* A fetch to this app's own origin that did not happen. Swallowed to the
+         same non-event as a cancellation: there is nothing here a reader can act
+         on, and a network error about localhost on the screen where they are
+         choosing a project is this app reporting its own bug at them. */
+    } finally {
+      setChoosing(false)
+    }
+  }, [pickProject])
+
+  const onImportCancel = useCallback(() => {
+    setFrom(null)
+    setImportable([])
+    setTrouble(null)
+  }, [])
+
+  /* Dropped whenever the open project changes. A list of another project's
+     checklists is an answer to "what could I copy INTO this one", and the moment
+     the reader is moved somewhere else it is an answer to a question nobody
+     asked — the same argument `list/scope.ts` makes about a remembered place
+     outliving the context that justified it. */
+  useEffect(() => {
+    setFrom(null)
+    setImportable([])
+  }, [projectPath])
 
   /**
    * The shell element, held as STATE rather than in a ref.
@@ -688,24 +802,51 @@ export function App() {
   })
 
   /**
-   * Why we are on the pick screen, in the words that fit the case.
+   * Whether anything has happened that a reader needs telling, and if so what —
+   * otherwise nothing at all.
    *
-   * Four sentences rather than one, because they send a reader to four different
-   * places: waiting to hear, standing on a named canvas for the first time,
-   * standing on a canvas whose remembered list is gone, and running with nothing
-   * framing this page at all. A single "pick a checklist" would be this app
-   * telling a reader nothing at the moment it has something specific to say.
+   * ## It used to always say something, and that was the fault
+   *
+   * There were four sentences here and one of them fired in the ordinary case:
+   * *"Nothing has been picked for Design yet. What is chosen here is remembered
+   * for this kehikko and no other, so a different canvas keeps its own."* Under
+   * a heading reading **Pick a checklist**, above the list of them, beside a
+   * button that starts one. The user counted the result:
+   *
+   * > "Checklist also has some redundant lines when no checklist has been picked
+   * > yet."
+   *
+   * They are right, and the interesting half is why that sentence was ever
+   * written. It explains the program's own filing — which canvas a choice is
+   * remembered against — to somebody whose next act is to press a name. Nothing
+   * in it changes what they should press, and the screen already says what to do
+   * in its heading and offers exactly two ways to do it.
+   *
+   * So `null` is the ordinary answer now, and this speaks only when something
+   * has happened that a reader cannot see for themselves:
+   *
+   * - **`listening`** — we have not heard yet, so what is below may be about to
+   *   change under them.
+   * - **`gone`** — the list they had is not there any more. The sharpest of the
+   *   three, and the reason this mechanism survives at all: it answers the
+   *   question they are about to ask.
+   * - **`unhosted`** — nothing is framing this page, so the pick lasts until a
+   *   reload. A fact about what will happen later, which is exactly the kind a
+   *   person cannot read off a screen.
+   *
+   * What is gone is the per-kehikko explanation, and not the behaviour: a pick
+   * is still remembered per kehikko — `list/keep.ts` is untouched — and
+   * `Unplaced` in `src/view/choose.tsx` still says so in the one case where it
+   * is news, which is a canvas with no name to remember anything against.
    */
   const said =
     where === 'listening'
-      ? 'Waiting to hear whether anything is framing this page, and therefore which kehikko this is.'
+      ? 'Waiting to hear which kehikko this is.'
       : gone
-        ? 'That checklist is not here any more — it was removed, here or on another machine. Pick another, or start one.'
-        : kehikko
-          ? `Nothing has been picked for ${kehikko.name} yet. What is chosen here is remembered for this kehikko and no other, so a different canvas keeps its own.`
-          : where === 'unhosted'
-            ? 'Nothing is framing this page, so there is no kehikko to remember a choice against. Everything below is held here, on this machine, and works with nothing else running — the pick will last until this page is reloaded.'
-            : 'Pick the checklist this work is held to, or start one. Nothing here ships a list.'
+        ? 'That checklist is gone — removed here, or on another machine.'
+        : where === 'unhosted'
+          ? 'Nothing is framing this page, so this pick lasts until it is reloaded.'
+          : null
 
   /**
    * Which rung of the paper this container is on, and what that rung is not
@@ -746,6 +887,23 @@ export function App() {
        from another project is deliberately left alone rather than forgotten:
        come back to that project and the same list is in front of you. */
     <Nowhere unhosted={where === 'unhosted'} project={project} />
+  ) : from ? (
+    /* Above `chosen` on purpose. Somebody who is mid-import has a list open
+       behind them as often as not, and putting this under the open checklist
+       would mean pressing Copy and watching nothing happen. It is a screen and
+       not an overlay for the reason in `importing.tsx`: at this width the two
+       are the same thing, and drawing another project's names where this
+       project's names were is what makes the swap legible. */
+    <Importing
+      from={from.name || from.path}
+      lists={importable}
+      onImport={(id) => void onEdit({ op: 'import', from: from.path, id })}
+      onCancel={onImportCancel}
+      trouble={trouble}
+      busy={busy}
+      reading={choosing}
+      room={room}
+    />
   ) : opened && chosen ? (
       <ChecklistView
         held={opened.held}
@@ -786,6 +944,8 @@ export function App() {
         lists={lists}
         onPick={pick}
         onCreate={onCreate}
+        onImport={() => void onImport()}
+        importing={choosing}
         trouble={trouble}
         busy={busy}
         said={said}

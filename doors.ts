@@ -309,6 +309,26 @@ function resolve(args: Record<string, unknown>, where: string | null): Target | 
  * their own material. An agent that wanted it can say so and be told no by
  * somebody.
  */
+/*
+ * There is deliberately no `import_checklist` tool, and the absence is a
+ * decision rather than an omission.
+ *
+ * The store answers `{ op: 'import', from, id }`, and the argument that makes
+ * that safe is not in the store: it is that `from` is a path A PERSON JUST
+ * PICKED, in a dialog the host drew, out of projects this module cannot
+ * enumerate. That protection lives entirely in the page's route to it.
+ *
+ * An agent holding this tool would supply `from` itself. It would then be a
+ * tool that reads an arbitrary folder on this machine and reports whether there
+ * are checklists in it — an existence oracle over the disk, reachable from a
+ * loopback port, wearing the name of a copy operation. Every other tool here
+ * takes `project` because the caller is already working in one; `from` is
+ * different in kind, because nothing about the work says which project it is.
+ *
+ * If an agent should ever be able to do this, the thing to give it is not this
+ * tool: it is a way for a person to hand over the second path, which is what
+ * `projects.pick` already is for the page.
+ */
 function tools() {
   return [
     {
@@ -987,6 +1007,32 @@ export function answer(
       const by = OWNER
 
       if (op === 'create') return ok(change({ op: 'create', name: str(body.name, MAX_NAME), by }, where))
+      /*
+       * An import, which is the one write that names two projects.
+       *
+       * Answered above the "which checklist" check below, because its `id` names
+       * a list in the OTHER project rather than in this one — the same reason
+       * the store answers it above its own lookup.
+       *
+       * `from` goes through `project()` exactly as `where` does, and that is the
+       * point rather than a convenience. This door has no idea that a person
+       * picked `from` out of the host's dialog, and must not behave as though it
+       * did: a path from a picker and a path from a context are the same kind of
+       * string, get the same bounds here, and meet the same fence in `store.ts`.
+       * A door that trusted one of them more would be a fence with a gate in it.
+       */
+      if (op === 'import') {
+        const from = project(body.from)
+        if (!from) {
+          return bad(
+            'that import did not say which project to copy from. This app cannot work it out on its own — it is '
+            + 'told one project and may read what it was told, so the project a list comes from is one somebody '
+            + 'picked.',
+          )
+        }
+        if (!id) return bad('that import did not say which checklist to copy.')
+        return ok(change({ op: 'import', from, id, by }, where))
+      }
       if (!id) return bad('that edit did not say which checklist it was about.')
       if (op === 'rename') return ok(change({ op: 'rename', id, name: str(body.name, MAX_NAME), by }, where))
       if (op === 'forget') return ok(change({ op: 'forget', id, by }, where))
@@ -1025,7 +1071,7 @@ export function answer(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, rename, forget, add, reword, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, add, reword, move, drop or tick.`,
       )
     }
   }

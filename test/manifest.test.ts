@@ -29,11 +29,18 @@ describe('the manifest', () => {
     expect(MANIFEST.modes[0]?.scope).toBe('epic')
   })
 
-  test('declares exactly the two it calls, and every name is one the protocol knows', () => {
+  test('declares exactly the three it calls, and every name is one the protocol knows', () => {
     /* `events:emit` for the one thing it says: an agent came through the MCP
        door — which is the one thing that happens to this app that nobody
        watching the screen can see. `state:keep` for the one thing it remembers:
-       which checklist was picked, per kehikko.
+       which checklist was picked, per kehikko. `projects:pick` for the one thing
+       it cannot work out on its own: which OTHER project a checklist is being
+       copied out of, which a person answers in the host's own dialog.
+
+       What is not here, and must never be, is anything that reads the projects.
+       There is no such capability in the protocol and there is not meant to be:
+       a module that could ask what projects exist has been handed the disk. See
+       the essay on `projects:pick` in `manifest.ts`.
 
        `live:read` is NOT here, and its absence is the assertion that matters.
        It was the only capability this module declared, and it existed to compute
@@ -41,8 +48,9 @@ describe('the manifest', () => {
        are no hardcoded items now. A capability asked for and never used is the
        fastest way to teach somebody to press yes without reading, so it is gone
        and this test is what stops it drifting back. */
-    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'state:keep'])
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'projects:pick', 'state:keep'])
     expect(MANIFEST.declares.uses).not.toContain('live:read')
+    expect(MANIFEST.declares.uses).not.toContain('projects:read')
     /* Checked against the protocol's own list rather than against a string
        here: a capability a host does not know is not an error anywhere — it is
        simply a line in a manifest that means nothing, and this is the only

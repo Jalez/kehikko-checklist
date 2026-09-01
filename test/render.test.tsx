@@ -111,6 +111,8 @@ describe('the pick screen', () => {
         lists={[]}
         onPick={noop}
         onCreate={noop}
+        onImport={noop}
+        importing={false}
         trouble={null}
         busy={false} room={ROOMY}
         said="Nothing has been picked for Roadmap yet."
@@ -119,9 +121,20 @@ describe('the pick screen', () => {
     expect(screen.getByText(/Nothing has been picked for Roadmap yet/)).toBeTruthy()
   })
 
-  test('says an empty store is not a gap this app can fill, because nothing ships a list', () => {
-    render(<Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} room={ROOMY} said="x" />)
-    expect(screen.getByText(/Nothing ships a list/)).toBeTruthy()
+  test('says an empty store in as few words as it takes, and nothing about how filing works', () => {
+    /*
+     * This used to assert on "Nothing ships a list", which was true and was a
+     * paragraph. The user counted the lines on this screen at 220 pixels and
+     * two of the four were the program explaining its own filing to somebody
+     * about to press a button. What has to survive is the DISTINCTION — "this
+     * project has no checklists" and "you have not picked one" are different
+     * situations with different remedies — and that is what is asserted now.
+     */
+    render(<Choose lists={[]} onPick={noop} onCreate={noop} onImport={noop} importing={false} trouble={null} busy={false} room={ROOMY} said="x" />)
+    expect(screen.getByText('No checklists in this project yet.')).toBeTruthy()
+    expect(screen.queryByText(/Nothing ships a list/)).toBeNull()
+    /* And the heading is still there, which is the half that says what to do. */
+    expect(screen.getByText('Pick a checklist')).toBeTruthy()
   })
 
   test('offers every list that exists, by name, and hands the id back on a press', () => {
@@ -136,6 +149,8 @@ describe('the pick screen', () => {
           picked = id
         }}
         onCreate={noop}
+        onImport={noop}
+        importing={false}
         trouble={null}
         busy={false} room={ROOMY}
         said="x"
@@ -154,6 +169,8 @@ describe('the pick screen', () => {
         lists={[{ id: 'two', name: LONG, at: '', by: 'a test', items: 1, targets: 0 }]}
         onPick={noop}
         onCreate={noop}
+        onImport={noop}
+        importing={false}
         trouble={null}
         busy={false} room={ROOMY}
         said="x"
@@ -172,6 +189,8 @@ describe('the pick screen', () => {
         lists={[]}
         onPick={noop}
         onCreate={noop}
+        onImport={noop}
+        importing={false}
         trouble="there is already a checklist called “What a change owes” (one)."
         busy={false} room={ROOMY}
         said="x"
@@ -329,7 +348,7 @@ describe('a container that cannot tell which kehikko it is on', () => {
   test('says so, and works anyway for the session', () => {
     render(
       <Unplaced room={ROOMY}>
-        <Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} room={ROOMY} said="x" />
+        <Choose lists={[]} onPick={noop} onCreate={noop} onImport={noop} importing={false} trouble={null} busy={false} room={ROOMY} said="x" />
       </Unplaced>,
     )
     expect(screen.getByText(/cannot tell which kehikko it is on/)).toBeTruthy()
@@ -568,6 +587,8 @@ describe('a small container', () => {
         lists={[{ id: 'one', name: 'What a change owes', at: '', by: 'a test', items: 3, targets: 2 }]}
         onPick={noop}
         onCreate={(name) => made.push(name)}
+        onImport={noop}
+        importing={false}
         trouble={null}
         busy={false}
         said="Nothing has been picked for Roadmap yet."
@@ -591,6 +612,8 @@ describe('a small container', () => {
         lists={[]}
         onPick={noop}
         onCreate={noop}
+        onImport={noop}
+        importing={false}
         trouble={null}
         busy={false}
         said="That checklist is not here any more — it was removed, here or on another machine."
@@ -603,7 +626,7 @@ describe('a small container', () => {
   test('an unplaced container says the two facts a reader can act on, and keeps the rest in a title', () => {
     const { container } = render(
       <Unplaced room={TIGHT}>
-        <Choose lists={[]} onPick={noop} onCreate={noop} trouble={null} busy={false} said="x" room={TIGHT} />
+        <Choose lists={[]} onPick={noop} onCreate={noop} onImport={noop} importing={false} trouble={null} busy={false} said="x" room={TIGHT} />
       </Unplaced>,
     )
     const note = container.querySelector('[data-unplaced]') as HTMLElement

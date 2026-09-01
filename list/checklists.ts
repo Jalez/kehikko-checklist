@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { z } from 'zod'
 
 import { dataFile, makeDir, oldPapersFile } from '../store.ts'
@@ -520,6 +521,78 @@ function newId(): string {
   return crypto.randomUUID().replace(/-/g, '').slice(0, 8)
 }
 
+/**
+ * What to call a project in a sentence, given its path.
+ *
+ * The last segment, because that is what the host calls it too and what a
+ * person reading a refusal or an `origin` recognises. The whole path is the
+ * fallback for the one directory that has no last segment, which is the
+ * filesystem root, which nobody opens as a project.
+ */
+function named(path: string): string {
+  return basename(path) || path || 'another project'
+}
+
+/**
+ * How many times an imported name may be nudged before this gives up.
+ *
+ * A bound rather than a loop to exhaustion: twenty is far past the point where
+ * a person is being helped, and a name that has been counted to twenty is one
+ * somebody should be told about rather than one this app should keep guessing
+ * at.
+ */
+const MAX_RENAMES = 20
+
+/**
+ * A name for an imported list that no list here already has.
+ *
+ * ## Why an import renames where a create refuses
+ *
+ * `create` refuses a duplicate name and hands back the clashing id, and that is
+ * right there: somebody has just typed a name, so somebody can type a different
+ * one, and the refusal tells them which list they probably meant.
+ *
+ * An import has no such person to send back to. The name was typed in another
+ * project, possibly months ago and possibly by somebody else, and the only way
+ * to satisfy a refusal would be to go and rename a list in a project that is not
+ * open. So the copy takes a name it can have, and the sentence that comes back
+ * says which one — nothing happens silently, and the alternative is a screen
+ * that refuses a perfectly reasonable act and offers no control that would fix
+ * it.
+ *
+ * What is NOT allowed is two lists with one name, because that is the failure
+ * `create`'s refusal exists to prevent: a person picking the wrong one on the
+ * screen where they cannot tell them apart. That failure is exactly as bad for
+ * a copy, so the rule survives and only the remedy changes.
+ *
+ * The first fallback says where it came from, which is the most useful thing a
+ * disambiguator can say here — `"What a change owes (from thesis)"` reads as an
+ * answer rather than as a collision. After that it counts, and then it gives up,
+ * at which point somebody really does have to rename something and the refusal
+ * says so.
+ *
+ * Compared case-insensitively, like `create`'s clash check, because two names
+ * differing only in capitals are two names nobody can tell apart on a row. And
+ * every candidate is length-checked, because a long name plus a suffix is a
+ * name past `MAX_NAME` — which would be stored clipped, and a clipped name can
+ * collide with the very thing it was lengthened to avoid.
+ */
+function free(wanted: string, here: readonly Checklist[], project: string): string | null {
+  const taken = new Set(here.map((list) => list.name.toLowerCase()))
+  const fits = (name: string): string | null =>
+    name.length <= MAX_NAME && !taken.has(name.toLowerCase()) ? name : null
+
+  const asIs = fits(wanted)
+  if (asIs) return asIs
+  const said = fits(`${wanted} (from ${project})`)
+  if (said) return said
+  for (let n = 2; n <= MAX_RENAMES; n += 1) {
+    const numbered = fits(`${wanted} (from ${project}) ${n}`)
+    if (numbered) return numbered
+  }
+  return null
+}
+
 /* ------------------------------------------------------------------ *
  * Reading
  * ------------------------------------------------------------------ */
@@ -620,6 +693,25 @@ export type Op =
   | { op: 'create'; name: string; by: string; viaMcp?: boolean }
   | { op: 'rename'; id: string; name: string; by: string; viaMcp?: boolean }
   | { op: 'forget'; id: string; by: string; viaMcp?: boolean }
+  /**
+   * Copy a checklist out of ANOTHER project into this one.
+   *
+   * The one operation here that reads two stores, and the only one whose `id`
+   * names something that is not in the project being written to: `from` is the
+   * source project's path and `id` is the checklist's id THERE.
+   *
+   * ## Where `from` comes from, and why this store does not care
+   *
+   * A person picked it. The page asks the host `projects.pick`, the host draws
+   * the dialog out of its own projects, and the answer is one absolute path.
+   * This module has no way to enumerate projects and must never grow one — see
+   * the protocol's `projects:pick`. From this file's side that is invisible and
+   * deliberately so: `from` is a project path exactly like `projectPath`, goes
+   * through the same `store.ts` fence, and is refused by the same sentences if
+   * it is not a folder on this machine. A store that treated a picked path as
+   * more trustworthy than the open one would be a fence with a gate in it.
+   */
+  | { op: 'import'; from: string; id: string; by: string; viaMcp?: boolean }
   | { op: 'add'; id: string; text: string; by: string; viaMcp?: boolean }
   | { op: 'reword'; id: string; item: string; text: string; by: string; viaMcp?: boolean }
   | { op: 'move'; id: string; item: string; to: number; by: string; viaMcp?: boolean }
@@ -709,6 +801,135 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     const id = newId()
     store.checklists[id] = { id, name, at, by, origin: null, items: [] }
     return answer(id, `created "${name}" as ${id}`, null)
+  }
+
+  /*
+   * An import, which is the second operation that does not start from a list in
+   * this project — so it is answered above the lookup that would refuse
+   * `input.id` for not being here. It is not here: it is in the project the
+   * person picked.
+   */
+  if (input.op === 'import') {
+    const there = read(input.from)
+    if (there.trouble) {
+      return { ok: false, error: `nothing was imported. ${there.trouble}` }
+    }
+    if (there.where === 'nowhere') {
+      return {
+        ok: false,
+        error:
+          'nothing was imported: that did not say which project to copy from. A checklist is copied out of one '
+          + 'project into another, and the project it comes from has to be named as a folder on this machine.',
+      }
+    }
+    const source = there.store.checklists[input.id]
+    if (!source) {
+      return {
+        ok: false,
+        error:
+          `there is no checklist "${input.id}" in ${named(input.from)}. Somebody may have removed it since that `
+          + 'project was read: ask for its checklists again and pick from what is there now.',
+      }
+    }
+    const lists = Object.values(store.checklists)
+    if (lists.length >= MAX_LISTS) {
+      return {
+        ok: false,
+        error: `there are already ${lists.length} checklists here, which is the most this app holds. Remove one first.`,
+      }
+    }
+    if (source.items.length > MAX_ITEMS) {
+      /* Refused rather than clipped. A list arriving with more items than this
+         app holds can only have come from a hand-edited file, and importing the
+         first two hundred lines of somebody's standard would produce a list
+         that LOOKS complete and is not — which is the failure this whole module
+         argues against. */
+      return {
+        ok: false,
+        error:
+          `"${source.name}" has ${source.items.length} items, which is more than the ${MAX_ITEMS} one list holds `
+          + 'here. Shorten it in the project it came from, then import it.',
+      }
+    }
+
+    const name = free(source.name, lists, named(input.from))
+    if (name === null) {
+      return {
+        ok: false,
+        error:
+          `there are already checklists here called "${source.name}" and every name this app would have given the `
+          + 'copy. Rename one of them, or rename the list in the project it is coming from.',
+      }
+    }
+
+    /*
+     * A new id for the list and a new id for every item, always — never the
+     * ones they had over there.
+     *
+     * Two reasons, and the second is the one that would have bitten.
+     *
+     * The obvious one is collision: an id here is eight hex characters, so two
+     * projects can independently mint the same one, and an import that kept the
+     * source's id would silently replace a list somebody already had.
+     *
+     * The one that matters more is that TICKS ARE KEYED BY ID. `store.ticks` is
+     * checklist, then target, then item. Forgetting a list deletes its ticks
+     * here, but a file somebody hand-edited need not have, and neither need a
+     * file that arrived from somewhere. A copy carrying the source's ids could
+     * therefore land on top of ticks left behind by a list that used to have
+     * that id in THIS project — inheriting somebody else's answers about work it
+     * has never been held against. The essay on `drop` writes down exactly this
+     * hazard for items; this is the same hazard one level up, and fresh ids
+     * close it by construction rather than by a check somebody has to remember.
+     */
+    const id = newId()
+    const copied: Checklist = {
+      id,
+      name,
+      /*
+       * The LIST is new here and says so: made now, by whoever imported it. The
+       * ITEMS keep the time and the name they had, because those say who wrote
+       * the line, and putting the importer's name on somebody else's sentence is
+       * a claim this app has no business making. That is what `at` and `by`
+       * already mean in the two places — one records an act in this project, the
+       * other records authorship of a sentence.
+       */
+      at,
+      by,
+      /*
+       * Where it came from, in the field that was left here for it: the essay on
+       * `origin` says the next thing imported into this store will want to say
+       * where IT came from, and that a boolean named `migrated` would have had
+       * to be replaced rather than extended.
+       *
+       * The project's NAME and not its path. A path is absolute, means nothing
+       * on anybody else's machine, and this file is one somebody may commit and
+       * share — so a path here is somebody's home directory written into a
+       * repository, in a field nothing resolves anyway. `origin` is provenance
+       * for a person to read, and not a pointer.
+       */
+      origin: `import:${named(input.from)}#${source.id}`,
+      items: source.items.map((item) => ({ id: newId(), text: item.text, at: item.at, by: item.by })),
+    }
+    /*
+     * And no ticks — which needs no code, and that is worth saying out loud.
+     *
+     * A checklist's items are the thing being reused; whether they are done is a
+     * fact about the project they came from. Copying the ticks would hand
+     * somebody a list of work claiming to be finished in a repository where none
+     * of it has been started. Nothing above reads `there.store.ticks`, and it
+     * cannot land by accident either, because ticks live in a map of their own
+     * keyed by checklist id and the id being written here is one nothing has
+     * ever ticked. The SHAPE of the store is what makes the right answer the one
+     * you get by writing nothing.
+     */
+    store.checklists[id] = copied
+    return answer(
+      id,
+      `imported "${source.name}" from ${named(input.from)} as "${name}" (${id}), with `
+      + `${copied.items.length} ${copied.items.length === 1 ? 'item' : 'items'} and no ticks`,
+      null,
+    )
   }
 
   const list = store.checklists[input.id]

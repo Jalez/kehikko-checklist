@@ -44,17 +44,34 @@ import { cn } from '@/lib/utils.ts'
  * so a small scroll brings the next name fully into view rather than leaving it
  * cut through the middle.
  *
- * The sentence at the top is not dropped in a small container, and it is the one
- * piece of prose here that earns the space: three of the four things it can say
- * are the reason a reader is looking at this screen at all — most sharply "that
- * checklist is not here any more", which is the answer to the question they are
- * about to ask. It is clamped to two lines with the rest in its `title` rather
- * than cut, because the first clause of each of them carries the fact.
+ * ## The screen says three things now, and it used to say four
+ *
+ * The user, reading this at 220 pixels: *"Checklist also has some redundant
+ * lines when no checklist has been picked yet"* — and then quoted all four.
+ * **Pick a checklist**, *Start one*, a sentence about which canvas the choice is
+ * remembered against, and a sentence saying nothing ships a list.
+ *
+ * Two of those explained the program's own filing to somebody who was about to
+ * press a name. What is left is what a person needs in order to act: the
+ * heading says what the screen is for, the list is the thing to press, and the
+ * one line under it says which of the two situations this is — **there are none
+ * here** or **you have not picked one**. That distinction is load-bearing and is
+ * the one thing that must not be flattened: they have different remedies, and
+ * only one of them has a button.
+ *
+ * `said` is `null` in the ordinary case for the same reason, and is a sentence
+ * only when something has happened a reader cannot see — most sharply "that
+ * checklist is gone", which answers the question they are about to ask. It is
+ * still not dropped in a small container, and it is still clamped to two lines
+ * with the rest in its `title` rather than cut, because the first clause of each
+ * of them carries the fact. See `said` in `src/app.tsx`.
  */
 export function Choose({
   lists,
   onPick,
   onCreate,
+  onImport,
+  importing,
   trouble,
   busy,
   said,
@@ -63,11 +80,25 @@ export function Choose({
   lists: Summary[]
   onPick: (id: string) => void
   onCreate: (name: string) => void
+  /**
+   * Start an import: ask the host to ask the person which project.
+   *
+   * A press rather than a menu, because this page has nothing to put in a menu.
+   * It cannot list the projects on this machine and must never be able to — see
+   * `pickProject` in `src/wire/use-roadmap.ts`. Everything after this press
+   * happens on the host's screen until a path comes back.
+   */
+  onImport: () => void
+  /** True while the person is being asked, or while the other project is being read. */
+  importing: boolean
   /** What went wrong the last time anything was pressed, if anything. */
   trouble: string | null
   busy: boolean
-  /** The sentence at the top, which differs by why we are on this screen. */
-  said: string
+  /**
+   * A line about something that has happened, or `null` — which is the ordinary
+   * case and draws nothing at all.
+   */
+  said: string | null
   /** What this container has room for. See `src/view/room.ts`. */
   room: Room
 }) {
@@ -150,15 +181,20 @@ export function Choose({
           </Button>
         ) : null}
       </div>
-      <p
-        className={cn(
-          'shrink-0 border-t bg-muted/40 px-2 py-1.5 text-[0.65rem] leading-4 text-muted-foreground',
-          !room.prose && 'line-clamp-2',
-        )}
-        title={room.prose ? undefined : said}
-      >
-        {said}
-      </p>
+      {/* Drawn only when there is something to draw. An always-present band —
+          even an empty one — would keep the border and the padding it cost,
+          which on a 220-pixel screen is a line of the list. */}
+      {said ? (
+        <p
+          className={cn(
+            'shrink-0 border-t bg-muted/40 px-2 py-1.5 text-[0.65rem] leading-4 text-muted-foreground',
+            !room.prose && 'line-clamp-2',
+          )}
+          title={room.prose ? undefined : said}
+        >
+          {said}
+        </p>
+      ) : null}
 
       {lists.length ? (
         <ul
@@ -192,13 +228,37 @@ export function Choose({
           ))}
         </ul>
       ) : (
+        /* One short line, at every width. It used to argue — "nothing ships a
+           list, what a piece of work owes is a judgement" — and the argument is
+           true and is made at length in `list/checklists.ts`, where somebody
+           reading the code will find it. On this screen it was a paragraph
+           explaining an absence to a person standing next to two buttons that
+           fix it. The line that survives is the one fact the buttons do not
+           already say: which of the two situations this is. */
         <p className="border-t px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground">
-          {room.prose
-            ? 'There are no checklists here yet, and that is not a gap this app can fill for you. Nothing ships a '
-              + 'list — what a piece of work owes is a judgement, and the first one starts below.'
-            : 'No checklists here yet. Nothing ships a list — the first one is yours to start.'}
+          No checklists in this project yet.
         </p>
       )}
+
+      {/*
+        The other way to get a list, and the reason the user asked for any of
+        this: *"the ability to import a checklist from some other epic/project
+        so that we dont have to start from scratch every time."*
+
+        A row of its own, always drawn, in both layouts — unlike the create box,
+        which folds into a press when the container is small. It cannot fold the
+        same way: the press IS the whole control here, because everything after
+        it happens on the host's screen. Its label says PROJECT rather than
+        naming one, because this page does not know what projects exist and
+        never will.
+
+        `shrink-0` so it keeps its line when the list above it is scrolling.
+      */}
+      <div className="flex shrink-0 items-center gap-1.5 border-t px-2 py-1.5">
+        <Button type="button" variant="ghost" size="container" disabled={busy || importing} onClick={onImport}>
+          {importing ? 'Choosing…' : 'Copy from another project'}
+        </Button>
+      </div>
 
       {overlaid ? (
         <>

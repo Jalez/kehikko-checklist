@@ -269,6 +269,16 @@ export async function paperOutline(projectPath: string | null, path: string): Pr
 
 export type Edit =
   | { op: 'create'; name: string }
+  /**
+   * Copy a list out of another project into the open one.
+   *
+   * `from` is the other project's absolute path and `id` is the list's id
+   * THERE — the only place in this file where an id is not about the open
+   * project. `from` came out of `pickProject`, which is to say out of a dialog
+   * the host drew and a person pressed; this page has no other source for one
+   * and must never grow one.
+   */
+  | { op: 'import'; from: string; id: string }
   | { op: 'rename'; id: string; name: string }
   | { op: 'forget'; id: string }
   | { op: 'add'; id: string; text: string }
