@@ -143,6 +143,21 @@ export const FORMAT = 'roadmap.notifications@1'
  * offerable as a target without anybody typing a slug. And a context is the only
  * message carrying `kehikko`, which is what the remembered choice is keyed by.
  *
+ * ## The one control this page hands to the host, and the one it keeps
+ *
+ * Nothing here declares it, because `roadmap.filters` is not a capability — a
+ * module simply says what it can be narrowed by and the host draws a control in
+ * the container header, or has never heard of the idea and draws nothing. What
+ * this module offers is the GRAIN of the paper it is following: `section`,
+ * `file`, `paper`. Which section and which file is derived from `passage` on
+ * every context and is written down by nobody, which is what makes a preference
+ * the host keeps against this container forever an honest thing to keep. The
+ * argument is in `list/scope.ts`, and it reverses one this module used to make.
+ *
+ * What stays in the page is the COUNT — `N ticked elsewhere in this paper`.
+ * A host sees rows it does not render, in a store on another origin, and cannot
+ * add up ticks it was never told about. Choice in the header, truth in the page.
+ *
  * ## Storage, and why THIS module asks for it when Atlas and References do not
  *
  * `storage: true` makes the host frame this page with `allow-same-origin`, so it

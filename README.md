@@ -38,9 +38,14 @@ the list against **the whole paper**, **the file**, or **the section**: a title
 and the paragraphs beneath it, up to the next heading of the same or a shallower
 level. Three rungs, no passage rung, and the reason there is no fourth is in
 `list/scope.ts`. Narrowing hides ticks, so the row always says how many it is
-hiding and always offers one press back out. None of this touches a target that
-is a ref: an issue has no document, and nothing on that path so much as stats a
-disk.
+hiding, and the way back out is the **grain** filter the host draws in the
+container header — `section` / `file` / `paper`, offered over `roadmap.filters`
+and remembered per container. Only the rungs that exist are offered, and a
+remembered rung that is not available here falls back rather than narrowing by
+nothing. The choice is remembered; the PLACE never is, which is what lets a rule
+that refuses to remember a scope and a filter the host keeps forever both be
+true. None of this touches a target that is a ref: an issue has no document, no
+rungs, no offer, and nothing on that path so much as stats a disk.
 
 The scanner is this module's own, small, and honest about what it does not read —
 `file/sections.ts` — for the reason `kehikko-notes/notes/annotations.ts` argues:
@@ -234,7 +239,7 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 254 tests across the store, where
+`bun test` covers the wire-independent half — 262 tests across the store, where
 it lives and what it refuses (a null project, a relative path, and either level
 of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
 `realpath`), the `.gitignore` gaining its rule exactly once and being found
@@ -255,7 +260,7 @@ screen) and `ck-realhost.mjs` (the same container framed by the real host at 418
 opening on the pick screen, the choice surviving a full host reload, and the
 epic's paper offered as the target).
 
-Two of those probes now live in the repository rather than in a scratch
+Four of those probes now live in the repository rather than in a scratch
 directory, because what they measure is a claim the code makes and can lose:
 
 ```bash
@@ -266,6 +271,10 @@ PLAYWRIGHT=/path/to/playwright CHROME=/path/to/chrome-headless-shell \
 ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4184" ./run.sh
 PLAYWRIGHT=… CHROME=… node dev/passage.probe.mjs
                             # the container following a reader through a real thesis
+
+ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4185" ./run.sh
+PLAYWRIGHT=… CHROME=… node dev/filters.probe.mjs
+                            # the ladder offered to the host, and what the page gained
 ```
 
 `passage.probe.mjs` is the reading the passage ladder is built on, and it runs
@@ -278,6 +287,27 @@ showing in the next. That is the report, reproduced. After: six distinct rows,
 how many it is hiding. It also found the bug where pressing the way out landed
 back where it started, because `{epic, section: null}` on the wire is
 indistinguishable from a target nobody has narrowed.
+
+`filters.probe.mjs` is the reading behind moving that way out into the container
+header. The ladder is offered to the host over `roadmap.filters` as a GRAIN —
+`section` / `file` / `paper` — never as a place: which section and which file
+goes on being derived from the passage, so nothing that outlives its context is
+stored, and what the host remembers per container is only how narrow this reader
+likes it. Only the rungs that exist are offered (`main.tex` has no labelled
+heading, so it gets `file, paper`), a remembered rung that is not available falls
+back rather than narrowing by nothing, and a checklist held against an issue
+offers nothing at all. The probe filters recorded messages on `event.origin` —
+comparing `event.source` to `frame.contentWindow` silently drops everything,
+because a cross-origin frame hands back a different `Window` proxy. Driving the
+real host is what found the one bug in this: an empty offer is a CLAIM — the host
+prunes the container's stored choice against it — so a paper with no passage
+under it says nothing rather than saying `[]`, and only a ref withdraws. Before
+that, the filter worked perfectly and was erased on every reload. What the page
+gained is **18 pixels on every rung below the paper**, at every size: the strip
+was 70px in a section at 220x300 and is 52px, because the `Show <wider>` line was
+drawn on every rung whether or not anything was hidden behind it. The count —
+`N ticked elsewhere in this paper` — stayed in the page, because a host cannot
+add up ticks in a store on another origin.
 
 `room.probe.mjs` is the reading `src/view/room.ts` is built on. At 220x300 with
 six ordinary items this module used to spend 160 of its 300 pixels above the

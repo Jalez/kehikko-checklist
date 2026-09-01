@@ -54,16 +54,27 @@
  *
  * And the half that matters more than the following. Tick one item in
  * §Research design (1/2), walk to §Model selection, and the container reads 0/2
- * with `1 ticked elsewhere in this paper.` beside a `Show 3_methods.tex`. Press
- * it and the row becomes `3_methods.tex`, 0/2, `Show the whole paper`; press
- * that and it is `the whole paper`, 1/2, with no way out offered because there
- * is nowhere further to climb. A reader who cannot see what was narrowed cannot
- * tell narrowing from a bug, and that line is the whole difference.
+ * with `1 ticked elsewhere in this paper.` A reader who cannot see what was
+ * narrowed cannot tell narrowing from a bug, and that line is the whole
+ * difference.
  *
- * The last two rows are also how a real bug was found rather than reasoned
- * about: pressing the way out used to land back in the section it had just left,
- * because `{epic, section: null}` on the wire is indistinguishable from a target
- * nobody has narrowed. See `pick` in `src/store/ask.ts`.
+ * ## The way out is no longer on this page, so this probe no longer presses it
+ *
+ * When this was written, the count sat beside a `Show 3_methods.tex` press and
+ * the block below drove it: press, land on the file, press again, land on the
+ * paper. The ladder is a filter in the container header now — offered as a
+ * GRAIN, remembered by the host, and driven through `context.filters` — so
+ * `[data-widen]` is not in this page any more, and that block finds nothing and
+ * skips. It is left standing rather than deleted because it is the shape of the
+ * check, and it now reads as what it is: a control that moved.
+ * `dev/filters.probe.mjs` is where the way out is driven, and it measures what
+ * this page gained by losing the press — 18 pixels on every rung below the paper.
+ *
+ * That press is also how a real bug was found rather than reasoned about: it
+ * used to land back in the section it had just left, because `{epic,
+ * section: null}` on the wire is indistinguishable from a target nobody has
+ * narrowed. See `pick` in `src/store/ask.ts` — the rule survived the move, and
+ * `widenedTarget` in `list/scope.ts` is what obeys it now.
  *
  * The same movements at 900x700 say the same things, which was the other thing
  * worth checking: the ladder is not something only a cramped layout shows.

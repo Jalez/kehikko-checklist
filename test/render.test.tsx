@@ -146,7 +146,7 @@ describe('the pick screen', () => {
 describe('the checklist', () => {
   test('says which target it is held against, and that ticks belong to the pair', () => {
     render(
-      <ChecklistView narrowed={NOWHERE} onWiden={noop} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <ChecklistView narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('gh#105')).toBeTruthy()
     expect(screen.getByText(/keeps its own/)).toBeTruthy()
@@ -155,14 +155,14 @@ describe('the checklist', () => {
   test('prints who ticked an item and that it came through the MCP door', () => {
     /* Never a bare checkmark. An agent's claim has to be legible as one. */
     render(
-      <ChecklistView narrowed={NOWHERE} onWiden={noop} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <ChecklistView narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
   })
 
   test('draws a 400-character item as wrapped prose in a min-w-0 column', () => {
     render(
-      <ChecklistView narrowed={NOWHERE} onWiden={noop} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <ChecklistView narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     const text = screen.getByText(LONG)
     expect(text.className).toContain('break-words')
@@ -175,7 +175,6 @@ describe('the checklist', () => {
     render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -194,7 +193,6 @@ describe('the checklist', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
         targets={[]}
         candidates={[]}
@@ -218,7 +216,6 @@ describe('the checklist', () => {
     render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -241,7 +238,6 @@ describe('the checklist', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
         candidates={[{ kind: 'ref', ref: 'gh#105' }]}
@@ -261,7 +257,6 @@ describe('the checklist', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[{ target: { kind: 'ref', ref: 'gh#105' }, done: 1 }]}
         candidates={[{ kind: 'ref', ref: 'gh#105' }]}
@@ -340,7 +335,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -368,7 +362,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -394,7 +387,6 @@ describe('a small container', () => {
     render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -413,7 +405,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -435,7 +426,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -460,7 +450,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -485,7 +474,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -505,7 +493,6 @@ describe('a small container', () => {
     render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
         targets={[]}
         candidates={[]}
@@ -524,7 +511,6 @@ describe('a small container', () => {
     const { container } = render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
         candidates={[{ kind: 'ref', ref: 'gh#105' }]}
@@ -549,7 +535,6 @@ describe('a small container', () => {
     render(
       <ChecklistView
         narrowed={NOWHERE}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}
@@ -638,7 +623,6 @@ describe('the checklist, following a reader through a paper', () => {
     render(
       <ChecklistView
         narrowed={narrow(inSection, ticked)}
-        onWiden={noop}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={ticked}
         candidates={[]}
@@ -653,14 +637,18 @@ describe('the checklist, following a reader through a paper', () => {
     expect(screen.getByText('Research design')).toBeTruthy()
   })
 
-  test('says how many ticks the narrowing is hiding, and offers the way out', () => {
+  test('says how many ticks the narrowing is hiding, and no longer draws the way out', () => {
     /* The whole of "nothing is hidden without being counted". Without this line a
        reader who ticked eight items against the paper walks into section 3, reads
-       0/12, and has no way to tell narrowing from this app losing their work. */
+       0/12, and has no way to tell narrowing from this app losing their work.
+
+       The way OUT is not here any more: it is the grain filter in the container
+       header, which the host draws from `offerAt`. The count could not follow it
+       — a host cannot add up ticks in a store on another origin — so the split is
+       truth here, choice there. */
     render(
       <ChecklistView
         narrowed={narrow(inSection, ticked)}
-        onWiden={noop}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={ticked}
         candidates={[]}
@@ -673,7 +661,7 @@ describe('the checklist, following a reader through a paper', () => {
       />,
     )
     expect(screen.getByText(/8 ticked elsewhere in this paper/)).toBeTruthy()
-    expect(screen.getByText(/Show 3_methods.tex/)).toBeTruthy()
+    expect(screen.queryByText(/Show 3_methods.tex/)).toBe(null)
   })
 
   test('keeps saying it in the narrowest container there is', () => {
@@ -683,7 +671,6 @@ describe('the checklist, following a reader through a paper', () => {
     const { container } = render(
       <ChecklistView
         narrowed={narrow(inSection, ticked)}
-        onWiden={noop}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={ticked}
         candidates={[]}
@@ -696,17 +683,20 @@ describe('the checklist, following a reader through a paper', () => {
       />,
     )
     expect(container.querySelector('[data-elsewhere="8"]')).toBeTruthy()
-    expect(container.querySelector('[data-widen]')).toBeTruthy()
+    expect(container.querySelector('[data-widen]')).toBe(null)
   })
 
-  test('climbs one rung when the way out is pressed', () => {
-    let climbed = 0
+  test('spends no line on a rung that is hiding nothing', () => {
+    /* The vertical space this change is FOR. The row used to be drawn on every
+       rung below the paper, count or no count, because the widen press had to be
+       reachable even when there was nothing to widen back to. The press is in the
+       header now, so a rung with nothing hidden behind it says nothing and the
+       items get the line. */
     const { container } = render(
       <ChecklistView
-        narrowed={narrow(inSection, ticked)}
-        onWiden={() => (climbed += 1)}
+        narrowed={narrow(inSection, [])}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
-        targets={ticked}
+        targets={[]}
         candidates={[]}
         onTarget={noop}
         onEdit={noop}
@@ -716,17 +706,16 @@ describe('the checklist, following a reader through a paper', () => {
         room={ROOMY}
       />,
     )
-    fireEvent.click(container.querySelector('[data-widen]')!)
-    expect(climbed).toBe(1)
+    expect(container.querySelector('[data-elsewhere]')).toBe(null)
+    expect(container.querySelector('[data-widen]')).toBe(null)
   })
 
   test('draws none of it for a list held against an issue', () => {
     /* The half of this change that had to break nothing. A ref has no document,
-       no rung and no widen, and the row it gets is the row it always had. */
+       no rung and no ladder, and the row it gets is the row it always had. */
     const { container } = render(
       <ChecklistView
         narrowed={narrow({ kind: 'elsewhere' }, ticked)}
-        onWiden={noop}
         held={held()}
         targets={[]}
         candidates={[]}

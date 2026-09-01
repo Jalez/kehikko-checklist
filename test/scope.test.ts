@@ -3,13 +3,18 @@ import { describe, expect, test } from 'bun:test'
 import {
   briefOf,
   fileId,
+  grainAt,
+  ladderKey,
   narrow,
+  offerAt,
+  rungsOf,
   saidOf,
   scopeOf,
   scopeOfTarget,
   sectionId,
   targetOf,
   widen,
+  widenedTarget,
   type Scope,
 } from '../list/scope.ts'
 import { targetKey, type Target } from '../list/targets.ts'
@@ -271,5 +276,98 @@ describe('what the container and the door say they are showing', () => {
     expect(saidOf(scope)).toContain('chapters/3_methods.tex')
     expect(saidOf(scope)).toContain('Research design')
     expect(saidOf({ kind: 'elsewhere' })).toContain('not held against a paper')
+  })
+})
+
+/**
+ * The ladder as the host is offered it, which is the half that has to be a
+ * CHOICE rather than a POSITION.
+ *
+ * The block that matters most is the third one. The host remembers a grain
+ * against a container forever, so the case a reader will actually hit is
+ * carrying `section` into a file that has none — and honouring that literally
+ * would mean narrowing by a target nobody can see, choose or clear.
+ */
+describe('the ladder offered as a grain', () => {
+  const inSection = scopeOf('thesis', {
+    file: 'chapters/3_methods.tex',
+    section: 'chapters:3_methods#sec:meth-design',
+    title: 'Research design',
+  })
+  const inFile = scopeOf('thesis', { file: 'main.tex', section: null, title: null })
+  const key = (at: Scope) => ladderKey(rungsOf(at))
+
+  test('offers every rung that exists, narrowest first', () => {
+    expect(rungsOf(inSection).map((rung) => rung.grain)).toEqual(['section', 'file', 'paper'])
+    const group = offerAt(key(inSection))?.[0]
+    expect(group?.id).toBe('grain')
+    expect(group?.options.map((option) => option.id)).toEqual(['section', 'file', 'paper'])
+    /* The resting state is following the reader, so the fallback is the
+       narrowest rung and not the widest — see the essay on `offerAt`. */
+    expect(group?.fallback).toBe('section')
+  })
+
+  test('offers no rung that does not exist', () => {
+    /* `main.tex` has no labelled heading above the reader, so there is no
+       section rung. An option that cannot be honoured is a control that looks
+       broken when it is pressed. */
+    expect(offerAt(key(inFile))?.[0]?.options.map((option) => option.id)).toEqual(['file', 'paper'])
+  })
+
+  test('withdraws the control where there is genuinely nothing to narrow', () => {
+    /* A ref. `[]` is a real message — it takes the control away — and the host
+       prunes the container's stored choice against it, which is right here
+       because an issue has no document and never will. */
+    expect(offerAt(key({ kind: 'elsewhere' }))).toEqual([])
+  })
+
+  test('says nothing at all rather than claiming there is nothing to narrow', () => {
+    /* The bug this returns three answers for. A paper with no passage resolved
+       under it is a ladder of one, and a one-option control does nothing — but
+       answering `[]` tells the host to erase the reader's stored grain, and on a
+       reload this module is framed before anything broadcasts a passage. So the
+       filter worked perfectly and never survived a refresh. Null is "not yet",
+       and `src/app.tsx` sends nothing when it sees one. */
+    expect(offerAt(key({ kind: 'paper', epic: 'thesis' }))).toBe(null)
+    /* And the third source of it: the page has not heard from its own server, so
+       it does not know which of the two cases above it is in. */
+    expect(offerAt(null)).toBe(null)
+  })
+
+  test('names no file and no section anywhere in the offer', () => {
+    /* The whole of why this may be remembered per container forever. The offer
+       is a grain; the place it applies to is derived from the passage every
+       time and stored by nobody. */
+    expect(JSON.stringify(offerAt(key(inSection)))).not.toContain('3_methods')
+    expect(JSON.stringify(offerAt(key(inSection)))).not.toContain('meth-design')
+  })
+
+  test('falls back when a remembered rung is not available here', () => {
+    /* The reader chose `section` in a chapter full of headings and then opened
+       `main.tex`, which has none. Honouring it would build a target for a
+       section that is not there. */
+    expect(grainAt({ grain: 'section' }, key(inFile))).toBe('file')
+    expect(widenedTarget(key(inFile), grainAt({ grain: 'section' }, key(inFile)))).toBe(null)
+    /* And the same for a grain from a version of this module that no longer
+       exists, which is what a greeting can carry before anything is offered. */
+    expect(grainAt({ grain: 'passage' }, key(inSection))).toBe('section')
+  })
+
+  test('turns a chosen grain into the target that widening used to pick', () => {
+    expect(widenedTarget(key(inSection), 'file')).toEqual({
+      kind: 'paper',
+      epic: 'thesis',
+      section: 'chapters:3_methods',
+    })
+    expect(widenedTarget(key(inSection), 'paper')).toEqual({ kind: 'paper', epic: 'thesis', section: null })
+  })
+
+  test('decides nothing on the narrowest rung, so the server goes on resolving the passage', () => {
+    /* Null and not a target, deliberately: sending one would make it a `pick`,
+       and a pick stops the server reading the path. The untouched path has to
+       stay byte-for-byte what it was before any of this existed. */
+    expect(widenedTarget(key(inSection), 'section')).toBe(null)
+    expect(widenedTarget(key(inFile), 'file')).toBe(null)
+    expect(widenedTarget(key({ kind: 'elsewhere' }), null)).toBe(null)
   })
 })

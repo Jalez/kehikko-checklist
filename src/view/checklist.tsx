@@ -78,7 +78,6 @@ export function ChecklistView({
   candidates,
   narrowed,
   onTarget,
-  onWiden,
   onEdit,
   onAnother,
   trouble,
@@ -90,11 +89,15 @@ export function ChecklistView({
   targets: { target: Target; done: number }[]
   /** Targets the context is offering: the canvas's selection, and this epic's paper. */
   candidates: Target[]
-  /** Which rung of a paper this is, and how many ticks that rung is not showing. */
+  /**
+   * Which rung of a paper this is, and how many ticks that rung is not showing.
+   *
+   * Read for the NAME and the COUNT only. Climbing out of the rung is the host's
+   * filter now — `narrowed.wider` is no longer a control on this page, and there
+   * is no `onWiden` to go with it.
+   */
   narrowed: Narrowed
   onTarget: (target: Target | null) => void
-  /** Climb one rung out of a narrowed paper. Never called when `narrowed.wider` is null. */
-  onWiden: () => void
   onEdit: (edit: Edit) => void
   /** Go back to the pick screen, forgetting the remembered choice for this kehikko. */
   onAnother: () => void
@@ -207,7 +210,6 @@ export function ChecklistView({
         candidates={candidates}
         narrowed={narrowed}
         onTarget={onTarget}
-        onWiden={onWiden}
         busy={busy}
         room={room}
         open={sheet === 'target'}
@@ -413,7 +415,6 @@ function TargetRow({
   candidates,
   narrowed,
   onTarget,
-  onWiden,
   busy,
   room,
   open,
@@ -424,7 +425,6 @@ function TargetRow({
   candidates: Target[]
   narrowed: Narrowed
   onTarget: (target: Target | null) => void
-  onWiden: () => void
   busy: boolean
   room: Room
   /** Whether this is the overlay showing. Held by the card, so only one ever is. */
@@ -544,7 +544,11 @@ function TargetRow({
   const name = target ? (scoped ? briefOf(narrowed.scope) : targetName(target)) : 'nothing yet'
 
   return (
-    <div className="shrink-0 border-t bg-muted/40 px-2 py-1.5">
+    /* `data-strip` is for the probes, in the same spirit as `data-target` and
+       `data-count` beside it: the thing this change is measured by is how tall
+       this strip is, and a probe that had to guess which `div` it was would be
+       measuring whatever the last refactor left. See `dev/filters.probe.mjs`. */
+    <div className="shrink-0 border-t bg-muted/40 px-2 py-1.5" data-strip>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
         <span className="shrink-0 text-[0.65rem] text-muted-foreground">Held against</span>
         <span
@@ -592,7 +596,7 @@ function TargetRow({
       )}
 
       {/*
-        * What the narrowing is hiding, and the one press that undoes it.
+        * What the narrowing is hiding. The count, and no longer the press.
         *
         * This never folds away at any size, and that is the whole point of it.
         * The ticks on this list belong to (list, target, item), so walking from
@@ -600,30 +604,27 @@ function TargetRow({
         * none — and a reader who ticked eight items yesterday and now reads
         * `0/12` has no way to tell narrowing from this app having lost them. A
         * container that cannot say what it is hiding is indistinguishable from a
-        * broken one, which is a sentence this workspace has learned the hard way
-        * more than once today.
+        * broken one.
         *
-        * A number and a button, not a paragraph: the owner's standing complaint
-        * is too much prose in a narrow column, and the number is the fact. The
-        * list behind the number is already one press further on, in the switcher,
-        * which names every target with a count beside it.
+        * ## Why the count stayed when the widen press left
+        *
+        * The press went to the container header, where `roadmap.filters` puts
+        * every module's narrowing control — the ladder is offered there as a
+        * grain, and `src/app.tsx` says at length why that is honest. The count
+        * could not follow it: a host sees rows it does not render, in a store on
+        * another origin, and cannot add up ticks it has never been told about.
+        * The protocol says the same thing on `filterOptionSchema` — a header
+        * control can say THAT something is narrowed, never how much.
+        *
+        * So the split is truth here, choice there. What that is worth is a whole
+        * line of a 300-pixel-tall container back: the row is drawn now only when
+        * there is actually something hidden, where before it was drawn on every
+        * rung below the paper, because the press had to be reachable even when
+        * the count was nought.
         */}
-      {narrowed.wider ? (
-        <p className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[0.65rem] leading-4 text-muted-foreground">
-          {narrowed.elsewhere ? (
-            <span data-elsewhere={narrowed.elsewhere}>
-              {narrowed.elsewhere} ticked elsewhere in this paper.
-            </span>
-          ) : null}
-          <button
-            type="button"
-            className="underline underline-offset-2"
-            data-widen
-            onClick={onWiden}
-            title={saidOf(narrowed.wider)}
-          >
-            Show {briefOf(narrowed.wider)}
-          </button>
+      {narrowed.elsewhere ? (
+        <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground" data-elsewhere={narrowed.elsewhere}>
+          {narrowed.elsewhere} ticked elsewhere in this paper.
         </p>
       ) : null}
 

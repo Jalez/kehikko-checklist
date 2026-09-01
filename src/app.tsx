@@ -4,7 +4,16 @@ import { ID } from '../manifest.ts'
 import { chosenOn } from '../list/keep.ts'
 import type { Target } from '../list/targets.ts'
 
-import { narrow, scopeOfTarget, targetOf } from '../list/scope.ts'
+import {
+  grainAt,
+  ladderKey,
+  narrow,
+  offerAt,
+  rungsOf,
+  scopeOf,
+  scopeOfTarget,
+  widenedTarget,
+} from '../list/scope.ts'
 
 import { edit, everyChecklist, openChecklist, pointing, type Edit, type Opened, type Summary } from '@/store/ask.ts'
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
@@ -143,47 +152,60 @@ export function App() {
 
   const onDoor = useCallback(() => setDoorbell((was) => was + 1), [])
 
-  const { where, epic, projectPath, project, kehikko, selection, passage, kept, remember, resize } = useRoadmap(
-    ID,
-    onGoto,
-    onDoor,
-  )
+  const {
+    where,
+    epic,
+    projectPath,
+    project,
+    kehikko,
+    selection,
+    passage,
+    chosen: filterChoice,
+    kept,
+    remember,
+    resize,
+    filters,
+  } = useRoadmap(ID, onGoto, onDoor)
 
   /*
-   * Nothing is offered to `roadmap.filters`, and the ladder is the reason.
+   * The ladder is offered to `roadmap.filters` — and this reverses an argument
+   * that stood right here, so the argument is written out before it is answered.
    *
-   * The protocol lets a module say what it can be narrowed by so that the host
-   * draws one control in the container header instead of every module drawing
-   * its own. This page has exactly one thing that looks like that control — the
-   * scope ladder and its `Show <wider>` press — and it is not a filter. It is
-   * worth being precise about the difference, because the two are easy to
-   * confuse and moving the wrong one would break this container:
+   * What stood here said: the protocol's filters are a choice from a fixed set
+   * of options a module names, the ladder is a POSITION derived from the passage
+   * the reader is standing in, there is no fixed set to enumerate, and the host
+   * remembers a filter per container FOREVER — which is precisely what
+   * `list/scope.ts` refuses under its "nothing is remembered" rule, because a
+   * remembered scope outlives the context that justified it and the container
+   * would come back tomorrow showing a section of a file the reader has left.
    *
-   * - **A filter is a choice from a fixed set of options this module names.**
-   *   `all` or `here`, `issues` or `changes`: the words are the same next week,
-   *   they mean the same thing on every canvas, and a host can remember one
-   *   against a container and hand it back before this page has drawn anything.
+   * Every sentence of that is true. The conclusion is still wrong, because it
+   * offered the rungs as PLACES. Offer them as GRAIN instead — `section`,
+   * `file`, `paper` — and the objection dissolves:
    *
-   * - **The ladder is a POSITION.** Which rung it is on is derived from the
-   *   passage the reader is standing in — the answer the server gave, not a
-   *   request this page made — and the rungs themselves are the targets this
-   *   list happens to have ticks against, which change as work is done. There
-   *   is no fixed set to enumerate, so there is nothing that could be offered
-   *   as options; and even if there were, a remembered one would be wrong by
-   *   design. `list/scope.ts` says it under "Nothing here is remembered": a
-   *   remembered scope outlives the context that justified it, and the
-   *   container would come back tomorrow showing a section of a file the reader
-   *   is not in. The host remembers a filter choice per container, forever,
-   *   which is exactly the behaviour this module refuses.
+   * - **There is a fixed set.** Three words, the same three next week, meaning
+   *   the same thing on every canvas and in every document. What is derived is
+   *   which section and which file, and that goes on being derived from
+   *   `passage` on every context, exactly as before.
    *
-   * The widen press is also the way back OUT of a narrowed view, and it has to
-   * sit beside the count of what is being hidden — `N ticked elsewhere in this
-   * paper` — because the number and the undo are one sentence. Splitting them
-   * across two surfaces would leave the reader the half that says something is
-   * missing and put the half that fixes it somewhere else.
+   * - **Nothing that outlives its context is stored.** No path, no section id,
+   *   no epic is in the offer or in the answer. What the host remembers is how
+   *   narrow this reader likes it — a genuine preference, and one that SHOULD
+   *   survive a restart: somebody who works section by section should still be
+   *   section by section tomorrow, in whatever file they open tomorrow. The rule
+   *   in `list/scope.ts` survives intact and now says so explicitly.
    *
-   * So this module sends no offer. Not an empty one, which would mean
-   * "withdraw the control I gave you"; it has never given one.
+   * - **A rung that is not there is not offered**, and a remembered one that is
+   *   no longer available falls back rather than narrowing by nothing. See
+   *   `offerAt` and `grainAt`.
+   *
+   * What the old argument was really defending is the pairing of the count with
+   * the undo — `N ticked elsewhere in this paper` beside the way out. Only half
+   * of that moves. The COUNT stays in the page, because the host cannot count
+   * rows it does not render; the CONTROL goes to the header, where every other
+   * module in this family already put its own. What the page gets back is the
+   * strip of chrome that press was standing on, in a container the owner runs at
+   * 220 pixels wide.
    */
 
   /**
@@ -267,27 +289,144 @@ export function App() {
    * saying what they are now looking at, and a local pick left standing under it
    * would be two answers with no way to tell them apart.
    */
-  const target = picked ?? candidates[0] ?? null
+  const proposal = candidates[0] ?? null
 
   /**
-   * Whether the target in front was DECIDED here or derived from the passage.
+   * The rungs that exist right now, as one string.
+   *
+   * ## Built from where the reader is standing, not from what has ticks
+   *
+   * `scopeOf` takes the passage as the server resolved it — `opened.placed` —
+   * so the ladder is the reader's position and nothing else. A file with no
+   * labelled heading above them has no section rung, and the offer therefore has
+   * no `This section` option: a header control that cannot be honoured is
+   * indistinguishable from a broken one, so the offer is re-sent whenever the
+   * ladder moves rather than being sent once at mount.
+   *
+   * ## A string, because everything downstream depends on it
+   *
+   * `rungsOf` and `scopeOf` build fresh objects on every render. An effect keyed
+   * on either would post a `roadmap.filters` message on every render, and the
+   * memo below would hand back a fresh target that re-ran the fetch that set the
+   * state that caused the render. See the essay on `ladderKey`.
+   *
+   * ## No ladder while a target has been picked by hand
+   *
+   * A target chosen off the switcher is a decision about WHICH target, and a
+   * grain control over it would be a lie — press `This file` while holding the
+   * list against another chapter's section and either the press does nothing or
+   * it throws away the pick. So the ladder is empty, the offer is withdrawn, and
+   * the control disappears until the pick does — which the effects below already
+   * make happen the moment the reader moves or the canvas selects something.
+   * Same for a ref: an issue has no passage and no rungs, which is the whole of
+   * "non-document targets are untouched".
+   *
+   * ## Null is "not known yet", and it is NOT the empty ladder
+   *
+   * The distinction cost a real bug, found by driving the real host rather than
+   * reasoned about. Until the server has answered there is no `placed`, so the
+   * ladder would compute as the bare paper — one rung, no offer — and the effect
+   * below would post `groups: []` a moment after every load. An empty offer is
+   * not silence: the protocol says it means "nothing here can be narrowed now",
+   * and this host acts on it by pruning the container's stored choice against it
+   * (`settle` in its `host/filters.ts`), which is correct behaviour and erases
+   * the reader's grain on every reload. The symptom was a filter that worked
+   * perfectly and never survived a refresh.
+   *
+   * So: null while `opened` is null — before the first answer, on the pick
+   * screen, and after a read that failed — and the effect sends nothing at all,
+   * leaving the last thing this page actually knew standing. A withdrawal is a
+   * claim, and a page must only make it when it is true.
+   *
+   * `offerAt` answers null for a second reason of its own — a real ladder with
+   * only one rung on it — and the two are the same instruction to the effect
+   * below: say nothing. The one case that genuinely withdraws is a ref, which
+   * has no ladder at all and never will.
+   */
+  const ladder = opened
+    ? ladderKey(
+      rungsOf(scopeOf(picked === null && proposal?.kind === 'paper' ? proposal.epic : null, opened.placed)),
+    )
+    : null
+
+  /**
+   * Say what this container can be narrowed by, whenever that answer changes.
+   *
+   * The ladder is the only dependency, and `filters` is stable. Re-sending an
+   * identical offer on every render would be a message a second to every host on
+   * the canvas for a change nobody could see; not re-sending at all would leave
+   * `This section` in the header of a file that has no sections in it.
+   */
+  useEffect(() => {
+    const groups = offerAt(ladder)
+    /* Null is `offerAt` saying "nothing to say yet", which is not the same as an
+       empty offer and must not become one — see the essay there. Posting `[]`
+       out of ignorance is how the reader's stored grain got erased on every
+       reload. */
+    if (groups === null) return
+    filters(groups)
+  }, [filters, ladder])
+
+  /**
+   * How much of the paper the reader has asked for, of what is actually on offer.
+   *
+   * A grain the host remembers from a file with headings, replayed into one
+   * without, is not honoured — `grainAt` falls back to the narrowest rung that
+   * exists here, which is the same value the offer names as its fallback. The
+   * host reconciles as well and is required to; it cannot do it before this page
+   * has offered anything, and the greeting goes out first.
+   */
+  const grain = grainAt(filterChoice, ladder ?? '')
+
+  /**
+   * The target the grain means, when it means one at all.
+   *
+   * Null on the narrowest rung, which leaves the target exactly what it was
+   * before any of this existed — the proposal, with no section on it — so the
+   * server goes on resolving the passage itself. That keeps the untouched path
+   * byte-for-byte the old path, which is what makes "nobody has pressed
+   * anything" a case this change cannot have broken.
+   *
+   * Memoised on two strings, so the fetch below is not re-run by a fresh object
+   * on every render.
+   */
+  const widened = useMemo(() => widenedTarget(ladder ?? '', grain), [ladder, grain])
+
+  /**
+   * The target in front: the one picked here, then the grain, then whatever the
+   * context proposes.
+   *
+   * A pick made here survives the next context, which is the whole reason it is
+   * held separately — a context arrives after every selection change anywhere on
+   * the canvas, and a target that reset on each would be unusable in a workspace
+   * where anything else is being clicked.
+   *
+   * It is dropped when the canvas selects something, because that IS somebody
+   * saying what they are now looking at, and a local pick left standing under it
+   * would be two answers with no way to tell them apart.
+   */
+  const target = picked ?? widened ?? proposal
+
+  /**
+   * Whether the target in front was DECIDED or derived from the passage.
    *
    * A bug the probe found rather than one this comment anticipated: pressing
-   * "show the whole paper" from a file set `picked` to `{epic, section: null}`,
-   * the next fetch sent that target alongside the path, and the server — which
-   * cannot tell a deliberate "no section" from an unfilled one — resolved the
-   * path straight back into the section the reader had just climbed out of. The
-   * control appeared to do nothing, twice, and looked exactly like the bug it
-   * was written to fix.
+   * "show the whole paper" set the target to `{epic, section: null}`, the next
+   * fetch sent that alongside the path, and the server — which cannot tell a
+   * deliberate "no section" from an unfilled one — resolved the path straight
+   * back into the section the reader had just climbed out of. The control
+   * appeared to do nothing, twice, and looked exactly like the bug it was
+   * written to fix.
    *
-   * The rule this settles is worth more than the fix: a passage exists to DERIVE
-   * a default, and a derivation must never overrule a decision. The path still
-   * travels, because the heading wants the file's real name and the section's
-   * real words either way; what this bit says is which of the two the server may
-   * act on. The pick is dropped the moment the reader moves to another passage,
-   * so it cannot strand anybody on a rung of a file they have left.
+   * The rule it settles is worth more than the fix: a passage exists to DERIVE a
+   * default, and a derivation must never overrule a decision. That is why a
+   * widen is `decided` here even though the press is now in the host's header
+   * rather than in this page — moving the control changed who says it, not what
+   * it means. The path still travels, because the heading wants the file's real
+   * name and the section's real words either way; this only says which of the
+   * two the server may act on.
    */
-  const decided = picked !== null
+  const decided = picked !== null || widened !== null
 
   const selected = selection.join(' ')
   useEffect(() => {
@@ -298,15 +437,18 @@ export function App() {
    * And dropped again when the reader moves to somewhere else in the document.
    *
    * The same argument as the line above it, for the other half of "what am I
-   * looking at" — and the more important half here, because the pick this drops
-   * is usually a WIDEN. Somebody standing in section 3 who climbs out to the
-   * whole file has made a claim about section 3's chapter, not a standing
-   * preference; carry it into the next chapter they open and the container shows
-   * one file's ticks under another file's heading. That is the two-halves-
-   * disagreeing failure, and it is the reason this module keeps no scope in its
-   * `state:keep` string either: a remembered scope outlives the context that
-   * justified it, and this session-local one is dropped the moment its context
-   * does.
+   * looking at". A pick names ONE target — this chapter's section, that issue —
+   * and carrying it into the next chapter the reader opens would show one file's
+   * ticks under another file's heading. That is the two-halves-disagreeing
+   * failure, and it is why this module keeps no target in its `state:keep`
+   * string either: a remembered PLACE outlives the context that justified it, and
+   * this session-local one is dropped the moment its context does.
+   *
+   * The widen used to be a pick and was the main thing this dropped. It is the
+   * host's remembered grain now, and is deliberately NOT dropped here — a grain
+   * is a preference and travels with the reader, while the place it is applied to
+   * is re-derived in the next file. That is the whole distinction the essay above
+   * `filters` draws, seen from the side of the code that has to act on it.
    *
    * Keyed on the flat passage string rather than on `at`, so the effect and the
    * hook are comparing the same thing by value.
@@ -518,19 +660,18 @@ export function App() {
   const scope = scopeOfTarget(opened?.held.target ?? null, opened?.placed ?? null)
   const narrowed = narrow(scope, opened?.targets ?? [])
 
-  /**
-   * Climb one rung out, by picking the wider target by hand.
+  /*
+   * There is no `onWiden` here any more, and its absence is the change.
    *
-   * A pick and not a mode, deliberately. Widening is the same act as choosing a
-   * target off the switcher — it says "hold this list against that instead" —
-   * so it goes through the same state, is overruled by the same things, and is
-   * dropped when the passage moves for the reason the effect above gives. A
-   * separate `widened` flag would be a second answer to "what are these ticks
-   * about", which is the thing this app refuses everywhere else.
+   * Climbing a rung was a press in this page's own strip, which set `picked` to
+   * the wider target. It is now a choice in the container header: the host draws
+   * it from `offerAt`, remembers it against this container, and hands it back in
+   * `context.filters`, where `grainAt` and `widenedTarget` above turn it into
+   * the same target the press used to set. What is gone is the row of chrome the
+   * press was standing on — see `src/view/checklist.tsx`, which still prints the
+   * count the press stood beside, because a host cannot count rows it does not
+   * render.
    */
-  const onWiden = useCallback(() => {
-    if (narrowed.wider) setPicked(targetOf(narrowed.wider))
-  }, [narrowed.wider])
 
   const screen = nowhere && where !== 'listening' ? (
     /* Above every other screen, and above `chosen`, because it is not a variant
@@ -545,7 +686,6 @@ export function App() {
         candidates={candidates}
         narrowed={narrowed}
         onTarget={setPicked}
-        onWiden={onWiden}
         onEdit={(change) => void onEdit(change)}
         onAnother={another}
         trouble={trouble}

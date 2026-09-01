@@ -1,3 +1,5 @@
+import type { FilterChoice, FilterGroup } from 'roadmap-module-protocol'
+
 import { MAX_TARGET_PART, part, targetKey, type Target } from './targets.ts'
 
 /**
@@ -72,16 +74,44 @@ import { MAX_TARGET_PART, part, targetKey, type Target } from './targets.ts'
  * short line, and the widen control is one press. A reader who cannot see what
  * was narrowed cannot tell narrowing from a bug.
  *
- * ## Nothing here is remembered
+ * ## No PLACE is remembered — but the GRAIN is, and the difference is the whole
+ * of why the ladder is now a filter
  *
- * Worth stating because this module declares `state:keep` and does remember
- * things. What it remembers is WHICH CHECKLIST is open on which kehikko, and
- * that is all — see `list/keep.ts`. No scope, no target and no path is ever
- * written into the kept string, deliberately: a remembered scope would outlive
- * the context that justified it, and the container would come back tomorrow
- * showing a section of a file the reader is not in. `src/app.tsx` goes further
- * and drops even the SESSION-local widen when the passage moves, for the same
- * reason.
+ * Worth stating twice as loudly as it used to be, because this module declares
+ * `state:keep` AND now offers the ladder to the host over `roadmap.filters`,
+ * and the host remembers a filter choice against a container forever.
+ *
+ * What `state:keep` holds is WHICH CHECKLIST is open on which kehikko, and that
+ * is all — see `list/keep.ts`. No scope, no target and no path is ever written
+ * into the kept string, deliberately: a remembered place would outlive the
+ * context that justified it, and the container would come back tomorrow showing
+ * a section of a file the reader is not in.
+ *
+ * That rule survives the filter untouched, and the reason is the distinction
+ * `offerAt` below is built on. The host is not offered the rungs as PLACES —
+ * `chapters/3_methods.tex`, `sec:meth-design` are never in the offer and never
+ * travel — it is offered them as GRAIN: `section`, `file`, `paper`. WHICH
+ * section and WHICH file goes on being derived, on every context, from the
+ * passage the reader is standing in, and is stored by nobody. What the host
+ * remembers is how narrow this reader likes it, which is a real preference and
+ * exactly the sort of thing that ought to survive a restart: somebody who works
+ * section by section should still be working section by section tomorrow, in
+ * whatever file they open tomorrow.
+ *
+ * ## The argument this reverses, and why it was answerable
+ *
+ * An earlier version of this module offered nothing, and `src/app.tsx` carried
+ * the case: the ladder is a POSITION and not a choice, there is no fixed option
+ * set to enumerate, and a remembered rung would be wrong by design. The
+ * observation was right and the conclusion did not follow. A position has no
+ * fixed option set; the grain of a position has one, and it is three words long.
+ * The refusal cost the page a permanent strip of controls in a container the
+ * owner runs at 220 pixels wide, which is the whole reason `roadmap.filters`
+ * exists.
+ *
+ * What the earlier argument was protecting is still protected, by the two
+ * paragraphs above and by `grainAt`, which falls back rather than honouring a
+ * remembered rung that does not exist here.
  *
  * This file is pure. It takes an epic, a resolved place in a file, and the
  * targets a list already has ticks against, and it returns strings and numbers.
@@ -286,7 +316,15 @@ export interface Narrowed {
    * entirely and were never being shown here.
    */
   elsewhere: number
-  /** One rung out, for the control that climbs back. Null at the top of the ladder. */
+  /**
+   * One rung out, or null at the top of the ladder.
+   *
+   * No longer a control on this page: climbing back is the host's filter now,
+   * drawn from `rungsOf` below. It stays here because it is the plain statement
+   * of "there is somewhere wider than this", which `rungsOf` walks to build the
+   * ladder and which the tests put cases to. A field nothing reads would be
+   * removed; this one is read by the thing that replaced its button.
+   */
   wider: Scope | null
 }
 
@@ -309,6 +347,236 @@ export function narrow(scope: Scope, targets: { target: Target; done: number }[]
     .filter((one) => one.target.kind === 'paper' && one.target.epic === scope.epic && targetKey(one.target) !== here)
     .reduce((sum, one) => sum + one.done, 0)
   return { scope, target, elsewhere, wider: widen(scope) }
+}
+
+/**
+ * How much of a paper a reader wants in front of them, in three words.
+ *
+ * The same three words as `Scope['kind']`, minus `elsewhere`, and that is not a
+ * coincidence worth hiding behind a mapping table: a grain IS a rung's kind, and
+ * spelling them differently would give two names to one idea and a function to
+ * convert between them. `elsewhere` is excluded because it is not a rung — it is
+ * the state of not being on the ladder at all, which is every ref target.
+ */
+export type Grain = 'section' | 'file' | 'paper'
+
+/**
+ * One rung, flattened to the two things the page needs of it.
+ *
+ * Not a `Scope`: a scope carries the file's real path and the section's real
+ * words, which are for the SCREEN. A rung is for building a target and for
+ * naming a grain, and carrying the prose into it would invite somebody to print
+ * a rung — at which point the offer would start naming places, which is the one
+ * thing this must not do. See the essay at the top of this file.
+ */
+export interface Rung {
+  grain: Grain
+  epic: string
+  /** The `section` component of the target this rung means. Null for the whole paper. */
+  section: string | null
+}
+
+/**
+ * The ladder under one scope, narrowest first.
+ *
+ * Walked with `widen` rather than assembled from the parts, so there is exactly
+ * one statement anywhere of what is one rung out of what. A section widens to
+ * its own file and not straight to the paper, and this ladder inherits that for
+ * free — which is what makes the offer say `section, file, paper` for a reader
+ * standing in a labelled section, and `file, paper` for a reader in a file with
+ * no heading above them.
+ *
+ * Empty for `elsewhere`, which is how a checklist held against an issue offers
+ * nothing at all.
+ */
+export function rungsOf(scope: Scope): Rung[] {
+  const out: Rung[] = []
+  let at: Scope | null = scope
+  while (at && at.kind !== 'elsewhere') {
+    out.push({ grain: at.kind, epic: at.epic, section: at.kind === 'paper' ? null : at.id })
+    at = widen(at)
+  }
+  return out
+}
+
+/**
+ * The ladder as one string, which is what React actually depends on.
+ *
+ * `rungsOf` builds a fresh array out of a fresh `Scope` on every render, and an
+ * effect or a memo keyed on either would fire on every render — which for the
+ * offer means a `roadmap.filters` message several times a second, and for the
+ * target means a fetch that sets state that re-runs the fetch that sets the
+ * state. A string compares by value, so nothing downstream moves until the
+ * reader does.
+ *
+ * The parsing half is `rungsFrom`, and everything that consumes a ladder takes
+ * the STRING and parses it rather than closing over the array — the same
+ * arrangement `src/app.tsx` already uses for the candidate targets, and for the
+ * same reason: a value that is not in the dependency list is a value that can be
+ * stale, and one parsed back out of the key cannot be.
+ *
+ * Tab and newline are safe separators because a rung holds an epic slug and a
+ * target component, and `part()` in `list/targets.ts` refuses whitespace in both.
+ */
+export function ladderKey(rungs: Rung[]): string {
+  return rungs.map((rung) => [rung.grain, rung.epic, rung.section ?? ''].join('\t')).join('\n')
+}
+
+/** The ladder back out of its key. Total: anything unparseable is an empty ladder. */
+export function rungsFrom(key: string): Rung[] {
+  if (!key) return []
+  const out: Rung[] = []
+  for (const line of key.split('\n')) {
+    const [grain, epic, section] = line.split('\t')
+    if ((grain !== 'section' && grain !== 'file' && grain !== 'paper') || !epic) continue
+    out.push({ grain, epic, section: section || null })
+  }
+  return out
+}
+
+/** The group id. Named because three functions here have to agree on it. */
+const GRAIN = 'grain'
+
+/**
+ * What each grain is called on screen — and note what none of them says.
+ *
+ * `This file`, not `3_methods.tex`. The label IS the offer, the offer is
+ * remembered by the host against this container forever, and a label naming a
+ * file would be a PLACE written into somebody's stored preference — the exact
+ * thing the essay at the top of this file refuses. It would be wrong within the
+ * minute, too: the reader opens the next chapter and the stored words still name
+ * the last one.
+ *
+ * The page goes on printing which file and which section, because that is a fact
+ * about what is on screen rather than a choice anybody made, and a host cannot
+ * know it. Truth in the page, choice in the header.
+ */
+const SAYS: Record<Grain, string> = {
+  section: 'This section',
+  file: 'This file',
+  paper: 'The whole paper',
+}
+
+/**
+ * What this container can be narrowed by right now, for `roadmap.filters`.
+ *
+ * ## Only the rungs that exist, which is why this takes a ladder and not nothing
+ *
+ * A reader standing in a file with no labelled heading above them has no section
+ * rung. Offering one anyway would put an option in the header that cannot be
+ * honoured — pressed, the page would either do nothing or invent a target for a
+ * section that is not there — and a control that does nothing is
+ * indistinguishable from a broken container. So the offer is a function of where
+ * the reader is standing, and `src/app.tsx` re-sends it when they move, the way
+ * `kehikko-notes` re-sends when the count in its label changes.
+ *
+ * ## Three answers and not two, because `[]` is a CLAIM rather than a silence
+ *
+ * This returns null as well as `[]`, and the difference cost a real bug — found
+ * by driving the actual host rather than by reasoning about it.
+ *
+ *   - **`[]` is "there is nothing here to narrow".** Those are the protocol's
+ *     words, and this host acts on them: it prunes the container's stored choice
+ *     against whatever is currently offered (`settle` in its `host/filters.ts`),
+ *     so an empty offer ERASES the reader's grain. That is right when it is
+ *     true, and it is true for a ref — an issue has no document and never will.
+ *
+ *   - **`null` is "nothing to say yet".** A paper target with no passage
+ *     resolved under it is a ladder of ONE rung, and a group with a single
+ *     option is a control a person can press to no effect. But it is not the ref
+ *     case: a passage is usually a moment away, because on a reload this module
+ *     is framed before whichever module broadcasts one. Answering `[]` there was
+ *     a filter that worked perfectly and never survived a refresh — chosen,
+ *     stored, and wiped a second later by this page's own next message.
+ *
+ * So a ladder of one says nothing and leaves the last true offer standing; only
+ * a ladder of none withdraws. `src/app.tsx` adds the third source of null: it
+ * has not heard from its own server yet, so it does not know which of these it
+ * is in.
+ *
+ * ## `fallback` is the NARROWEST rung, which is unusual and deliberate
+ *
+ * Every sibling module's fallback is its widest, unnarrowed state. This one's is
+ * `section` wherever a section exists, because this module's resting state is
+ * following the reader — that is the sentence the whole ladder was built to
+ * implement, and a container that came back from the host's "put it all back"
+ * showing the whole paper would have reset to something nobody ever asked for.
+ * It is also what the host falls back to when a remembered grain is not on offer
+ * here, which is the case `grainAt` defends independently.
+ */
+export function offerAt(key: string | null): FilterGroup[] | null {
+  if (key === null) return null
+  const rungs = rungsFrom(key)
+  const narrowest = rungs[0]
+  if (!narrowest) return []
+  if (rungs.length < 2) return null
+  return [
+    {
+      id: GRAIN,
+      /* Read after the host's own words, which begin "filter what …", so this is
+         a noun phrase rather than a sentence or an imperative. */
+      label: 'how much of the paper',
+      options: rungs.map((rung) => ({ id: rung.grain, label: SAYS[rung.grain] })),
+      fallback: narrowest.grain,
+    },
+  ]
+}
+
+/**
+ * Which grain this context is asking for, of the ones actually available.
+ *
+ * Null when there is no ladder, which is a different answer from `paper` and has
+ * to stay different: no ladder means nothing here narrows anything, and the
+ * target in front is whatever proposed it.
+ *
+ * ## A remembered grain that is not on offer here falls back
+ *
+ * This is the case the whole design turns on. The host remembers a grain per
+ * container, forever; a reader who chose `section` in a chapter full of headings
+ * and then opens `main.tex`, which has none, comes back carrying a choice this
+ * ladder cannot honour. Honouring it literally would build a target for a
+ * section that does not exist and draw ticks filed under nothing. So an
+ * unavailable grain becomes the narrowest rung that IS available — the same
+ * value `offerAt` hands the host as its fallback, so the two halves cannot
+ * disagree about what the recovery is.
+ *
+ * The host reconciles too, and is required to. But it cannot do it before this
+ * module has offered anything, and the greeting goes out first — so the first
+ * choice this page ever receives may name a grain from a version of this module
+ * that no longer exists, or from a file the reader has already left. Two
+ * programs each assuming the other got it right is how a stale value survives;
+ * both defend, and this is our half.
+ */
+export function grainAt(chosen: FilterChoice | undefined, key: string): Grain | null {
+  const rungs = rungsFrom(key)
+  const narrowest = rungs[0]
+  if (!narrowest) return null
+  const want = chosen?.[GRAIN]
+  const found = rungs.find((rung) => rung.grain === want)
+  return found ? found.grain : narrowest.grain
+}
+
+/**
+ * The target a chosen grain means, or null when the reader is already on it.
+ *
+ * Null for the narrowest rung, and that is load-bearing rather than an
+ * optimisation. Sending no target lets the SERVER resolve the passage into a
+ * section, which is what this module has always done and is the one path that
+ * knows how to read a `.tex` file. Sending a target instead makes it a DECISION
+ * — `pick` in `doors.ts` — and a decision is exactly what a widen is: the reader
+ * has said "hold this against the file", and the server must not resolve them
+ * straight back into the section they just climbed out of. That bug shipped
+ * once already; see the essay on `decided` in `src/app.tsx`.
+ *
+ * So: the narrowest grain decides nothing and the server follows the reader; any
+ * wider grain is a target and a decision.
+ */
+export function widenedTarget(key: string, grain: Grain | null): Target | null {
+  const rungs = rungsFrom(key)
+  const narrowest = rungs[0]
+  if (!grain || !narrowest || rungs.length < 2 || grain === narrowest.grain) return null
+  const rung = rungs.find((one) => one.grain === grain)
+  return rung ? { kind: 'paper', epic: rung.epic, section: rung.section } : null
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { choose, reading, unchoose, writing, type Kept } from '../../list/keep.ts'
+import type { FilterChoice, FilterGroup } from 'roadmap-module-protocol'
 import { connect, type Connection, type HostEvents } from 'roadmap-module-protocol/client'
 import { pump } from './emit.ts'
 import { wearTheme } from './theme.ts'
@@ -147,8 +148,43 @@ export interface Roadmap {
    * is a real state rather than a missing one.
    */
   passage: string
+  /**
+   * Which of the filters this page offered are chosen for THIS container.
+   *
+   * `{}` before any host has said anything, and `{}` from a host that has never
+   * heard of filters — the true answer in both cases: nothing is narrowed, and
+   * the container is on the resting rung it has always been on.
+   *
+   * The only thing in it is the grain: how much of a paper the reader wants in
+   * front of them. Which file and which section is still derived from `passage`
+   * and is stored by nobody — `list/scope.ts` argues that at length, because it
+   * is the difference between this being a preference worth remembering and a
+   * place that must not be.
+   *
+   * Compared key by key before it is written, for the reason `kehikko` is: a
+   * context arrives after every change anywhere on the canvas, carrying a record
+   * the host rebuilt whatever happened, and a fresh identity here would be a new
+   * dependency for the offer effect and the fetch — several times a second while
+   * a reader does nothing.
+   */
+  chosen: FilterChoice
   /** Which checklist was last picked, per kehikko, as the host kept it for us. */
   kept: Kept
+  /**
+   * Say what this page can be narrowed by, so the host draws the control.
+   *
+   * Fire and forget, like `resize`: the host may draw the offer, may draw part
+   * of it, or may never have heard of the idea. What comes back is not an answer
+   * but a `roadmap.context` with `filters` in it.
+   *
+   * Stable across renders, so the effect that sends the offer can depend on the
+   * one thing that makes the offer change — which here is the LADDER, because
+   * the rungs on offer are a function of where the reader is standing. The
+   * client replays the last offer after every greeting, so a page that stopped
+   * sending is still drawn correctly after a reload; a page whose ladder has
+   * changed has to send again itself.
+   */
+  filters: (groups: FilterGroup[]) => void
   /** Remember a pick for one kehikko, or forget it. Silent when nothing is framing this page. */
   remember: (kehikko: number, checklist: string | null) => void
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
@@ -174,6 +210,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [projectName, setProjectName] = useState<string | null>(null)
   const [kehikko, setKehikko] = useState<Kehikko | null>(null)
   const [kept, setKept] = useState<Kept>([])
+  const [chosen, setChosen] = useState<FilterChoice>({})
   const host = useRef<Connection | null>(null)
 
   /**
@@ -228,6 +265,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
+      filters?: FilterChoice
     }) => {
       wearTheme(document.documentElement, context.theme)
 
@@ -289,6 +327,15 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       setKehikko((was) =>
         was?.id === context.kehikko?.id && was?.name === context.kehikko?.name ? was : context.kehikko,
       )
+      /*
+       * Compared before it is written, and for the same reason the kehikko is:
+       * this is a record the host rebuilds on every context whatever happened,
+       * so a blind write would be a new identity in the offer effect and in the
+       * fetch several times a second. `kept` above can be written blindly
+       * because it arrives only in the greeting; this arrives always.
+       */
+      const said = context.filters ?? {}
+      setChosen((was) => (agrees(was, said) ? was : said))
     }
 
     /**
@@ -323,6 +370,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
+      filters?: FilterChoice
     }
     const deliver = (context: Context, state: string | null | undefined) => {
       /* The kept string arrives ONLY in the greeting, and is read before the
@@ -402,8 +450,40 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
+  /* Sent unconditionally: a page with no host posts into nothing, which costs
+     nothing, and a page that checked first would have to know whether the
+     greeting has arrived yet — which is exactly the race the client's own replay
+     exists to end. */
+  const filters = useCallback((groups: FilterGroup[]) => host.current?.filters(groups), [])
+
   return useMemo(
-    () => ({ where, epic, projectPath, project: projectName, kehikko, selection, passage, kept, remember, resize }),
-    [where, epic, projectPath, projectName, kehikko, selection, passage, kept, remember, resize],
+    () => ({
+      where,
+      epic,
+      projectPath,
+      project: projectName,
+      kehikko,
+      selection,
+      passage,
+      chosen,
+      kept,
+      remember,
+      resize,
+      filters,
+    }),
+    [where, epic, projectPath, projectName, kehikko, selection, passage, chosen, kept, remember, resize, filters],
   )
+}
+
+/**
+ * Whether two filter choices say the same thing.
+ *
+ * Key by key, because the host builds a new record on every context whatever
+ * happens, and the identity of that record is what every memo downstream would
+ * otherwise be comparing.
+ */
+function agrees(a: FilterChoice, b: FilterChoice): boolean {
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => a[key] === b[key])
 }
