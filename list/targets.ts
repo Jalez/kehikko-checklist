@@ -207,8 +207,29 @@ export function targetName(target: Target): string {
   return target.section ? `${target.epic} · ${target.section}` : `${target.epic} (the paper)`
 }
 
-/** The word for what KIND of thing it is, printed beside the name. */
+/**
+ * The words for what KIND of thing it is, article and all.
+ *
+ * ## The article belongs here, and it is not a style choice
+ *
+ * This used to hand back two of its three branches WITH their article — `a
+ * paper`, `a section of a paper` — and the third without one, while both callers
+ * wrote `A {targetNoun(target)}` in front of whatever came back. On screen that
+ * read "A a section of a paper", which is what the owner saw and reported. The
+ * obvious repair — strip the article from the two that carry one — breaks the
+ * third instead, because that one takes *an*, and a caller writing one fixed
+ * word in front of a phrase it cannot see is guessing.
+ *
+ * English picks the article from the sound the noun starts with, so only the
+ * thing that knows the noun can pick it, and that is here. Every branch carries
+ * its own, no caller prepends one, and a fourth kind of target added later
+ * cannot quietly inherit the wrong word from a call site nobody re-read.
+ *
+ * This is the phrase for a SENTENCE — "held against an issue, merge request or
+ * pull request" — and not a label for a row. A row prints `targetName`, which is
+ * the thing's own name and never takes an article at all.
+ */
 export function targetNoun(target: Target): string {
-  if (target.kind === 'ref') return 'issue, merge request or pull request'
+  if (target.kind === 'ref') return 'an issue, merge request or pull request'
   return target.section ? 'a section of a paper' : 'a paper'
 }

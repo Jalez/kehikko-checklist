@@ -455,6 +455,7 @@ function EditPage({
           ) : null}
         </div>
         {trouble ? <p className="text-[0.7rem] leading-4 text-failed">{trouble}</p> : null}
+        <Keying room={room} />
       </div>
 
       {held.rows.length ? (
@@ -496,6 +497,51 @@ function EditPage({
         <Forget id={held.checklist.id} name={held.checklist.name} busy={busy} onEdit={onEdit} />
       </div>
     </>
+  )
+}
+
+/**
+ * How ticks are keyed, said once, on the page where somebody is setting a list up.
+ *
+ * ## Why it is here and not on the state page
+ *
+ * It was on the state page, under the target row, and the owner moved it:
+ *
+ * > "Shouldn't this show in the edit view of the checklist?"
+ *
+ * Yes, and for the reason every other request on this module has had: the state
+ * page shows state and the edit page explains itself. "Ticks belong to this list
+ * and one target together" is not a fact about the moment — it is true of every
+ * target this list will ever be held against, it cannot change while somebody
+ * looks at it, and it is read ONCE, by whoever is deciding whether one list or
+ * two is the right shape for the work. Standing on the state page it is a
+ * paragraph of documentation between the reader and the items, and at 220 pixels
+ * it is a paragraph standing ON the items.
+ *
+ * ## It names no target, which is what makes it true
+ *
+ * The old wording opened with the target's own kind — "A section of a paper.
+ * Ticks belong to…" — because it was drawn beside that target. This page has no
+ * target and must not grow one: `EditPage`'s whole argument is that nothing here
+ * is scoped to one pairing. So the sentence says the general thing, which is the
+ * thing it was always actually saying. The kind of the current target still has
+ * a place: it is the `title` on the state page's change press, where it is about
+ * the row it sits on rather than about the list.
+ *
+ * ## `room.prose`, like its neighbour
+ *
+ * Dropped in a container too narrow for prose, on the same rule as the sentence
+ * about an item being added for every target — which is the other half of the
+ * same idea, four words above it. Neither is the only thing explaining an inert
+ * screen, which is the test a sentence has to pass here to be drawn at all
+ * sizes.
+ */
+function Keying({ room }: { room: Room }) {
+  if (!room.prose) return null
+  return (
+    <p className="text-[0.65rem] leading-4 text-muted-foreground" data-keying>
+      Ticks belong to this list and one target together — the same list held against something else keeps its own.
+    </p>
   )
 }
 
@@ -854,12 +900,17 @@ function TargetRow({
             onOpen(!open)
           }}
           data-switch
-          /* The paragraph below is dropped in a narrow container; the fact it carries
-             is not. A `title` is a poor place for a sentence nobody can reach on
-             a touch screen, and the right place for one they can do without. */
+          /* What KIND of thing the row above is naming, which is the one fact the
+             name alone cannot carry — `gh#105` and a `\label` look alike at this
+             size. The article comes from `targetNoun` and is never written here;
+             see the essay on it in `list/targets.ts` for why a caller that
+             prepends one is guessing.
+
+             What is NOT here any more is the sentence about how ticks are keyed.
+             That moved to the edit page — see the essay on `Keying` below. */
           title={
             target
-              ? `A ${targetNoun(target)}. Ticks belong to this list and this target together — the same list held against something else keeps its own.`
+              ? `Held against ${targetNoun(target)}. Press to change it.`
               : 'Nothing has said what this list is held against.'
           }
         >
@@ -867,18 +918,25 @@ function TargetRow({
         </Button>
       </div>
 
-      {/* The paragraph goes when there is no room for it; the SENTENCE about
-          nothing being tickable never does. One of them repeats the row above it
-          and the other is the only thing on screen explaining why every row
-          below is inert. */}
-      {target ? (
-        room.prose ? (
-          <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground">
-            A {targetNoun(target)}. Ticks belong to this list and this target together — the same list held against
-            something else keeps its own.
-          </p>
-        ) : null
-      ) : (
+      {/* The SENTENCE about nothing being tickable never goes at any size: it is
+          the only thing on screen explaining why every row below is inert.
+
+          Its old counterpart — "A section of a paper. Ticks belong to this list
+          and this target together…" — is gone from this page rather than folded
+          away, and the owner is the one who moved it:
+
+          > "Shouldn't this show in the edit view of the checklist?"
+
+          It should, and the reason is the split this whole module is built on.
+          How ticks are KEYED is a fact about the list — true of every target it
+          will ever be held against, unchanged by anything on this page, and read
+          once while somebody is setting a list up. The state page answers "where
+          am I and what is the state of the thing in front of me". A permanent
+          paragraph of documentation on it is furniture, and at 220 pixels it is
+          furniture standing on the items. It is in `EditPage` now, next to the
+          sentence about an item being added for every target, which is the other
+          half of the same idea. */}
+      {target ? null : (
         <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground">
           Nothing has said what this list is being held against, so nothing below can be ticked. Pick or type a target.
         </p>

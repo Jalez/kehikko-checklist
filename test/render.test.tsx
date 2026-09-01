@@ -9,6 +9,7 @@ import { Choose, Unplaced } from '../src/view/choose.tsx'
 import { Nowhere } from '../src/view/nowhere.tsx'
 import { room, type Room } from '../src/view/room.ts'
 import { narrow, scopeOf, scopeOfTarget } from '../list/scope.ts'
+import type { Target } from '../list/targets.ts'
 
 /**
  * The scope every case here is in unless it says otherwise: no paper, so no
@@ -201,13 +202,52 @@ describe('the pick screen', () => {
 })
 
 describe('the checklist', () => {
-  test('says which target it is held against, and that ticks belong to the pair', () => {
-    render(
+  test('says which target it is held against, and how ticks are keyed is on the other page', () => {
+    /* This case used to assert both sentences on this page. The owner moved the
+       second one — "Shouldn't this show in the edit view of the checklist?" —
+       and the case moved with it rather than being deleted, because the fact
+       still has to be reachable and now has a different address. See the essay
+       on `Keying`. */
+    const { container } = render(
       <List narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('gh#105')).toBeTruthy()
+    expect(screen.queryByText(/keeps its own/)).toBeNull()
+    expect(container.querySelector('[data-keying]')).toBeNull()
+
+    toEdit(container)
     expect(screen.getByText(/keeps its own/)).toBeTruthy()
+    /* And it names no target, because this page has none — the sentence is true
+       of every target the list will ever be held against. */
+    expect(screen.queryByText(/gh#105/)).toBeNull()
   })
+
+  /*
+   * The three kinds of target, and the article in front of each of them.
+   *
+   * On screen this read "A a section of a paper", because `targetNoun` handed
+   * back two of its branches with an article and the callers wrote `A ` in front
+   * of all three. Every branch is asserted here rather than only the one that
+   * was reported: the repair that looks obvious — take the article OUT of the
+   * noun — makes the ref branch read "A issue, merge request or pull request",
+   * which is the same bug wearing a different branch. See `list/targets.ts`.
+   */
+  const kinds: [string, Target, string][] = [
+    ['an issue', { kind: 'ref', ref: 'gh#105' }, 'Held against an issue, merge request or pull request. Press to change it.'],
+    ['a whole paper', { kind: 'paper', epic: 'thesis', section: null }, 'Held against a paper. Press to change it.'],
+    ['a section', { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' }, 'Held against a section of a paper. Press to change it.'],
+  ]
+  for (const [what, target, said] of kinds) {
+    test(`names the kind of thing it is held against, with exactly one article, for ${what}`, () => {
+      const { container } = render(<List held={held({ target })} room={ROOMY} />)
+      const press = container.querySelector('[data-switch]') as HTMLElement
+      expect(press.getAttribute('title')).toBe(said)
+      /* The shape of the old bug, asserted directly: never an article twice, in
+         any casing, anywhere this page puts words on screen. */
+      expect(press.getAttribute('title')).not.toMatch(/\b[Aa]n? [Aa]n? /)
+      expect(container.textContent).not.toMatch(/\b[Aa]n? [Aa]n? /)
+    })
+  }
 
   test('does not print who ticked an item, at the roomiest size there is', () => {
     /* This assertion used to be its exact opposite, and the reversal is the
@@ -501,7 +541,7 @@ describe('a small container', () => {
     }
   })
 
-  test('the paragraph explaining a target goes; the sentence saying nothing can be ticked does not', () => {
+  test('the paragraph explaining a target is gone at every size; the sentence saying nothing can be ticked is not', () => {
     const { container } = render(
       <List
         narrowed={NOWHERE}
@@ -517,8 +557,17 @@ describe('a small container', () => {
       />,
     )
     expect(screen.queryByText(/keeps its own/)).toBeNull()
-    /* And the fact is still somewhere a reader can get at. */
-    expect((container.querySelector('[data-switch]') as HTMLElement).title).toContain('keeps its own')
+    /* It used to be here in a `title`, which was the narrow container's answer
+       to a paragraph that would not fit. That answer is gone with the paragraph:
+       the fact does not depend on the size of this container, so it is on the
+       edit page at every size rather than in a tooltip nobody can reach on a
+       touch screen. What the press says now is what the press is for. */
+    expect((container.querySelector('[data-switch]') as HTMLElement).title).toBe(
+      'Held against an issue, merge request or pull request. Press to change it.',
+    )
+    toEdit(container)
+    expect(screen.queryByText(/keeps its own/)).toBeNull() // 220 pixels: `room.prose` is false here too.
+    fireEvent.click(container.querySelector('[data-page-to="state"]') as HTMLElement)
 
     cleanup()
     render(

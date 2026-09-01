@@ -78,6 +78,18 @@ ticked and nothing on it names a target, because an edit is a change to the LIST
 — an item added is added for every target it is held against, and an item removed
 takes every tick on it with it.
 
+It is also where the sentence explaining how ticks are KEYED lives — "ticks
+belong to this list and one target together; the same list held against
+something else keeps its own". That used to sit under the target row on the
+state page, and the owner moved it: how a thing is keyed is true of every target
+the list will ever be held against, cannot change while somebody looks at it, and
+is read once while a list is being set up. On the page you use every day it is a
+paragraph of documentation standing on the items. The kind of the current target
+— *a paper*, *a section of a paper*, *an issue, merge request or pull request* —
+is still said on the state page, on the press that changes it, where it is about
+the row it sits on. The article belongs to `targetNoun` and no caller writes one;
+it read "A a section of a paper" for as long as they did.
+
 One press moves between them, in the header beside the count. Not a filter group
 in the container header (a mode is not a narrowing, and the host remembers a
 filter forever — you would come back tomorrow in edit mode), and not a tab row
