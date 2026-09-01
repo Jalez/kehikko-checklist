@@ -30,7 +30,13 @@
  */
 export function Nowhere({ unhosted, project }: { unhosted: boolean; project: string | null }) {
   return (
-    <section data-nowhere="yes" className="flex min-w-0 flex-col gap-1.5">
+    <section
+      data-nowhere="yes"
+      /* `px-2 py-1.5` on the section itself, because this screen is prose and
+         nothing else — it has no rows to carry the inset for it, and the shell
+         no longer pads anything (see the essay on the shell in `app.tsx`). */
+      className="flex min-w-0 flex-col gap-1.5 px-2 py-1.5"
+    >
       <h2 className="text-[0.8rem] font-semibold">
         {unhosted ? 'Nothing is framing this page' : 'No project is open'}
       </h2>

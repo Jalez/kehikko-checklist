@@ -226,8 +226,30 @@ export function ChecklistView({
          it lives in, and made the document itself 188 pixels taller than the
          frame. Measured: the whole card scrolled off the top of a 200-pixel
          container that was supposed to have no page scroll at all, and every
-         element on it measured as fitting. */
-      className={cn('relative overflow-hidden rounded-lg border bg-card', room.pinned && 'flex min-h-0 flex-1 flex-col')}
+         element on it measured as fitting.
+
+         `overflow-hidden` is the other half of that same pair and stays for the
+         same reason: `relative` makes this the containing block and the overflow
+         is what does the clipping. Neither of them is here to round a corner.
+
+         ## What is not here any more: `rounded-lg border bg-card`
+
+         The host already draws a container round this module — its own border,
+         its own header, its own corners — so an edge drawn here was an edge with
+         nothing on the far side of it to separate this from. A box in a box, and
+         the gap between the two edges is space taken off the thing somebody is
+         reading, which at 220 pixels is space this module does not have.
+
+         `kehikko-learning` made the same removal, in the owner's words ("the
+         Learning module doesn't need a separate container inside it — none of
+         the other modules have that either") and for the same measured reason:
+         a bordered, padded card inside a container is a card on a card. It kept
+         its edge on exactly one rung — the one where several question cards sit
+         in a list, and the edge is what tells one card from the next. That case
+         does not arise here. This page has never been a list of cards; it is one
+         card, and the separating is done by the `border-t` rules between rows,
+         which are the reason the list reads as rows at all and which stay. */
+      className={cn('relative overflow-hidden', room.pinned && 'flex min-h-0 flex-1 flex-col')}
       data-checklist={held.checklist.id}
       data-page={page}
       data-room={room.pinned ? 'pinned' : 'flowing'}

@@ -765,7 +765,12 @@ export function App() {
       /* A list is chosen and has not come back yet — or came back refused, which
          is a sentence rather than a blank. Both are said, because "reading it"
          and "it could not be read" send a reader to two different places. */
-      <p className="text-[0.7rem] leading-4 text-muted-foreground">
+      <p
+        /* Its own `px-2 py-1.5`, now the shell has none: this is one loose
+           sentence with no row and no card under it, and every other line of
+           text on this page is inset by exactly this much. */
+        className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
+      >
         {trouble ?? 'Reading that checklist.'}
         {trouble ? (
           <>
@@ -798,15 +803,34 @@ export function App() {
    * items — actually be shorter than its content instead of growing the column.
    * `h-dvh` and not `h-screen`: inside an iframe the two agree, and `dvh` is the
    * one that stays right when a mobile host's own chrome moves.
+   *
+   * ## And no padding on it, which is the other half of removing the card
+   *
+   * This used to be `p-2`. Together with the card's own border and the `px-2`
+   * every row already carries, a line of text on this page started seventeen
+   * pixels in from a frame that is often two hundred and twenty pixels wide.
+   * Eight of those were spent putting a gap between the host's edge and an edge
+   * this module drew itself; one was that edge. Both are gone, the rows keep
+   * their own `px-2`, and the reader's text starts at eight — which is exactly
+   * where it starts in `kehikko-notes` (no padding on the shell, `px-2` on the
+   * blocks inside it) and in `kehikko-learning` on the rungs where it draws no
+   * card. The dividers between rows now run the full width of the container,
+   * like the host's own.
+   *
+   * The padding survives in the one place that still needs it: the heading
+   * below, which exists ONLY when nothing is framing this page. Unframed there
+   * is no container to sit inside, so text against the window edge would be text
+   * against the window edge. Framed, that heading is not drawn at all, so the
+   * padding is not paid.
    */
   return (
     <div
       ref={setShell}
-      className={cn('flex flex-col gap-2 p-2 text-foreground', room.pinned && 'h-dvh min-h-0')}
+      className={cn('flex flex-col gap-2 text-foreground', room.pinned && 'h-dvh min-h-0')}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
       {framed ? null : (
-        <header className="shrink-0">
+        <header className="shrink-0 px-2 pt-2">
           <h1 className="text-sm font-semibold">Checklist</h1>
           <p className="text-[0.7rem] leading-4 text-muted-foreground">
             {room.prose
@@ -819,8 +843,14 @@ export function App() {
         </header>
       )}
 
+      {/* `mx-2 mt-2` rather than the shell's old padding: this box has a border
+          of its own that MEANS something — it is a refusal, marked as one — and
+          a bordered box flush against the host's own edge reads as part of the
+          host's chrome rather than as something this page is saying. It is drawn
+          only when the store could not be read, so the margin is paid on the
+          screen nobody wants to be looking at and on no other. */}
       {storeTrouble ? (
-        <p className="shrink-0 rounded border border-failed/40 bg-failed/5 px-2 py-1.5 text-[0.7rem] leading-4 text-failed">
+        <p className="mx-2 mt-2 shrink-0 rounded border border-failed/40 bg-failed/5 px-2 py-1.5 text-[0.7rem] leading-4 text-failed">
           {storeTrouble}
         </p>
       ) : null}

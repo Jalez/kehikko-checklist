@@ -385,3 +385,44 @@ a small scroll settles one pixel off an item boundary rather than through the
 middle of a line. A component test cannot say any of that: happy-dom has no
 layout, so `test/room.test.ts` holds the thresholds and the probe holds the
 pixels they came from.
+
+## No second frame, because the host already drew the first one
+
+The page used to draw itself a card — `rounded-lg border bg-card` on the section
+— inside a container the host had already given a border, a header and rounded
+corners of its own, and the shell around it added `p-2` on top. That is a box in
+a box, and the gap between the two edges is space taken off the thing somebody is
+reading. The owner said it of a sibling first ("the Learning module doesn't need
+a separate container inside it — none of the other modules have that either") and
+then of this one, so it is a standing rule rather than one module's taste.
+
+Both are gone: the card's border, its corners, its `bg-card`, and the shell's
+padding. What stayed is every `border-t` — the rules **between** rows, between
+the header and the target strip, above a refusal. Those are not the frame being
+complained about; they are what makes a list read as rows instead of one block,
+and they now run the full width of the container the way the host's own do. The
+`relative overflow-hidden` pair stayed too, and neither half is decoration: see
+the essay on it in `src/view/checklist.tsx`.
+
+Padding survives in exactly four places, each drawn only on the screen that needs
+it: the `<h1>` block, which exists only when nothing is framing this page and
+would otherwise sit against the window edge; the store's refusal and the
+no-kehikko note, both bordered boxes of their own that read as the host's chrome
+if they touch the host's edge; the "reading that checklist" sentence and the
+no-project screen, which are loose prose with no row to carry the inset for them.
+
+Measured with `dev/room.probe.mjs`, six items, before → after:
+
+```
+              chrome above item 1   asked   fully visible   item row   item text
+  220x300     83 → 74               545→527   2 → 2         202 → 220  164 → 182
+  320x200     83 → 74               405→387   1 → 2         302 → 320  264 → 282
+  460x360     83 → 74               376→376   6 → 6         442 → 460  404 → 422
+  900x700    101 → 92               343→325   6 → 6         882 → 900  844 → 862
+```
+
+Nine pixels of fixed chrome at every size (the shell's eight, the border's one)
+and eighteen pixels of width on every row, at every size, paid on every item —
+which is why 320x200 shows two whole items where it showed one. The edit page
+gained the same nine (129 → 120 above its first row). `document.scrollWidth`
+equals the frame's width at all four sizes, so nothing overflows sideways.

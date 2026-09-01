@@ -132,8 +132,14 @@ export function Choose({
     <section
       /* `relative`, for the reason set out in `checklist.tsx`: an `sr-only` label
          is `position: absolute` and escapes a scroller that is not its
-         containing block, taking the page's scroll height with it. */
-      className={cn('relative overflow-hidden rounded-lg border bg-card', room.pinned && 'flex min-h-0 flex-1 flex-col')}
+         containing block, taking the page's scroll height with it.
+
+         No `rounded-lg border bg-card`, for the reason set out at length on the
+         same element in `checklist.tsx`: the host draws the container, and a
+         second frame inside it is a box in a box whose padding comes out of the
+         list. The rules between the names below are `border-t` and stay — they
+         are what makes this a list of choices rather than a paragraph of them. */
+      className={cn('relative overflow-hidden', room.pinned && 'flex min-h-0 flex-1 flex-col')}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
       <div className="flex shrink-0 items-baseline gap-1.5 px-2 py-1.5">
@@ -250,7 +256,10 @@ export function Unplaced({ children, room }: { children: React.ReactNode; room: 
       <p
         data-unplaced="yes"
         title={room.prose ? undefined : whole}
-        className="shrink-0 rounded border border-pending/40 bg-pending/5 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
+        /* `mx-2 mt-2`: a bordered box of its own, kept off the host's edge for
+           the reason given beside the store's refusal in `app.tsx` — a border
+           flush against the container's border reads as the container's. */
+        className="mx-2 mt-2 shrink-0 rounded border border-pending/40 bg-pending/5 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
       >
         {room.prose
           ? whole
