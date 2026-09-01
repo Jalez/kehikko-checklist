@@ -31,21 +31,81 @@ paper (an epic, optionally with a section of it). See `list/targets.ts` for what
 a paper target IS and, in particular, for the honest account of what happens to
 its ticks when the paper changes underneath them.
 
-On a paper the target **follows the reader**. The host broadcasts a `passage` — a
-file, a place in it, and the words that were there — and this module opens the
-file through its own fence, finds the heading those bytes fall under, and holds
-the list against **the whole paper**, **the file**, or **the section**: a title
-and the paragraphs beneath it, up to the next heading of the same or a shallower
-level. Three rungs, no passage rung, and the reason there is no fourth is in
-`list/scope.ts`. Narrowing hides ticks, so the row always says how many it is
-hiding, and the way back out is the **grain** filter the host draws in the
-container header — `section` / `file` / `paper`, offered over `roadmap.filters`
-and remembered per container. Only the rungs that exist are offered, and a
-remembered rung that is not available here falls back rather than narrowing by
-nothing. The choice is remembered; the PLACE never is, which is what lets a rule
-that refuses to remember a scope and a filter the host keeps forever both be
-true. None of this touches a target that is a ref: an issue has no document, no
-rungs, no offer, and nothing on that path so much as stats a disk.
+## A pairing is the durable thing, and the reader chooses which one is in front
+
+A list and a target together is a **pairing**, and it is what a tick belongs to.
+The container's job is not to AIM a list at whatever the reader happens to be
+looking at; it is to show whichever of the pairings somebody has already made
+they are standing in front of — the way `kehikko-notes` shows the notes for the
+page being read. `list/holding.ts` is the whole argument. The owner's report is
+what forced it:
+
+> "held against doesnt really seem to translate to 'show and expect to be filled
+> for x' … the checklist even if its pointed at some other section does not
+> 'disappear' from sight until you scroll to that tex file, instead it stays
+> there and if you scroll around it changes manually to another one. Unlike in
+> notes module for instance where it correctly knows what notes to show for each
+> page when I scroll around."
+
+The target used to be `candidates[0]` — the canvas's selection, else the paper
+the open epic is aimed at — narrowed by the last passage. A property of THE
+MOMENT. So one checklist silently re-pointed itself at whatever prose was in
+front of the reader, and "held against" named a cursor rather than a claim. The
+evidence for the other model was already in the store: ticks are keyed by
+`(checklist, target, item)`, so a pairing outlives every context, and the owner
+already had a word for one — *"all the checklists (not their instances)"*.
+
+Three inputs and one answer, in `holdingAt`:
+
+- **The pairings.** Durable, made by a person, never by this program.
+- **Where the reader is.** The ladder under their passage, narrowest first, or
+  the reference the canvas has selected. It chooses WHICH pairing is shown and
+  never what exists.
+- **The grain.** How narrow this reader likes it. It trims the ladder from below,
+  and names the rung a new pairing would be made at.
+
+The **narrowest rung the reader is standing on that this list is already held
+against** wins — outward, not equality, because a list held against the whole
+paper is about everywhere in it. When no rung is, the container says the true
+thing: **not held here**, nothing below is tickable, how many other things it IS
+held against, and one press to hold it here. That press is the claim, and under
+the old model the claim was made by SCROLLING.
+
+This is not the guess `src/view/choose.tsx` forbids, and that essay is untouched.
+It is about which LIST, and nothing here chooses a list — the list is the one
+remembered for this kehikko in `list/keep.ts`, picked by a person, and that
+memory still survives a restart. What position chooses is which of that list's
+OWN pairings is in front, all of which somebody made. Inventing a pairing nobody
+made is the guess, and that is exactly the act that moved behind a press.
+
+**A ref has no passage** and can never be a rung. Its position is the canvas: a
+selected reference the list is held against is shown ahead of any paper rung, and
+the switcher still lists every pairing by name with its count, and the box under
+it still takes a reference typed by hand. What changed for a ref is only that the
+container stops claiming one the list was never held against. And because a
+pairing is out of sight from everywhere but its own target, the pick screen now
+says how many things each list is held against — that screen is what keeps the
+work from being invisible.
+
+## The ladder the reader is standing on
+
+The host broadcasts a `passage` — a file, a place in it, and the words that were
+there — and this module opens the file through its own fence, finds the heading
+those bytes fall under, and reads **the whole paper**, **the file**, or **the
+section**: a title and the paragraphs beneath it, up to the next heading of the
+same or a shallower level. Three rungs, no passage rung, and the reason there is
+no fourth is in `list/scope.ts`. Narrowing hides ticks, so the row always says how
+many it is hiding, and the **grain** filter the host draws in the container header
+— `section` / `file` / `paper`, offered over `roadmap.filters` and remembered per
+container — is what says how much of the paper a reader wants at once. Only the
+rungs that exist are offered, and a remembered rung that is not available here
+falls back rather than narrowing by nothing. The choice is remembered; the PLACE
+never is, which is what lets a rule that refuses to remember a scope and a filter
+the host keeps forever both be true. The offer is withdrawn only when what is in
+front is not on the ladder at all — a ref, or a target somebody pointed at in
+another chapter — because a withdrawal is a claim the host answers by pruning the
+grain it has remembered. None of this touches a target that is a ref: an issue has
+no document, no rungs, no offer, and nothing on that path so much as stats a disk.
 
 The scanner is this module's own, small, and honest about what it does not read —
 `file/sections.ts` — for the reason `kehikko-notes/notes/annotations.ts` argues:
@@ -304,14 +364,18 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 294 tests across the store, where
+`bun test` covers the wire-independent half — 332 tests across the store, where
 it lives and what it refuses (a null project, a relative path, and either level
 of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
 `realpath`), the `.gitignore` gaining its rule exactly once and being found
 through a repository several levels up, the move out of `data/`, the migration of
 a real `papers.json`, the per-kehikko memory, target identity, every MCP tool's
 argument validation, the components, the section scanner against the owner's real
-thesis, the scope ladder as a table of cases, and the fence — `test/confine.test.ts`
+thesis, the scope ladder as a table of cases, which pairing is in front of a
+reader as another one (`test/holding.test.ts`, whose fixture is a paper with
+several chapters and a reader who walks out of the one their list is about and
+back into it, because the bug it exists to prevent cannot happen in a document
+with one section in it), and the fence — `test/confine.test.ts`
 exists entirely to try to get past it, because this module now opens documents a
 passage named. The rest was driven in a real
 browser with Playwright; the probes are in the job scratch directory as

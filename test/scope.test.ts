@@ -14,7 +14,6 @@ import {
   sectionId,
   targetOf,
   widen,
-  widenedTarget,
   type Scope,
 } from '../list/scope.ts'
 import { targetKey, type Target } from '../list/targets.ts'
@@ -347,27 +346,17 @@ describe('the ladder offered as a grain', () => {
        `main.tex`, which has none. Honouring it would build a target for a
        section that is not there. */
     expect(grainAt({ grain: 'section' }, key(inFile))).toBe('file')
-    expect(widenedTarget(key(inFile), grainAt({ grain: 'section' }, key(inFile)))).toBe(null)
     /* And the same for a grain from a version of this module that no longer
        exists, which is what a greeting can carry before anything is offered. */
     expect(grainAt({ grain: 'passage' }, key(inSection))).toBe('section')
   })
 
-  test('turns a chosen grain into the target that widening used to pick', () => {
-    expect(widenedTarget(key(inSection), 'file')).toEqual({
-      kind: 'paper',
-      epic: 'thesis',
-      section: 'chapters:3_methods',
-    })
-    expect(widenedTarget(key(inSection), 'paper')).toEqual({ kind: 'paper', epic: 'thesis', section: null })
-  })
-
-  test('decides nothing on the narrowest rung, so the server goes on resolving the passage', () => {
-    /* Null and not a target, deliberately: sending one would make it a `pick`,
-       and a pick stops the server reading the path. The untouched path has to
-       stay byte-for-byte what it was before any of this existed. */
-    expect(widenedTarget(key(inSection), 'section')).toBe(null)
-    expect(widenedTarget(key(inFile), 'file')).toBe(null)
-    expect(widenedTarget(key({ kind: 'elsewhere' }), null)).toBe(null)
-  })
+  /*
+   * The two cases that used to live here — a chosen grain becoming a target, and
+   * the narrowest rung deciding nothing — moved with the function that answered
+   * them. `widenedTarget` is gone: a grain no longer names a target on its own,
+   * it trims the ladder that PAIRINGS are looked for in, and both halves of that
+   * are `holdingAt` in `list/holding.ts`. Its table is `test/holding.test.ts`,
+   * and it keeps the `decided` rule these cases were written for.
+   */
 })

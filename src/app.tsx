@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { ID } from '../manifest.ts'
 import { chosenOn } from '../list/keep.ts'
-import type { Target } from '../list/targets.ts'
+import { holdingAt } from '../list/holding.ts'
+import { targetKey, type Target } from '../list/targets.ts'
 
 import {
   grainAt,
@@ -12,7 +13,6 @@ import {
   rungsOf,
   scopeOf,
   scopeOfTarget,
-  widenedTarget,
 } from '../list/scope.ts'
 
 import {
@@ -332,22 +332,106 @@ export function App() {
     return out
   }, [key])
 
-  /**
-   * The target in front: the one picked here, or the first the context proposes.
+  /*
+   * There used to be a `const proposal = candidates[0] ?? null` here, and it was
+   * the bug the owner reported.
    *
-   * A pick made here survives the next context, which is the whole reason it is
-   * held separately — a context arrives after every selection change anywhere on
-   * the canvas, and a target that reset on each would be unusable in a workspace
-   * where anything else is being clicked.
+   * It said: the target of this checklist is the canvas's selection, or else the
+   * paper the open epic is aimed at — a property of THE MOMENT, recomputed after
+   * every context, which is after every selection change anywhere on the canvas
+   * and after every scroll through a paper. So one list silently re-pointed
+   * itself at whatever prose was in front of the reader, and "held against"
+   * named a cursor rather than a claim.
    *
-   * It is dropped when the canvas selects something, because that IS somebody
-   * saying what they are now looking at, and a local pick left standing under it
-   * would be two answers with no way to tell them apart.
+   * What replaces it is `holdingAt` in `list/holding.ts`, which has the whole
+   * argument: a target is a property of the CHECKLIST — ticks are keyed by
+   * `(list, target, item)`, so a pairing is durable and countable and the store
+   * has always treated it so — and where the reader is standing chooses WHICH of
+   * those pairings is in front, never what a list is about. The candidates are
+   * still built above, because they are what the switcher offers somebody who
+   * wants to make a new pairing by hand.
    */
-  const proposal = candidates[0] ?? null
 
   /**
-   * The rungs that exist right now, as one string.
+   * Where the reader is standing, as one string: the rungs under their passage,
+   * narrowest first.
+   *
+   * The POSITION, and never the target — the two were one value before this
+   * change and that was the fault. It is computed from the epic and from where
+   * the server said the reader turned out to be, and from nothing else: not from
+   * the selection (a reference the canvas picked out does not move anybody
+   * through a document) and not from what this list happens to be held against.
+   *
+   * Unlike `ladder` below it is NOT null before the first answer. `placed` is
+   * null then, so this is the bare paper, which is exactly the target the page
+   * has always fetched with at that moment — the one that makes the server
+   * resolve the passage and hand back the rest of the ladder. Nothing draws this
+   * container until that answer arrives, so nobody sees the coarse rung.
+   */
+  const here = ladderKey(rungsOf(scopeOf(epic ?? null, opened?.placed ?? null)))
+
+  /** The references the canvas has selected, as one string. See `candidates`. */
+  const selected = selection.join(' ')
+
+  /**
+   * How much of the paper the reader has asked for, of what is actually on offer.
+   *
+   * Read against `here` — the reader's POSITION — rather than against the offer
+   * below, and that difference is new. The offer is withdrawn while a ref is in
+   * front, and reconciling the grain against a withdrawn offer would answer
+   * `null` for a reader standing in a chapter with a reference selected beside
+   * it. The grain is a fact about how this person likes to work; it does not
+   * stop being true because something else is on screen.
+   *
+   * A grain the host remembers from a file with headings, replayed into one
+   * without, is not honoured — `grainAt` falls back to the narrowest rung that
+   * exists here, which is the same value the offer names as its fallback. The
+   * host reconciles as well and is required to; it cannot do it before this page
+   * has offered anything, and the greeting goes out first.
+   */
+  const grain = grainAt(filterChoice, here)
+
+  /**
+   * The pairings this list has, as one string of keys.
+   *
+   * Keys and not the array, because `/api/checklist` builds a fresh `targets` on
+   * every answer. A memo keyed on the array would recompute after every fetch,
+   * hand back a fresh target object, and re-run the fetch that produced it —
+   * which is not a slow render, it is a loop. The same argument `candidates`
+   * makes about `selection` one screen up, and `ladderKey` makes about rungs.
+   */
+  const pairings = (opened?.targets ?? []).map((one) => targetKey(one.target)).join('\n')
+
+  /**
+   * Which pairing of this list with a target is in front of the reader.
+   *
+   * The argument is in `list/holding.ts` and is not repeated here. The one line
+   * of it: a target belongs to the CHECKLIST — ticks are keyed by `(list,
+   * target, item)` and always have been — so where the reader is standing
+   * chooses which of the pairings somebody already made is shown, and never what
+   * this list is about. `unheld` is the state the old model could not express,
+   * and its absence is why the owner had to report this: the container is
+   * somewhere this list is not held against, and now says so instead of
+   * re-aiming itself at wherever they happen to be reading.
+   *
+   * Memoised on four strings and one piece of state, so a context that repeats
+   * itself — and every context does — hands back the same target object and the
+   * fetch below does not fire.
+   */
+  const holding = useMemo(
+    () =>
+      holdingAt({
+        ladder: here,
+        grain,
+        pairings: pairings ? pairings.split('\n') : [],
+        picked,
+        selection: selected ? selected.split(' ') : [],
+      }),
+    [here, grain, pairings, picked, selected],
+  )
+
+  /**
+   * The rungs this container offers to be narrowed by, as one string.
    *
    * ## Built from where the reader is standing, not from what has ticks
    *
@@ -362,10 +446,10 @@ export function App() {
    *
    * `rungsOf` and `scopeOf` build fresh objects on every render. An effect keyed
    * on either would post a `roadmap.filters` message on every render, and the
-   * memo below would hand back a fresh target that re-ran the fetch that set the
+   * memo above would hand back a fresh target that re-ran the fetch that set the
    * state that caused the render. See the essay on `ladderKey`.
    *
-   * ## No ladder while a target has been picked by hand
+   * ## No offer while what is in front is not on the ladder
    *
    * A target chosen off the switcher is a decision about WHICH target, and a
    * grain control over it would be a lie — press `This file` while holding the
@@ -375,6 +459,25 @@ export function App() {
    * make happen the moment the reader moves or the canvas selects something.
    * Same for a ref: an issue has no passage and no rungs, which is the whole of
    * "non-document targets are untouched".
+   *
+   * What the model changed is which of those states this page is IN, not what it
+   * does about them — and it sharpened the test from "was this picked" to "is
+   * what is in front a rung of the ladder", which is `holding.grounded`. Two
+   * cases move because of it, both in the direction of saying less:
+   *
+   * - A selected reference used to withdraw the offer by itself, because the
+   *   selection WAS the target. It withdraws now only when this list is
+   *   genuinely held against that reference — otherwise the container is showing
+   *   a rung of the paper, the grain governs it, and the control says something
+   *   true. `unheld` keeps the offer for the same reason: the grain is what
+   *   names the rung a press would make the pairing at.
+   *
+   * - A pick that LANDS on the ladder no longer withdraws. It used to, and that
+   *   was affordable while a hand-pick was rare. `Hold it against here` is an
+   *   ordinary press now, its target is a rung by construction, and a withdrawal
+   *   is a claim this host answers by pruning the grain it has remembered for
+   *   this container — so the old rule would have spent the reader's stored
+   *   preference every time they held a list against what they were reading.
    *
    * ## Null is "not known yet", and it is NOT the empty ladder
    *
@@ -391,18 +494,17 @@ export function App() {
    * So: null while `opened` is null — before the first answer, on the pick
    * screen, and after a read that failed — and the effect sends nothing at all,
    * leaving the last thing this page actually knew standing. A withdrawal is a
-   * claim, and a page must only make it when it is true.
+   * claim, and a page must only make it when it is true. `here` above is
+   * deliberately NOT null-guarded this way, and the pair is the point: one of
+   * them is a fact this page needs in order to ask anything at all, the other is
+   * a claim it makes to somebody else.
    *
    * `offerAt` answers null for a second reason of its own — a real ladder with
    * only one rung on it — and the two are the same instruction to the effect
-   * below: say nothing. The one case that genuinely withdraws is a ref, which
-   * has no ladder at all and never will.
+   * below: say nothing. The one case that genuinely withdraws is a target that
+   * is not on the ladder at all: a ref, or one somebody pointed at by hand.
    */
-  const ladder = opened
-    ? ladderKey(
-      rungsOf(scopeOf(picked === null && proposal?.kind === 'paper' ? proposal.epic : null, opened.placed)),
-    )
-    : null
+  const ladder = opened ? (holding.grounded ? here : '') : null
 
   /**
    * Say what this container can be narrowed by, whenever that answer changes.
@@ -422,45 +524,8 @@ export function App() {
     filters(groups)
   }, [filters, ladder])
 
-  /**
-   * How much of the paper the reader has asked for, of what is actually on offer.
-   *
-   * A grain the host remembers from a file with headings, replayed into one
-   * without, is not honoured — `grainAt` falls back to the narrowest rung that
-   * exists here, which is the same value the offer names as its fallback. The
-   * host reconciles as well and is required to; it cannot do it before this page
-   * has offered anything, and the greeting goes out first.
-   */
-  const grain = grainAt(filterChoice, ladder ?? '')
-
-  /**
-   * The target the grain means, when it means one at all.
-   *
-   * Null on the narrowest rung, which leaves the target exactly what it was
-   * before any of this existed — the proposal, with no section on it — so the
-   * server goes on resolving the passage itself. That keeps the untouched path
-   * byte-for-byte the old path, which is what makes "nobody has pressed
-   * anything" a case this change cannot have broken.
-   *
-   * Memoised on two strings, so the fetch below is not re-run by a fresh object
-   * on every render.
-   */
-  const widened = useMemo(() => widenedTarget(ladder ?? '', grain), [ladder, grain])
-
-  /**
-   * The target in front: the one picked here, then the grain, then whatever the
-   * context proposes.
-   *
-   * A pick made here survives the next context, which is the whole reason it is
-   * held separately — a context arrives after every selection change anywhere on
-   * the canvas, and a target that reset on each would be unusable in a workspace
-   * where anything else is being clicked.
-   *
-   * It is dropped when the canvas selects something, because that IS somebody
-   * saying what they are now looking at, and a local pick left standing under it
-   * would be two answers with no way to tell them apart.
-   */
-  const target = picked ?? widened ?? proposal
+  /** The target the ticks on screen belong to, if there is one. See `holdingAt`. */
+  const target = holding.target
 
   /**
    * Whether the target in front was DECIDED or derived from the passage.
@@ -475,15 +540,20 @@ export function App() {
    *
    * The rule it settles is worth more than the fix: a passage exists to DERIVE a
    * default, and a derivation must never overrule a decision. That is why a
-   * widen is `decided` here even though the press is now in the host's header
-   * rather than in this page — moving the control changed who says it, not what
-   * it means. The path still travels, because the heading wants the file's real
+   * widen is `decided` even though the press is now in the host's header rather
+   * than in this page — moving the control changed who says it, not what it
+   * means. The path still travels, because the heading wants the file's real
    * name and the section's real words either way; this only says which of the
    * two the server may act on.
+   *
+   * `holdingAt` keeps the rule word for word and applies it to one more case: a
+   * pairing found on a rung WIDER than the one the reader is standing on is a
+   * decision too, for exactly the reason a widen is. The narrowest rung is the
+   * only thing that is not, because it is what the server would have resolved to
+   * anyway.
    */
-  const decided = picked !== null || widened !== null
+  const decided = holding.decided
 
-  const selected = selection.join(' ')
   useEffect(() => {
     if (selected) setPicked(null)
   }, [selected])
@@ -874,8 +944,8 @@ export function App() {
    * Climbing a rung was a press in this page's own strip, which set `picked` to
    * the wider target. It is now a choice in the container header: the host draws
    * it from `offerAt`, remembers it against this container, and hands it back in
-   * `context.filters`, where `grainAt` and `widenedTarget` above turn it into
-   * the same target the press used to set. What is gone is the row of chrome the
+   * `context.filters`, where `grainAt` and `holdingAt` above turn it into the
+   * same target the press used to set. What is gone is the row of chrome the
    * press was standing on — see `src/view/checklist.tsx`, which still prints the
    * count the press stood beside, because a host cannot count rows it does not
    * render.
@@ -907,6 +977,7 @@ export function App() {
   ) : opened && chosen ? (
       <ChecklistView
         held={opened.held}
+        standing={holding.standing}
         targets={opened.targets}
         candidates={candidates}
         narrowed={narrowed}

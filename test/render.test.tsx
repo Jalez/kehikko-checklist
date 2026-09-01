@@ -85,6 +85,12 @@ const noop = () => {}
 function List(props: Partial<ComponentProps<typeof ChecklistView>> & { held: Held; room: Room }) {
   return (
     <ChecklistView
+      /* `held` is the quiet default for the same reason every other default here
+         is the quiet one: these cases were written before a list could be
+         somewhere it is not held, and every one of them is about something else.
+         The `unheld` screen has its own cases, where it is the only thing being
+         asserted. */
+      standing="held"
       targets={[]}
       candidates={[]}
       narrowed={NOWHERE}
@@ -159,6 +165,26 @@ describe('the pick screen', () => {
     )
     fireEvent.click(screen.getByText('What a change owes'))
     expect(picked).toBe('one')
+  })
+
+  test('says how many things each list is held against, which is where the work is', () => {
+    /* A checklist is only ticked at the targets somebody paired it with, so a
+       list held against two chapters is out of sight from everywhere else in the
+       paper. This screen is what stops that being the same as gone. At 220
+       pixels the second number goes and the first does not — the count of items
+       is what tells one list from another, and the name needs the width. */
+    const lists = [
+      { id: 'one', name: 'What a change owes', at: '', by: 'a test', items: 3, targets: 2 },
+      { id: 'two', name: 'Untouched', at: '', by: 'a test', items: 1, targets: 0 },
+    ]
+    const props = { onPick: noop, onCreate: noop, onImport: noop, importing: false, trouble: null, busy: false, said: 'x' }
+    const { container } = render(<Choose lists={lists} {...props} room={ROOMY} />)
+    const said = [...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)
+    expect(said).toEqual(['3 items, held against 2', '1 item'])
+
+    cleanup()
+    const tight = render(<Choose lists={lists} {...props} room={TIGHT} />)
+    expect([...tight.container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3', '1'])
   })
 
   test('draws a long name as wrapped prose, never in a nowrap badge', () => {
@@ -1061,5 +1087,129 @@ describe('the target picker', () => {
     expect(container.querySelector('[data-paper]')).toBeNull()
     expect(container.querySelector('[data-pick-file]')).toBeNull()
     expect(container.querySelector('[data-type-target]')).toBeTruthy()
+  })
+})
+
+/**
+ * The screen for "you are standing somewhere this list is not held against".
+ *
+ * The state the old model could not express, and the owner's report:
+ *
+ * > "held against doesnt really seem to translate to 'show and expect to be
+ * > filled for x' … the checklist even if its pointed at some other section does
+ * > not 'disappear' from sight until you scroll to that tex file, instead it
+ * > stays there and if you scroll around it changes manually to another one."
+ *
+ * WHICH pairing is in front is decided by `holdingAt`, and its table is
+ * `test/holding.test.ts`. What is asserted here is the other half: that the
+ * container says the true sentence, that nothing is tickable while it is saying
+ * it, and that the one press out of it names the same rung the row is printing.
+ */
+describe('a list that is not held against what the reader is reading', () => {
+  /* The rung the reader is standing on, which the page fetched in order to learn
+     where they are. It arrives as `held.target` and is NOT this list's target,
+     which is the whole distinction `standing` carries. */
+  const section: Target = { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' }
+  const placed = { file: 'chapters/3_methods.tex', section: 'chapters:3_methods#sec:meth-design', title: 'Research design' }
+  const unticked = () => held({ target: section, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })
+  const away = (where: Room, targets: { target: Target; done: number }[] = []) => (
+    <List
+      standing="unheld"
+      held={unticked()}
+      narrowed={narrow(scopeOfTarget(section, placed), targets)}
+      targets={targets}
+      room={where}
+    />
+  )
+
+  test('says so, names where the reader is, and calls it Reading rather than Held against', () => {
+    const { container } = render(away(ROOMY))
+    expect(container.querySelector('[data-unheld]')).toBeTruthy()
+    expect(screen.getByText('Reading')).toBeTruthy()
+    expect(screen.queryByText('Held against')).toBeNull()
+    const row = container.querySelector('[data-target]') as HTMLElement
+    expect(row.textContent).toBe('Research design')
+    expect(row.getAttribute('data-standing')).toBe('unheld')
+  })
+
+  test('nothing below can be ticked, because a tick here would make a pairing nobody meant', () => {
+    /* The load-bearing assertion. Under the old model this row was a tick
+       control against whatever the reader had scrolled to, and the pairing it
+       created was indistinguishable from one somebody had chosen. */
+    const { container } = render(away(ROOMY))
+    expect(container.querySelector('button[aria-pressed]')).toBeNull()
+    /* And the items are all still drawn: the list is the list wherever you
+       stand, and hiding it would lose the work as well as the claim. */
+    expect(container.querySelectorAll('li[data-item]')).toHaveLength(2)
+    expect(screen.getByText('Second')).toBeTruthy()
+  })
+
+  test('one press holds it here, and hands back the rung the row just printed', () => {
+    const sent: (Target | null)[] = []
+    const { container } = render(
+      <List
+        standing="unheld"
+        held={unticked()}
+        narrowed={narrow(scopeOfTarget(section, placed), [])}
+        onTarget={(t) => sent.push(t)}
+        room={ROOMY}
+      />,
+    )
+    fireEvent.click(container.querySelector('[data-hold]') as HTMLElement)
+    expect(sent).toEqual([section])
+  })
+
+  test('says how many other things it IS held against, so the work is not invisible', () => {
+    const targets: { target: Target; done: number }[] = [
+      { target: { kind: 'ref', ref: 'gh#105' }, done: 3 },
+      { target: { kind: 'paper', epic: 'thesis', section: 'chapters:2_literature_review' }, done: 1 },
+    ]
+    render(away(ROOMY, targets))
+    expect(screen.getByText(/held against 2 other things/)).toBeTruthy()
+  })
+
+  test('and says the other sentence when there is nothing anywhere, which is a different situation', () => {
+    /* "You have walked away from the work" and "nobody has ever ticked anything
+       on this list" send a reader to two different places. */
+    render(away(ROOMY))
+    expect(screen.getByText(/Nothing has been ticked on this checklist against anything yet/)).toBeTruthy()
+  })
+
+  test('does not also print what the narrowing is hiding, which is a count about a target', () => {
+    /* "N ticked elsewhere in this paper" answers "what is my narrowing hiding",
+       and there is no narrowing here — there are no ticks in front at all. The
+       line above it already says how many pairings exist and that none of them
+       is here, which is the sharper sentence and the same absence. */
+    const targets: { target: Target; done: number }[] = [
+      { target: { kind: 'paper', epic: 'thesis', section: 'chapters:2_literature_review' }, done: 4 },
+    ]
+    const { container } = render(away(ROOMY, targets))
+    expect(container.querySelector('[data-elsewhere]')).toBeNull()
+    expect(screen.getByText(/held against 1 other thing/)).toBeTruthy()
+  })
+
+  test('neither the sentence nor the press folds away at 220 pixels', () => {
+    /* The rule every sentence on this page is held to: prose folds, but the only
+       thing on screen explaining why every row is inert never does — and neither
+       does the way out of it. Both are shorter here, not absent. */
+    const { container } = render(away(TIGHT))
+    expect(container.querySelector('[data-unheld]')).toBeTruthy()
+    expect(container.querySelector('[data-hold]')).toBeTruthy()
+    expect(screen.getByText(/Not held against anything yet/)).toBeTruthy()
+  })
+
+  test('a list that IS held here draws none of it, and is tickable', () => {
+    const { container } = render(
+      <List
+        standing="held"
+        held={held({ target: section })}
+        narrowed={narrow(scopeOfTarget(section, placed), [])}
+        room={ROOMY}
+      />,
+    )
+    expect(container.querySelector('[data-unheld]')).toBeNull()
+    expect(container.querySelector('[data-hold]')).toBeNull()
+    expect(screen.getByText('Held against')).toBeTruthy()
+    expect(container.querySelector('button[aria-pressed]')).toBeTruthy()
   })
 })

@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import type { Held, Outline, Target } from '@/store/ask.ts'
 import type { Edit } from '@/store/ask.ts'
+import type { Standing } from '../../list/holding.ts'
 import { briefOf, saidOf, type Narrowed } from '../../list/scope.ts'
 import { targetKey, targetName, targetNoun } from '../../list/targets.ts'
 
@@ -159,6 +160,7 @@ import { cn } from '@/lib/utils.ts'
  */
 export function ChecklistView({
   held,
+  standing,
   targets,
   candidates,
   narrowed,
@@ -172,6 +174,17 @@ export function ChecklistView({
   room,
 }: {
   held: Held
+  /**
+   * Whether this list is actually held against what is in front of the reader.
+   *
+   * The model is in `list/holding.ts`. What this component does with it is one
+   * line, below: on `unheld` the target is drawn as NOT this list's, and every
+   * row goes inert. A container that let somebody tick against wherever they
+   * happened to be scrolled is the thing the whole change is about — the tick
+   * would create a pairing nobody meant, and it would be indistinguishable from
+   * one they did.
+   */
+  standing: Standing
   /** Every target this list already has ticks against. */
   targets: { target: Target; done: number }[]
   /** Targets the context is offering: the canvas's selection, and this epic's paper. */
@@ -213,7 +226,21 @@ export function ChecklistView({
   const [page, setPage] = useState<'state' | 'edit'>('state')
   /** Whether the target picker is showing over the frame. Held here so only one thing is. */
   const [picker, setPicker] = useState(false)
-  const target = held.target
+
+  /*
+   * The one line that turns the model into a screen.
+   *
+   * `held.target` is what the server read the ticks for, and it is always
+   * something — the page has to name a rung in order to ask anything at all. On
+   * `unheld` that rung is where the READER is and not what this list is held
+   * against, so it is not a target as far as this page is concerned: the row
+   * says so, and `null` makes every item inert without a second rule about it.
+   * The rung itself travels on as `offer`, because the press that would make the
+   * pairing has to name the same thing the fetch did.
+   */
+  const holding = standing === 'held' || standing === 'picked'
+  const target = holding ? held.target : null
+  const offer = standing === 'unheld' ? held.target : null
 
   return (
     <section
@@ -317,6 +344,7 @@ export function ChecklistView({
         <>
           <TargetRow
             target={target}
+            offer={offer}
             targets={targets}
             candidates={candidates}
             narrowed={narrowed}
@@ -687,6 +715,7 @@ function Forget({
  */
 function TargetRow({
   target,
+  offer,
   targets,
   candidates,
   narrowed,
@@ -699,6 +728,16 @@ function TargetRow({
   onOpen,
 }: {
   target: Target | null
+  /**
+   * Where the reader is standing, when this list is NOT held against it.
+   *
+   * Exclusive with `target` by construction — `ChecklistView` derives both from
+   * the same value and one of them is always null — because the row has to say
+   * one of two different things and a component holding both would be a
+   * component that could say both. It is what the press below would hold the
+   * list against.
+   */
+  offer: Target | null
   targets: { target: Target; done: number }[]
   candidates: Target[]
   narrowed: Narrowed
@@ -868,7 +907,16 @@ function TargetRow({
   const titled = rung.kind === 'section'
     ? outline?.files.flatMap((file) => file.sections).find((one) => one.id === rung.id)?.title ?? null
     : null
-  const name = target ? (scoped ? titled ?? briefOf(narrowed.scope) : targetName(target)) : 'nothing yet'
+  /* The row names ONE thing, and which of the two it is naming is the row's
+     whole job. `target` is what these ticks belong to; `offer` is where the
+     reader is standing when this list is not held there. They are never both
+     set, so one expression prints either. */
+  const shown = target ?? offer
+  const name = shown ? (scoped ? titled ?? briefOf(narrowed.scope) : targetName(shown)) : 'nothing yet'
+  /* How many pairings this list has that are NOT what is in front. The number is
+     the difference between "you are somewhere else" and "nobody has ever ticked
+     anything on this list", which are two situations with two remedies. */
+  const elsewhere = offer ? targets.length : 0
 
   return (
     /* `data-strip` is for the probes, in the same spirit as `data-target` and
@@ -877,11 +925,16 @@ function TargetRow({
        measuring whatever the last refactor left. See `dev/filters.probe.mjs`. */
     <div className="shrink-0 border-t bg-muted/40 px-2 py-1.5" data-strip>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <span className="shrink-0 text-[0.65rem] text-muted-foreground">Held against</span>
+        {/* Two words, and which two is the model on screen. `Held against` is a
+            claim about this list; `Reading` is a fact about the reader and
+            claims nothing. The old container could only ever say the first, so
+            it said it about wherever somebody had scrolled to. */}
+        <span className="shrink-0 text-[0.65rem] text-muted-foreground">{offer ? 'Reading' : 'Held against'}</span>
         <span
           className="min-w-0 flex-1 break-words text-[0.75rem] font-medium"
           data-target
           data-rung={narrowed.scope.kind}
+          data-standing={offer ? 'unheld' : target ? 'held' : 'nothing'}
           title={scoped ? saidOf(narrowed.scope) : undefined}
         >
           {name}
@@ -911,7 +964,9 @@ function TargetRow({
           title={
             target
               ? `Held against ${targetNoun(target)}. Press to change it.`
-              : 'Nothing has said what this list is held against.'
+              : offer
+                ? `You are reading ${targetNoun(offer)}. Press to see everything this list IS held against.`
+                : 'Nothing has said what this list is held against.'
           }
         >
           {open && !overlaid ? 'done' : 'change'}
@@ -936,7 +991,62 @@ function TargetRow({
           furniture standing on the items. It is in `EditPage` now, next to the
           sentence about an item being added for every target, which is the other
           half of the same idea. */}
-      {target ? null : (
+      {target ? null : offer ? (
+        /*
+         * The screen the old model could not draw, and the reason the owner had
+         * to report a bug to get it.
+         *
+         * Before this, scrolling four chapters away from the work left the same
+         * list on screen saying it was held against the chapter now in front of
+         * the reader, with a fresh set of nought ticks. Nothing was wrong with
+         * the pixels; the sentence was simply false. So this says the true thing
+         * instead — you are here, this list is not held here — and then does the
+         * two things a true sentence owes somebody.
+         *
+         * **It says where the work IS.** A count, not a list: the names are one
+         * press away in the switcher, and a strip that grew a line per pairing
+         * would be a directory in a 220-pixel column. Nought pairings is a
+         * different sentence, because "you have walked away from it" and "nobody
+         * has ever ticked anything on this" send a reader to two different
+         * places.
+         *
+         * **It offers the one press that would make it false.** Holding a list
+         * against a piece of work is a claim that the work owes what the list
+         * says, and under the old model that claim was made by SCROLLING. Now it
+         * is made by pressing, at the rung the reader's grain names, which is the
+         * same rung the row above is printing. Nothing is written to the store by
+         * the press itself — a pairing comes into being when something is ticked
+         * on it, exactly as it always did.
+         *
+         * Neither half folds away at any size. Between them they are the only
+         * thing on screen explaining why every row below is inert, which is the
+         * test a sentence has to pass to survive at 220 pixels.
+         */
+        <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5" data-unheld>
+          <p className="min-w-0 flex-1 text-[0.65rem] leading-4 text-muted-foreground">
+            {elsewhere
+              ? room.prose
+                ? `This checklist is not held against what you are reading, so nothing below can be ticked. It is held `
+                  + `against ${elsewhere} other ${elsewhere === 1 ? 'thing' : 'things'} — press change to see them.`
+                : `Not held here. Held against ${elsewhere} other ${elsewhere === 1 ? 'thing' : 'things'}.`
+              : room.prose
+                ? 'Nothing has been ticked on this checklist against anything yet, so it is not held here or anywhere '
+                  + 'else. Hold it against what you are reading to start.'
+                : 'Not held against anything yet.'}
+          </p>
+          <Button
+            type="button"
+            size="container"
+            disabled={busy}
+            data-hold
+            className="max-w-full"
+            onClick={() => onTarget(offer)}
+            title={`Hold this checklist against ${targetNoun(offer)}, and tick items off for it.`}
+          >
+            <span className="min-w-0 truncate">Hold it against {name}</span>
+          </Button>
+        </div>
+      ) : (
         <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground">
           Nothing has said what this list is being held against, so nothing below can be ticked. Pick or type a target.
         </p>
@@ -968,8 +1078,17 @@ function TargetRow({
         * there is actually something hidden, where before it was drawn on every
         * rung below the paper, because the press had to be reachable even when
         * the count was nought.
+        *
+        * ## And not at all when this list is not held here
+        *
+        * "N ticked elsewhere in this paper" answers "what is my NARROWING
+        * hiding", which is a question about a target the ticks in front belong
+        * to. There are none in front on the `unheld` screen, and the line above
+        * it already says the sharper thing — how many pairings there are and
+        * that none of them is here. Two counts about the same absence, in a
+        * 220-pixel column, would be one line spent saying it twice.
         */}
-      {narrowed.elsewhere ? (
+      {!offer && narrowed.elsewhere ? (
         <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground" data-elsewhere={narrowed.elsewhere}>
           {narrowed.elsewhere} ticked elsewhere in this paper.
         </p>

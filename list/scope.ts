@@ -556,28 +556,25 @@ export function grainAt(chosen: FilterChoice | undefined, key: string): Grain | 
   return found ? found.grain : narrowest.grain
 }
 
-/**
- * The target a chosen grain means, or null when the reader is already on it.
+/*
+ * There used to be a `widenedTarget` here, and its disappearance is a change to
+ * the model rather than a tidy-up.
  *
- * Null for the narrowest rung, and that is load-bearing rather than an
- * optimisation. Sending no target lets the SERVER resolve the passage into a
- * section, which is what this module has always done and is the one path that
- * knows how to read a `.tex` file. Sending a target instead makes it a DECISION
- * — `pick` in `doors.ts` — and a decision is exactly what a widen is: the reader
- * has said "hold this against the file", and the server must not resolve them
- * straight back into the section they just climbed out of. That bug shipped
- * once already; see the essay on `decided` in `src/app.tsx`.
+ * It answered "which target does this grain mean", null at the narrowest rung so
+ * the server would go on resolving the passage itself. That was the right shape
+ * while a grain was the only thing that could move a container off the rung the
+ * reader was standing on — the target being, otherwise, whatever the moment
+ * proposed.
  *
- * So: the narrowest grain decides nothing and the server follows the reader; any
- * wider grain is a target and a decision.
+ * A target is not a property of the moment any more. It is a pairing somebody
+ * made, and the grain's job changed with it: it no longer NAMES a target, it
+ * trims the ladder that pairings are looked for in, from below. One function
+ * does both halves now — `holdingAt` in `list/holding.ts` — because the rung a
+ * grain names and the rung a pairing was found on have to be the same rung, and
+ * two functions computing it were two places for it to differ. The `decided`
+ * rule this one carried is kept there word for word: the narrowest rung decides
+ * nothing and the server follows the reader; anything wider is a decision.
  */
-export function widenedTarget(key: string, grain: Grain | null): Target | null {
-  const rungs = rungsFrom(key)
-  const narrowest = rungs[0]
-  if (!grain || !narrowest || rungs.length < 2 || grain === narrowest.grain) return null
-  const rung = rungs.find((one) => one.grain === grain)
-  return rung ? { kind: 'paper', epic: rung.epic, section: rung.section } : null
-}
 
 /**
  * The file's own name, for a reader who is looking at one file.

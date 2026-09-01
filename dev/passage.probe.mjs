@@ -74,7 +74,7 @@
  * used to land back in the section it had just left, because `{epic,
  * section: null}` on the wire is indistinguishable from a target nobody has
  * narrowed. See `pick` in `src/store/ask.ts` — the rule survived the move, and
- * `widenedTarget` in `list/scope.ts` is what obeys it now.
+ * `holdingAt` in `list/holding.ts` is what obeys it now.
  *
  * The same movements at 900x700 say the same things, which was the other thing
  * worth checking: the ladder is not something only a cramped layout shows.

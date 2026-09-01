@@ -219,9 +219,24 @@ export function Choose({
                     container. Never a Badge and never `truncate`: the name IS how
                     somebody tells one list from another. */}
                 <span className="min-w-0 flex-1 break-words text-[0.8rem] leading-5">{list.name}</span>
-                <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground">
+                {/* And how many things it is HELD AGAINST, where there is room
+                    for the words.
+
+                    This screen is the answer to "where is all the work" now that
+                    a checklist is only ticked at the targets somebody paired it
+                    with: a list held against three chapters is out of sight from
+                    everywhere else in the paper, by design, and the place that
+                    can still say the work exists is the one that lists every
+                    checklist in the project. The number was already in `Summary`
+                    and already read off the store; it was simply never drawn.
+                    Under `room.prose` only, on the same rule as the word "items"
+                    beside it — at 220 pixels a second number takes the width the
+                    NAME needs, and the name is how somebody tells one list from
+                    another. */}
+                <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground" data-summary>
                   {list.items}
                   {room.prose ? ` item${list.items === 1 ? '' : 's'}` : ''}
+                  {room.prose && list.targets ? `, held against ${list.targets}` : ''}
                 </span>
               </button>
             </li>
