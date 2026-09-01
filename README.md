@@ -52,6 +52,45 @@ The scanner is this module's own, small, and honest about what it does not read 
 modules meet through the host or not at all, and making the paper module this
 one's data source would be a dependency neither manifest declares.
 
+A target can also be **pointed at rather than typed**. For a paper the switcher
+lists the paper's own files and the headings inside each of them, found by the
+same scanner through the same fence (`file/outline.ts`, `/api/outline`, asked for
+once when the switcher opens rather than on every context). A paper begins at the
+nearest directory holding a `.tex` that declares a `\documentclass`, which is the
+definition LaTeX itself uses; the file that declares it leads the list. This does
+not reverse "no default and no guess" — nothing is preselected, and what is
+removed is the requirement to SPELL an id this program mints out of somebody's
+`\label`. **The box is still there at every size**, because a file nobody has
+written yet, or a target that is not a document at all, must not be blocked by a
+picker. An issue has no chapters, so its switcher is exactly what it always was.
+
+## Two pages: what is ticked, and what can be edited
+
+The container shows one of two. The **state page** answers "where am I and what
+is the state of the thing I am looking at": the list's name, the count, which
+rung of the paper the ticks belong to, how many ticks that rung is hiding, and
+the items with their ticks. Nothing on it changes the list, and a row is a mark
+and a line of text with no furniture beside it at any size.
+
+The **edit page** is the other half: add a line, press one to reword it, move it
+up or down, take it off, and leave or remove the checklist. Nothing on it is
+ticked and nothing on it names a target, because an edit is a change to the LIST
+— an item added is added for every target it is held against, and an item removed
+takes every tick on it with it.
+
+One press moves between them, in the header beside the count. Not a filter group
+in the container header (a mode is not a narrowing, and the host remembers a
+filter forever — you would come back tomorrow in edit mode), and not a tab row
+(this module deleted one on purpose). The edit page shows every item, and so does
+the state page: the grain filter has never hidden an item, only ticks.
+
+Measured with `dev/room.probe.mjs` against the same six items, before and after:
+five pixels of fixed chrome at every size — the switch's own height, paid once —
+against 26 pixels a row at 900x700, paid on every item, because "ticked by
+claude, over MCP" and the three inline controls were a second line under each of
+them. At 220x300 one item was fully visible and two are; at 460x360 four were and
+six are.
+
 ## What it does with nothing else running
 
 - **The pick-or-create screen.** On first view in a kehikko there is no default
@@ -61,7 +100,8 @@ one's data source would be a dependency neither manifest declares.
   items off against a standard they never chose.
 - **The checklist, and only the checklist.** One list, its items, and the ticks
   for whichever target is in front. There is no directory of references and no
-  tab row; the target switch is one row, not a screen.
+  tab row; the target switch is one row, not a screen, and editing the list is
+  one press away rather than a strip of controls on every line.
 - **A store inside the project.**
   `<projectPath>/.kehikot/checklist/checklists.json` holds every list, every item
   and every tick for that project, with the `papers.json` it migrates from beside
@@ -131,9 +171,22 @@ here is a line somebody typed, and an agent is very often the one who did the
 work — refusing the tick would leave a person hand-ticking work they watched
 somebody else do. What survives is the half that was doing the actual work: the
 tick is never anonymous about its origin. Every tick names its author and carries
-`viaMcp`, the row prints "ticked by claude, over MCP" rather than a bare
-checkmark, and one press takes it back. Somebody who wants an item only they may
+`viaMcp`; `check_item` answers the agent with "… is ticked for `<target>`, by
+`<name>`"; and one press takes it back. Somebody who wants an item only they may
 tick writes it as a question and unticks what they disagree with.
+
+**The row no longer prints it.** It used to read "ticked by claude, over MCP",
+and the owner's judgement is that in a 220-pixel column that is not information:
+
+> "in checklist, information about what checklist items is and isn't written by
+> Claude is not important information, get rid of it."
+
+So the display went and the record did not — `by` and `viaMcp` are still written,
+still stored, still in the file and still in what the MCP door says back. What
+made an agent's tick safe was never the badge under it; it was that the claim is
+reversible by the person who can judge it, and that is a property of the row,
+which still has it at every size. See the essay on `ItemRow` in
+`src/view/checklist.tsx` for which half of the old argument that overtakes.
 
 ## Remembered per kehikko, by the host
 
@@ -239,7 +292,7 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 262 tests across the store, where
+`bun test` covers the wire-independent half — 294 tests across the store, where
 it lives and what it refuses (a null project, a relative path, and either level
 of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
 `realpath`), the `.gitignore` gaining its rule exactly once and being found
@@ -275,7 +328,22 @@ PLAYWRIGHT=… CHROME=… node dev/passage.probe.mjs
 ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4185" ./run.sh
 PLAYWRIGHT=… CHROME=… node dev/filters.probe.mjs
                             # the ladder offered to the host, and what the page gained
+
+ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4187" ./run.sh
+PLAYWRIGHT=… CHROME=… node dev/picker.probe.mjs
+                            # what the target switcher offers for a real paper
 ```
+
+`picker.probe.mjs` is the one that could only be run against the real thing.
+Standing in `chapters/3_methods.tex` of the owner's thesis it offers nine
+readable files — `main.tex` first, then the README and snippet that sort before
+it, then the six chapters — with the file the reader is in already unfolded to
+its nineteen headings, and the box to type in still under all of it. It changed
+two things by being run: `main.tex` came third before, buried under two files
+that sort ahead of it alphabetically, and pressing a heading left the row reading
+`sec:meth-design` rather than "Research design", because `scopeOfTarget` prints
+an id for a section the reader is not standing in and the picker had just made
+that the ordinary case.
 
 `passage.probe.mjs` is the reading the passage ladder is built on, and it runs
 against the owner's own thesis rather than a fixture. Before: six movements —

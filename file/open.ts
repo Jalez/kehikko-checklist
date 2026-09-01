@@ -44,8 +44,17 @@ import { inside, rootOf } from './confine.ts'
  */
 export const MAX_BYTES = 2 * 1024 * 1024
 
-/** One file, read up to the bound, or null if it will not open. */
-function readCapped(path: string): Buffer | null {
+/**
+ * One file, read up to the bound, or null if it will not open.
+ *
+ * Exported for `file/outline.ts`, which reads the OTHER files of the same paper
+ * through the same bound and the same fence. One capped reader rather than two:
+ * the whole argument for `MAX_BYTES` above — that a passage names a path a
+ * stranger chose, and that `readFileSync` on such a path allocates whatever it
+ * is pointed at — applies identically to every file in the directory beside it,
+ * and a second reader would be a second place to forget it.
+ */
+export function readCapped(path: string): Buffer | null {
   let fd: number | null = null
   try {
     const stat = statSync(path)

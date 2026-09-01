@@ -14,6 +14,7 @@ import { announce, since } from './list/outbox.ts'
 import { narrow, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
 import { placeOf } from './file/open.ts'
+import { outlineOf } from './file/outline.ts'
 
 /**
  * Every door this app answers on that is not the page itself.
@@ -906,6 +907,46 @@ export function answer(
       )
       : null
     return ok({ ok: true, held: on, targets: targetsOf(id, where), placed, trouble, nowhere })
+  }
+
+  /*
+   * The paper's files and their headings, which is what the target picker
+   * offers instead of a text box.
+   *
+   * ## Why this is a second door, when `/api/checklist` argues against one
+   *
+   * The essay above says the passage rides on the checklist request rather than
+   * getting a door of its own, because two round trips give two answers that can
+   * disagree — the reader moves between them and the page prints one heading
+   * over another heading's ticks. That argument stands and this does not
+   * contradict it, because an outline is not in that pair.
+   *
+   * What can disagree is a claim about WHERE THE READER IS against the ticks
+   * drawn under it. An outline is a claim about what EXISTS: the files of a
+   * paper and the headings in them. It is not drawn as a heading, nothing is
+   * derived from it, and a stale one costs a picker that offers a section
+   * somebody has just renamed — whereupon pressing it holds the list against a
+   * target with no ticks on it, which is exactly what pressing a section with no
+   * ticks does anyway.
+   *
+   * The reason it must not ride on `/api/checklist` is cost. That request runs
+   * on every context, and a context arrives after every selection change
+   * anywhere on the canvas; this one opens every file of a paper. Folding the
+   * two together would read the whole thesis several times a second in order to
+   * answer a question nobody had asked yet. So it is asked once, when the reader
+   * opens the picker, and `src/app.tsx` holds the answer until they move.
+   *
+   * Ungated like every other read here. It says which headings are in a paper
+   * this caller can already read every checklist of.
+   */
+  if (path === '/api/outline' && method === 'GET') {
+    const where = project(query.get('project'))
+    const passage = str(query.get('path'), MAX_PROJECT)
+    /* Null rather than a refusal for both of the ordinary absences — no project
+       open, no document under the reader. The picker draws no files and says one
+       short line; a 400 would make an everyday state look like the page had
+       asked something wrong, which is the same argument `nowhere` makes above. */
+    return ok({ ok: true, outline: where && passage ? outlineOf(where, passage) : null })
   }
 
   /*

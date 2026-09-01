@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 
 import type { Held } from '../list/checklists.ts'
+import type { Outline } from '../file/outline.ts'
 import { ChecklistView } from '../src/view/checklist.tsx'
 import { Choose, Unplaced } from '../src/view/choose.tsx'
 import { Nowhere } from '../src/view/nowhere.tsx'
-import { room } from '../src/view/room.ts'
-import { narrow, scopeOf } from '../list/scope.ts'
+import { room, type Room } from '../src/view/room.ts'
+import { narrow, scopeOf, scopeOfTarget } from '../list/scope.ts'
 
 /**
  * The scope every case here is in unless it says otherwise: no paper, so no
@@ -65,6 +67,42 @@ function held(over: Partial<Held> = {}): Held {
 }
 
 const noop = () => {}
+
+/**
+ * `ChecklistView` with everything a case is not about already filled in.
+ *
+ * Written because the component's props are the whole of what a host, a canvas
+ * and a store between them tell it, and a case about which WORDS are on a row
+ * had to spell out ten of them to say nothing. The cost was real: adding one
+ * prop meant editing twenty-three call sites, none of which cared, and a default
+ * spelled twenty-three times is twenty-three places for one of them to drift.
+ *
+ * Every default here is the quiet answer — no targets, no candidates, no
+ * outline, no trouble, the `elsewhere` rung. A case that is about one of them
+ * passes it, and then the thing being asserted is the only thing on the line.
+ */
+function List(props: Partial<ComponentProps<typeof ChecklistView>> & { held: Held; room: Room }) {
+  return (
+    <ChecklistView
+      targets={[]}
+      candidates={[]}
+      narrowed={NOWHERE}
+      outline={null}
+      onOutline={noop}
+      onTarget={noop}
+      onEdit={noop}
+      onAnother={noop}
+      trouble={null}
+      busy={false}
+      {...props}
+    />
+  )
+}
+
+/** Press `Edit`, which is the one way to the other page. */
+function toEdit(container: HTMLElement) {
+  fireEvent.click(container.querySelector('[data-page-to="edit"]') as HTMLElement)
+}
 
 describe('the pick screen', () => {
   test('says which state it is in rather than a bare instruction', () => {
@@ -146,23 +184,49 @@ describe('the pick screen', () => {
 describe('the checklist', () => {
   test('says which target it is held against, and that ticks belong to the pair', () => {
     render(
-      <ChecklistView narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <List narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     expect(screen.getByText('gh#105')).toBeTruthy()
     expect(screen.getByText(/keeps its own/)).toBeTruthy()
   })
 
-  test('prints who ticked an item and that it came through the MCP door', () => {
-    /* Never a bare checkmark. An agent's claim has to be legible as one. */
-    render(
-      <ChecklistView narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
-    )
-    expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
+  test('does not print who ticked an item, at the roomiest size there is', () => {
+    /* This assertion used to be its exact opposite, and the reversal is the
+       owner's: "information about what checklist items is and isn't written by
+       Claude is not important information, get rid of it."
+
+       Both halves are asserted, because a case that only checked the badge was
+       gone would pass just as happily for a row that had stopped being a tick
+       control. What made an agent's tick safe was never the name under it — it
+       was that the claim is REVERSIBLE by the person who can judge it, and that
+       is the second half below. See the essay on `ItemRow`. */
+    const sent: unknown[] = []
+    render(<List held={held()} onEdit={(e) => sent.push(e)} room={ROOMY} />)
+    expect(screen.queryByText(/ticked by/)).toBeNull()
+    expect(screen.queryByText(/over MCP/)).toBeNull()
+    expect(screen.queryByText(/written by/)).toBeNull()
+
+    fireEvent.click(screen.getByText('Second'))
+    expect(sent[0]).toEqual({
+      op: 'tick',
+      id: 'list1',
+      item: 'bbb',
+      target: { kind: 'ref', ref: 'gh#105' },
+      done: false,
+    })
+  })
+
+  test('keeps the note an agent left, because a reason is content and a name is not', () => {
+    /* `note` is "how they know" — a sentence somebody wrote about the work,
+       which is the thing a reader can act on. It is not provenance and it did
+       not go with it. */
+    render(<List held={held()} room={ROOMY} />)
+    expect(screen.getByText('ran it')).toBeTruthy()
   })
 
   test('draws a 400-character item as wrapped prose in a min-w-0 column', () => {
     render(
-      <ChecklistView narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
+      <List narrowed={NOWHERE} held={held()} targets={[]} candidates={[]} onTarget={noop} onEdit={noop} onAnother={noop} trouble={null} busy={false} room={ROOMY} />,
     )
     const text = screen.getByText(LONG)
     expect(text.className).toContain('break-words')
@@ -173,7 +237,7 @@ describe('the checklist', () => {
   test('a press ticks for THIS target, and says so in the edit it sends', () => {
     const sent: unknown[] = []
     render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[]}
@@ -191,7 +255,7 @@ describe('the checklist', () => {
 
   test('with no target the rows are text rather than controls, and the row above says why', () => {
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
         targets={[]}
@@ -213,19 +277,8 @@ describe('the checklist', () => {
        does nothing forever with nothing in the console. The second press is asked
        for in the row instead, where it can be seen. */
     const sent: unknown[] = []
-    render(
-      <ChecklistView
-        narrowed={NOWHERE}
-        held={held()}
-        targets={[]}
-        candidates={[]}
-        onTarget={noop}
-        onEdit={(e) => sent.push(e)}
-        onAnother={noop}
-        trouble={null}
-        busy={false} room={ROOMY}
-      />,
-    )
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={ROOMY} />)
+    toEdit(container)
     const button = screen.getByText('Remove this checklist')
     fireEvent.click(button)
     expect(sent).toHaveLength(0)
@@ -236,7 +289,7 @@ describe('the checklist', () => {
 
   test('the target switch offers what the context proposes and what the list already has ticks against', () => {
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
@@ -255,7 +308,7 @@ describe('the checklist', () => {
 
   test('a target proposed by the canvas and already ticked against is drawn once, not twice', () => {
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[{ target: { kind: 'ref', ref: 'gh#105' }, done: 1 }]}
@@ -328,118 +381,77 @@ describe('the screen for "there is nowhere to keep a checklist"', () => {
  * pass just as happily for a feature that had been deleted.
  */
 describe('a small container', () => {
-  test('the box to type in is behind one press, and typing into it still adds the line', () => {
-    /* Measured at 220×300 before this existed: the add box was 147 pixels of the
-       300, permanently, in front of the list it is for. */
+  test('the box to type in is on the edit page, and typing into it still adds the line', () => {
+    /* Measured at 220×300 before any of this: the add box was 147 pixels of the
+       300, permanently, in front of the list it is for. It went behind a press
+       and then behind a page, and the pair is what this asserts: the state page
+       has no box on it at all, and the box still adds a line.
+
+       The price is named in the essay on `ChecklistView` and it is real: adding
+       is two presses now instead of one. */
     const sent: unknown[] = []
-    const { container } = render(
-      <ChecklistView
-        narrowed={NOWHERE}
-        held={held()}
-        targets={[]}
-        candidates={[]}
-        onTarget={noop}
-        onEdit={(e) => sent.push(e)}
-        onAnother={noop}
-        trouble={null}
-        busy={false}
-        room={TIGHT}
-      />,
-    )
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={TIGHT} />)
     expect(container.querySelector('#add-item')).toBeNull()
-    fireEvent.click(screen.getByText('Add a line'))
+    toEdit(container)
     const box = container.querySelector('#add-item') as HTMLTextAreaElement
     expect(box).toBeTruthy()
-    expect(container.querySelector('[data-sheet]')).toBeTruthy()
     fireEvent.change(box, { target: { value: 'Read the diff again' } })
     fireEvent.click(screen.getByText('Add'))
     expect(sent[0]).toEqual({ op: 'add', id: 'list1', text: 'Read the diff again' })
-    /* And it closes itself, because the thing it was opened for is done. */
-    expect(container.querySelector('[data-sheet]')).toBeNull()
   })
 
   test('leaving and removing are still reachable, from the one press that is left', () => {
-    const { container } = render(
-      <ChecklistView
-        narrowed={NOWHERE}
-        held={held()}
-        targets={[]}
-        candidates={[]}
-        onTarget={noop}
-        onEdit={noop}
-        onAnother={noop}
-        trouble={null}
-        busy={false}
-        room={TIGHT}
-      />,
-    )
+    const { container } = render(<List held={held()} room={TIGHT} />)
     expect(container.querySelector('[data-another]')).toBeNull()
-    fireEvent.click(container.querySelector('[data-open-more]') as HTMLElement)
+    toEdit(container)
     expect(container.querySelector('[data-another]')).toBeTruthy()
     expect(container.querySelector('[data-forget]')).toBeTruthy()
   })
 
-  test('who ticked it, and that it came over MCP, is drawn at every size', () => {
-    /* The one thing a narrow container may not buy space with. An agent may tick
-       anything on this list, and what makes that safe is that the claim is
-       legible as a claim — a bare checkmark with nobody's name against it is
-       exactly what `list/checklists.ts` refuses. */
-    render(
-      <ChecklistView
-        narrowed={NOWHERE}
-        held={held()}
-        targets={[]}
-        candidates={[]}
-        onTarget={noop}
-        onEdit={noop}
-        onAnother={noop}
-        trouble={null}
-        busy={false}
-        room={TIGHT}
-      />,
-    )
-    expect(screen.getByText('ticked by claude, over MCP')).toBeTruthy()
-  })
-
-  test('who WROTE an unticked line moves into the row’s title rather than a line of its own', () => {
-    const { container } = render(
-      <ChecklistView
-        narrowed={NOWHERE}
-        held={held()}
-        targets={[]}
-        candidates={[]}
-        onTarget={noop}
-        onEdit={noop}
-        onAnother={noop}
-        trouble={null}
-        busy={false}
-        room={TIGHT}
-      />,
-    )
-    expect(screen.queryByText('written by the owner')).toBeNull()
-    const row = container.querySelector('li[data-item="aaa"] button[aria-pressed]') as HTMLElement
-    expect(row.title).toContain('Written by the owner')
-  })
-
-  test('move and remove are folded behind one press on the row, and unfold in place', () => {
+  test('who ticked it is drawn at NO size, and the row is still a tick control', () => {
+    /* This case used to be the opposite of itself, under the heading "the one
+       thing a narrow container may not buy space with". The owner has said the
+       badge is not information, and the essay on `ItemRow` sets out which half
+       of the old argument that overtakes and which half it does not: the record
+       and the reversibility both stand, and the second one is asserted here. */
     const sent: unknown[] = []
-    const { container } = render(
-      <ChecklistView
-        narrowed={NOWHERE}
-        held={held()}
-        targets={[]}
-        candidates={[]}
-        onTarget={noop}
-        onEdit={(e) => sent.push(e)}
-        onAnother={noop}
-        trouble={null}
-        busy={false}
-        room={TIGHT}
-      />,
-    )
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={TIGHT} />)
+    expect(screen.queryByText(/ticked by/)).toBeNull()
+    expect(screen.queryByText(/written by/)).toBeNull()
+    const row = container.querySelector('li[data-item="aaa"] button[aria-pressed]') as HTMLElement
+    expect(row.title).not.toContain('Written by')
+    fireEvent.click(row)
+    expect(sent[0]).toEqual({
+      op: 'tick',
+      id: 'list1',
+      item: 'aaa',
+      target: { kind: 'ref', ref: 'gh#105' },
+      done: true,
+    })
+  })
+
+  test('an item on the state page is a mark and a line, with no furniture beside it', () => {
+    /* The vertical space the split is FOR. Every row used to carry a `⋯` press
+       to unfold the arrows and the ×, and a line of provenance under the text;
+       sixteen items were thirty-two lines. Neither is on this page any more, at
+       any size, and the `⋯` has no reason to exist. */
+    const { container } = render(<List held={held()} room={TIGHT} />)
     const row = container.querySelector('li[data-item="bbb"]') as HTMLElement
+    expect(row.querySelector('[data-unfold]')).toBeNull()
     expect(row.querySelector('[title="Move up"]')).toBeNull()
-    fireEvent.click(row.querySelector('[data-unfold]') as HTMLElement)
+    expect(row.querySelectorAll('button')).toHaveLength(1)
+  })
+
+  test('move is on the edit page, drawn at 220 pixels rather than behind a press', () => {
+    /* The fold is gone with the page it was on. Nothing on the edit page is
+       behind a second press: it is the page whose job the controls are, so
+       `room.controls` decides only whether they sit beside the line or under
+       it. See the essay on `EditRow`. */
+    const sent: unknown[] = []
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={TIGHT} />)
+    toEdit(container)
+    const row = container.querySelector('li[data-item="bbb"]') as HTMLElement
+    expect(row.querySelector('[data-unfold]')).toBeNull()
     fireEvent.click(row.querySelector('[title="Move up"]') as HTMLElement)
     expect(sent[0]).toEqual({ op: 'move', id: 'list1', item: 'bbb', to: 0 })
   })
@@ -448,7 +460,7 @@ describe('a small container', () => {
     /* Both halves matter: a snap point on the document scroller would snap the
        name and the target away, which is worse than not snapping at all. */
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[]}
@@ -472,7 +484,7 @@ describe('a small container', () => {
 
   test('the paragraph explaining a target goes; the sentence saying nothing can be ticked does not', () => {
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[]}
@@ -491,7 +503,7 @@ describe('a small container', () => {
 
     cleanup()
     render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held({ target: null, done: 0, rows: held().rows.map((r) => ({ ...r, done: null })) })}
         targets={[]}
@@ -509,7 +521,7 @@ describe('a small container', () => {
 
   test('the target switch opens over the frame rather than pushing the list off the bottom', () => {
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[{ target: { kind: 'paper', epic: 'modes', section: null }, done: 2 }]}
@@ -533,7 +545,7 @@ describe('a small container', () => {
        now behind a press, a refused add would be silent — the sheet closes on
        the way out and takes the sentence with it. */
     render(
-      <ChecklistView
+      <List
         narrowed={NOWHERE}
         held={held()}
         targets={[]}
@@ -621,7 +633,7 @@ describe('the checklist, following a reader through a paper', () => {
        a slug the reader wrote as a \label. The address is still one hover
        away. */
     render(
-      <ChecklistView
+      <List
         narrowed={narrow(inSection, ticked)}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={ticked}
@@ -647,7 +659,7 @@ describe('the checklist, following a reader through a paper', () => {
        — a host cannot add up ticks in a store on another origin — so the split is
        truth here, choice there. */
     render(
-      <ChecklistView
+      <List
         narrowed={narrow(inSection, ticked)}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={ticked}
@@ -669,7 +681,7 @@ describe('the checklist, following a reader through a paper', () => {
        this page. A count that vanished at 220 pixels would be a count nobody
        reads, in the container the owner actually uses. */
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={narrow(inSection, ticked)}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={ticked}
@@ -693,7 +705,7 @@ describe('the checklist, following a reader through a paper', () => {
        header now, so a rung with nothing hidden behind it says nothing and the
        items get the line. */
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={narrow(inSection, [])}
         held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
         targets={[]}
@@ -714,7 +726,7 @@ describe('the checklist, following a reader through a paper', () => {
     /* The half of this change that had to break nothing. A ref has no document,
        no rung and no ladder, and the row it gets is the row it always had. */
     const { container } = render(
-      <ChecklistView
+      <List
         narrowed={narrow({ kind: 'elsewhere' }, ticked)}
         held={held()}
         targets={[]}
@@ -730,5 +742,252 @@ describe('the checklist, following a reader through a paper', () => {
     expect(screen.getByText('gh#105')).toBeTruthy()
     expect(container.querySelector('[data-widen]')).toBe(null)
     expect(container.querySelector('[data-elsewhere]')).toBe(null)
+  })
+})
+
+/**
+ * The two pages, and the one press between them.
+ *
+ * Every case here is a pair: something is not on the page it used to be on, AND
+ * it is on the other one. A case that only asserted the first would pass just as
+ * happily for a feature somebody deleted.
+ */
+describe('the state page and the edit page', () => {
+  test('the state page says where you are, and changes nothing about the list', () => {
+    const { container } = render(<List held={held()} room={TIGHT} />)
+    expect(container.querySelector('[data-page]')?.getAttribute('data-page')).toBe('state')
+    /* What it is FOR: the target row, which answers "what are these ticks
+       about". It never folds away at any size. */
+    expect(container.querySelector('[data-strip]')).toBeTruthy()
+    /* And what it is not for. */
+    expect(container.querySelector('#add-item')).toBeNull()
+    expect(container.querySelector('[data-another]')).toBeNull()
+    expect(container.querySelector('[title="Move up"]')).toBeNull()
+  })
+
+  test('the edit page changes the list, and names no target', () => {
+    /* The decision this asserts: an edit is a change to the LIST — an item added
+       is added for every target it is ever held against, an item removed takes
+       every tick on it with it — so drawing a tick or a target beside a line
+       somebody is about to reword would suggest the reword is scoped to what is
+       on screen. */
+    const { container } = render(<List held={held()} room={TIGHT} />)
+    toEdit(container)
+    expect(container.querySelector('[data-page]')?.getAttribute('data-page')).toBe('edit')
+    expect(container.querySelector('#add-item')).toBeTruthy()
+    expect(container.querySelector('[title="Move up"]')).toBeTruthy()
+    expect(container.querySelector('[data-another]')).toBeTruthy()
+    expect(container.querySelector('[data-strip]')).toBeNull()
+    expect(container.querySelector('button[aria-pressed]')).toBeNull()
+  })
+
+  test('one press moves between them, and it is the only one', () => {
+    /* Rejected, and why, in the essay on `ChecklistView`: a filter group in the
+       container header (a mode is not a narrowing, and the host remembers a
+       filter forever), a tab row (a permanent strip to say what one word says),
+       and reusing the row of dots. */
+    const { container } = render(<List held={held()} room={TIGHT} />)
+    expect(container.querySelectorAll('[data-page-to]')).toHaveLength(1)
+    toEdit(container)
+    expect(container.querySelector('[data-page-to="state"]')).toBeTruthy()
+    fireEvent.click(container.querySelector('[data-page-to="state"]') as HTMLElement)
+    expect(container.querySelector('[data-page]')?.getAttribute('data-page')).toBe('state')
+  })
+
+  test('the edit page shows every item, because the grain has never hidden one', () => {
+    /* Not a safeguard against a filtered edit — that state cannot arise.
+       `list/scope.ts`: "Nothing here drops an item: an item belongs to the list
+       and is drawn at every rung. What narrowing moves is which TICKS are in
+       front of you." So both pages show the same two rows on the narrowest rung
+       there is, and this pins that rather than a decision nobody had to make. */
+    const inSection = scopeOf('thesis', {
+      file: 'chapters/3_methods.tex',
+      section: 'chapters:3_methods#sec:meth-design',
+      title: 'Research design',
+    })
+    const { container } = render(
+      <List
+        held={held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })}
+        narrowed={narrow(inSection, [{ target: { kind: 'paper', epic: 'thesis', section: null }, done: 8 }])}
+        room={TIGHT}
+      />,
+    )
+    expect(container.querySelectorAll('li[data-item]')).toHaveLength(2)
+    toEdit(container)
+    expect(container.querySelectorAll('li[data-item]')).toHaveLength(2)
+  })
+
+  test('pressing a line rewords it, so rewording costs no button of its own', () => {
+    const sent: unknown[] = []
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={TIGHT} />)
+    toEdit(container)
+    fireEvent.click(container.querySelector('[data-reword="bbb"]') as HTMLElement)
+    const box = screen.getByLabelText('Reword this line') as HTMLTextAreaElement
+    expect(box.value).toBe('Second')
+    fireEvent.change(box, { target: { value: 'Second, sharpened' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(sent[0]).toEqual({ op: 'reword', id: 'list1', item: 'bbb', text: 'Second, sharpened' })
+  })
+
+  test('escape abandons a reword, and an unchanged one is not sent at all', () => {
+    /* A reword to the same words is a press that meant "never mind", and sending
+       it would put a write in the log for nothing. */
+    const sent: unknown[] = []
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={TIGHT} />)
+    toEdit(container)
+    fireEvent.click(container.querySelector('[data-reword="bbb"]') as HTMLElement)
+    fireEvent.keyDown(screen.getByLabelText('Reword this line'), { key: 'Escape' })
+    expect(sent).toHaveLength(0)
+
+    fireEvent.click(container.querySelector('[data-reword="bbb"]') as HTMLElement)
+    fireEvent.keyDown(screen.getByLabelText('Reword this line'), { key: 'Enter' })
+    expect(sent).toHaveLength(0)
+  })
+
+  test('removing a line still takes two presses, and the first says what the second does', () => {
+    const sent: unknown[] = []
+    const { container } = render(<List held={held()} onEdit={(e) => sent.push(e)} room={TIGHT} />)
+    toEdit(container)
+    const row = container.querySelector('li[data-item="bbb"]') as HTMLElement
+    fireEvent.click(row.querySelector('[title="Take this off the list"]') as HTMLElement)
+    expect(sent).toHaveLength(0)
+    expect(screen.getByText(/along with every tick on it against every target/)).toBeTruthy()
+    fireEvent.click(row.querySelector('[title="Press again to take this off the list"]') as HTMLElement)
+    expect(sent[0]).toEqual({ op: 'drop', id: 'list1', item: 'bbb' })
+  })
+})
+
+/**
+ * What the picker offers for a paper, which is the answer to "you can only type
+ * something there".
+ *
+ * The scan itself is `test/outline.test.ts`, against real files on disk. These
+ * are about what the screen does with the answer — and, in the last two cases,
+ * what it does with no answer at all, which is the case that must not become a
+ * dead end.
+ */
+describe('the target picker', () => {
+  const inFile = scopeOf('thesis', { file: 'chapters/3_methods.tex', section: null, title: null })
+
+  const outline: Outline = {
+    root: '',
+    capped: false,
+    files: [
+      { file: 'main.tex', id: 'main', name: 'main.tex', sections: [] },
+      {
+        file: 'chapters/3_methods.tex',
+        id: 'chapters:3_methods',
+        name: '3_methods.tex',
+        sections: [
+          { id: 'chapters:3_methods#sec:meth-design', title: 'Research design', level: 3 },
+          { id: 'chapters:3_methods#sec:meth-models', title: 'Model selection', level: 3 },
+        ],
+      },
+    ],
+  }
+
+  const paper = (over: Partial<ComponentProps<typeof ChecklistView>> = {}) =>
+    render(
+      <List
+        held={held({ target: { kind: 'paper', epic: 'thesis', section: null } })}
+        narrowed={narrow(inFile, [])}
+        room={ROOMY}
+        {...over}
+      />,
+    )
+
+  test('asks for the outline when the picker opens, and never before', () => {
+    /* The whole reason this is a door of its own: it opens every file of a
+       paper, and `/api/checklist` runs on every context — one of which arrives
+       after every selection change anywhere on the canvas. */
+    let asked = 0
+    paper({ onOutline: () => (asked += 1) })
+    expect(asked).toBe(0)
+    fireEvent.click(screen.getByText('change'))
+    expect(asked).toBe(1)
+  })
+
+  test('offers the paper’s files and the headings inside them', () => {
+    const picked: unknown[] = []
+    const { container } = paper({ outline, onTarget: (t) => picked.push(t) })
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelector('[data-pick-file="main"]')).toBeTruthy()
+    expect(container.querySelector('[data-pick-file="chapters:3_methods"]')).toBeTruthy()
+    fireEvent.click(container.querySelector('[data-pick-section="chapters:3_methods#sec:meth-design"]') as HTMLElement)
+    expect(picked[0]).toEqual({ kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' })
+  })
+
+  test('a file is a target of its own, not merely a thing that expands', () => {
+    /* `chapters/3_methods.tex` is the middle rung of the ladder in
+       `list/scope.ts`, so a row whose only behaviour was to expand would make
+       the file rung unreachable from the one screen that lists the files. */
+    const picked: unknown[] = []
+    const { container } = paper({ outline, onTarget: (t) => picked.push(t) })
+    fireEvent.click(screen.getByText('change'))
+    fireEvent.click(container.querySelector('[data-pick-file="chapters:3_methods"]') as HTMLElement)
+    expect(picked[0]).toEqual({ kind: 'paper', epic: 'thesis', section: 'chapters:3_methods' })
+  })
+
+  test('the file the reader is standing in has its headings already open', () => {
+    /* Not "the first file", which would be this program choosing. Where the
+       reader IS is a fact, and `narrowed.scope` already knows it. */
+    const { container } = paper({ outline })
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelector('[data-open-file="open"]')).toBeTruthy()
+    expect(screen.getByText('Research design')).toBeTruthy()
+    /* And `main.tex`, which has no headings, has no chevron at all rather than
+       one that opens onto nothing. */
+    expect(container.querySelectorAll('[data-open-file]')).toHaveLength(1)
+  })
+
+  test('typing is still possible when the scan found nothing, and says so in one line', () => {
+    /* The freedom the list is a convenience over. A file nobody has written yet,
+       a target that is not a document — neither may be blocked by a picker. */
+    const picked: unknown[] = []
+    const { container } = paper({ outline: null, onTarget: (t) => picked.push(t) })
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelector('[data-paper="none"]')).toBeTruthy()
+    const box = container.querySelector('[data-type-target]') as HTMLInputElement
+    fireEvent.change(box, { target: { value: 'gh#900' } })
+    fireEvent.click(screen.getByText('Hold'))
+    expect(picked[0]).toEqual({ kind: 'ref', ref: 'gh#900' })
+  })
+
+  test('a section picked from the list is named by its words, not by its slug', () => {
+    /* The wart the probe found. `scopeOfTarget` prints the id for a section the
+       reader is not standing in, and before the picker existed that was almost
+       always a widened target or an agent's. Pressing "Research design" from a
+       list makes it the ordinary case, and the row came back reading
+       `sec:meth-design` — the reader's own `\label` read back at them instead of
+       the words they had just pressed. The words come from the same outline the
+       button was drawn from, so the two cannot disagree. */
+    const held3 = held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' } })
+    const { container } = render(
+      <List held={held3} narrowed={narrow(scopeOfTarget(held3.target, null), [])} outline={outline} room={ROOMY} />,
+    )
+    /* `placed` is null here on purpose: that IS the case, a reader whose passage
+       is somewhere other than the section they picked. Without the outline this
+       row reads `sec:meth-design`. */
+    expect((container.querySelector('[data-target]') as HTMLElement).textContent).toBe('Research design')
+  })
+
+  test('an id the outline does not know falls back to the honest id', () => {
+    /* Never invented. A target from another paper, or one whose heading has been
+       renamed since, is printed as what it is. */
+    const held3 = held({ target: { kind: 'paper', epic: 'thesis', section: 'chapters:9_gone#sec:vanished' } })
+    const { container } = render(
+      <List held={held3} narrowed={narrow(scopeOfTarget(held3.target, null), [])} outline={outline} room={ROOMY} />,
+    )
+    expect((container.querySelector('[data-target]') as HTMLElement).textContent).toBe('sec:vanished')
+  })
+
+  test('an issue’s picker is exactly what it always was: no files, and a box', () => {
+    /* The half of this change that had to break nothing. A ref has no chapters
+       and never will. */
+    const { container } = render(<List held={held()} outline={outline} room={ROOMY} />)
+    fireEvent.click(screen.getByText('change'))
+    expect(container.querySelector('[data-paper]')).toBeNull()
+    expect(container.querySelector('[data-pick-file]')).toBeNull()
+    expect(container.querySelector('[data-type-target]')).toBeTruthy()
   })
 })

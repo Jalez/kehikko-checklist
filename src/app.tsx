@@ -15,7 +15,17 @@ import {
   widenedTarget,
 } from '../list/scope.ts'
 
-import { edit, everyChecklist, openChecklist, pointing, type Edit, type Opened, type Summary } from '@/store/ask.ts'
+import {
+  edit,
+  everyChecklist,
+  openChecklist,
+  paperOutline,
+  pointing,
+  type Edit,
+  type Opened,
+  type Outline,
+  type Summary,
+} from '@/store/ask.ts'
 import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
 import { ChecklistView } from '@/view/checklist.tsx'
 import { Choose, Unplaced } from '@/view/choose.tsx'
@@ -518,6 +528,63 @@ export function App() {
     }
   }, [chosen, target, doorbell, forget, projectPath, at, decided])
 
+  /**
+   * The paper's files and headings, which the target picker offers instead of a
+   * box to spell a section id into.
+   *
+   * ## Asked for by a press, and held until the reader moves
+   *
+   * `wanted` is set by the picker opening and by nothing else. The alternative —
+   * fetching whenever there is a paper under the reader — would read every file
+   * of a thesis on every context, and a context arrives after every selection
+   * change anywhere on the canvas. So this costs nothing at all until somebody
+   * presses `change`, which is the moment the answer becomes worth having.
+   *
+   * ## Dropped when the file under the reader changes, and not when the target does
+   *
+   * The distinction matters and it is the same one the rest of this file keeps.
+   * An outline is a fact about the DOCUMENT the reader is in — `file/outline.ts`
+   * climbs from that file to find the paper's root — so it goes stale when they
+   * open a document belonging to another paper, and not when they hold the list
+   * against a different section of the one they are in. Keying this on `target`
+   * would re-read seven files every time somebody pressed a heading in the list
+   * the read produced.
+   *
+   * The flag is dropped with it, so the next opening asks again. A picker that
+   * opened on the last paper's chapters would be offering targets in a document
+   * the reader has left, which is the "remembered place outliving its context"
+   * failure `list/scope.ts` refuses.
+   */
+  const [outline, setOutline] = useState<Outline | null>(null)
+  const [wanted, setWanted] = useState(false)
+  const onOutline = useCallback(() => setWanted(true), [])
+  /** The file under the reader, which is what an outline is a fact about. */
+  const reading = at?.path ?? null
+
+  useEffect(() => {
+    setOutline(null)
+    setWanted(false)
+  }, [reading, projectPath])
+
+  useEffect(() => {
+    if (!wanted || !reading || !projectPath) return
+    let alive = true
+    void paperOutline(projectPath, reading)
+      .then((got) => {
+        if (alive) setOutline(got)
+      })
+      .catch(() => {
+        /* Swallowed to null, which is the same answer as "the fence refused it"
+           and draws the same one line. A picker that showed a network error for
+           a fetch to its own origin would be reporting on this app's own bug in
+           the place a reader is trying to choose a chapter. */
+        if (alive) setOutline(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [wanted, reading, projectPath])
+
   const pick = useCallback(
     (id: string) => {
       setSession(id)
@@ -685,6 +752,8 @@ export function App() {
         targets={opened.targets}
         candidates={candidates}
         narrowed={narrowed}
+        outline={outline}
+        onOutline={onOutline}
         onTarget={setPicked}
         onEdit={(change) => void onEdit(change)}
         onAnother={another}

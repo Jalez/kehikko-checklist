@@ -54,6 +54,36 @@
  *     900×700   unchanged in every respect: 96px, 6 of 6, nothing pinned,
  *               nothing folded, nothing hidden, no page scroll
  *
+ * ## And what it found the second time, when the card became two pages
+ *
+ * Run against the change and then against `git stash`, which is the only way
+ * these numbers mean anything — a probe that passes both ways proves nothing.
+ * `chrome` is the fixed strip above the first item, `rows` is what the six items
+ * add up to, `asked` is the height this page tells its host it wants:
+ *
+ *                 chrome        rows          fully visible   asked
+ *     220×300     78 → 83       533 → 437     1 → 2           673 → 545
+ *     320×200     78 → 83       344 → 297     0 → 1           484 → 405
+ *     460×360     78 → 83       308 → 257     4 → 6           448 → 376
+ *     900×700     96 → 101      373 → 217     6 → 6           639 → 343
+ *
+ * Five pixels of chrome at every size — the page-switch press's own height, paid
+ * once — against 26 pixels a row at 900×700, paid sixteen times on a real list.
+ * The row shrank because "ticked by claude, over MCP" and the three inline
+ * controls were a whole second line under every item; the provenance is gone
+ * (the owner's judgement) and the controls are on the edit page.
+ *
+ * It also found a real bug in this probe: `window.asked` is the LAST
+ * `roadmap.resize` the harness heard, and the edit page is measured by clicking
+ * into it — so reading `asked` at the bottom of the loop reported the height the
+ * other page wanted under a heading that said this one. 838 against a state page
+ * asking for 545. It is read before the switch now.
+ *
+ * And the nineteen pixels that made `room.pageSwitch` exist: with `Edit` drawn
+ * as a word, the header row at 220 could not hold the list's name beside it and
+ * the name wrapped — 97 pixels of chrome rather than 83. The word is a glyph
+ * below 360 pixels and an `sr-only` label at every size.
+ *
  * It also found the reason a pinned card scrolled off the top of its own frame:
  * every `sr-only` label on this page is `position: absolute`, and an absolutely
  * positioned box is clipped by an ancestor's overflow only when that ancestor is
@@ -72,7 +102,15 @@ const PROJECT = process.env.PROJECT ?? '/tmp/checklist-probe/proj'
 const APP = `http://127.0.0.1:${PORT}/app`
 const SIZES = [[220, 300], [320, 200], [460, 360], [900, 700]]
 
-const { chromium } = await import(PLAYWRIGHT)
+/* `playwright` puts `chromium` on the namespace and `playwright-core` puts it on
+   the default export. Both are ordinary things to have on a machine, and a probe
+   that only knows one of them fails with `Cannot read properties of undefined`,
+   which reads as a broken probe rather than as the wrong package. The trap was
+   already written down in `dev/filters.probe.mjs`; this file did not have the
+   fallback and cost the time anyway, so it has it now. */
+const pw = await import(PLAYWRIGHT)
+const chromium = pw.chromium ?? pw.default?.chromium
+if (!chromium) throw new Error(`probe: ${PLAYWRIGHT} exports no chromium`)
 
 const ITEMS = [
   'Every claim in the bridge chapter that says the wire is synchronous has to go, including the figure caption, which is the one somebody will quote.',
@@ -175,6 +213,10 @@ const measure = () =>
       listOwnScroller: list ? list.scrollHeight > list.clientHeight + 1 : false,
       items: items.length,
       fullyVisible: whole.length,
+      /* Per-row height, which is the other half of "how much of the list can I
+         see". Chrome is paid once and a row is paid sixteen times, so a probe
+         that reported only the first would miss the larger number every time. */
+      itemHeights: items.map((el) => Math.round(el.getBoundingClientRect().height)),
       chromeAboveItems: items[0] ? Math.round(items[0].getBoundingClientRect().top) : null,
       addBoxOnCard: Boolean(document.getElementById('add-item')),
       snap: list ? getComputedStyle(list).scrollSnapType : null,
@@ -186,6 +228,12 @@ const report = []
 for (const [w, h] of SIZES) {
   frame = await open(w, h)
   const at_rest = await measure()
+  /* Read HERE and not at the bottom of the loop. `window.asked` is the last
+     `roadmap.resize` the harness heard, and the edit page is measured further
+     down by clicking into it — so a read after that reports the height the OTHER
+     page asked for, under a heading that says this one. It did, for one run, and
+     the number was 838 against a state page that wanted 536. */
+  const asked = await page.evaluate(() => window.asked ?? null)
 
   /*
    * The owner's actual sentence, turned into a number: "scrolling the next item
@@ -204,7 +252,56 @@ for (const [w, h] of SIZES) {
     return { scrolledTo: Math.round(list.scrollTop), offBySmallest: Math.min(...tops.map((t) => Math.abs(t))) }
   })
 
-  report.push({ size: `${w}×${h}`, asked: await page.evaluate(() => window.asked ?? null), ...at_rest, nudged })
+  /*
+   * And the same reading on the OTHER page.
+   *
+   * The card is two pages now — what is ticked, and what can be edited — and a
+   * probe that only measured the first would be measuring half the module and
+   * would say nothing about the half where all the controls went. See the essay
+   * on `ChecklistView`.
+   *
+   * The switch is found by `data-page-to` rather than by its words, because the
+   * words are a size decision (`room.pageSwitch`): below 360 pixels the press is
+   * a glyph with `Edit` in its label, and a probe that clicked on the text would
+   * find nothing at exactly the size this module is usually run at.
+   */
+  const editing = await frame.evaluate(async () => {
+    const to = document.querySelector('[data-page-to="edit"]')
+    if (!to) return null
+    to.click()
+    await new Promise((r) => setTimeout(r, 300))
+    const items = [...document.querySelectorAll('li[data-item]')]
+    const box = document.getElementById('add-item')
+    return {
+      chromeAboveItems: items[0] ? Math.round(items[0].getBoundingClientRect().top) : null,
+      addBox: box ? Math.round(box.getBoundingClientRect().height) : null,
+      /* The whole strip the box stands in, which is what a reader actually pays
+         for: the textarea, the Add press and the gaps between them. */
+      addStrip: box?.parentElement ? Math.round(box.parentElement.getBoundingClientRect().height) : null,
+      items: items.length,
+      moveReachable: Boolean(document.querySelector('[title="Move up"]')),
+      rewordReachable: Boolean(document.querySelector('[data-reword]')),
+      /* Nothing on this page names a target, which is the decision worth
+         watching rather than assuming: an edit is a change to the LIST. */
+      targetRow: Boolean(document.querySelector('[data-strip]')),
+      pageScrolls: (() => {
+        const was = window.scrollY
+        window.scrollTo(0, 9999)
+        const moved = window.scrollY !== was
+        window.scrollTo(0, was)
+        return moved
+      })(),
+    }
+  })
+
+  report.push({
+    size: `${w}×${h}`,
+    asked,
+    ...at_rest,
+    nudged,
+    editing,
+    askedEditing: await page.evaluate(() => window.asked ?? null),
+  })
 }
 
 console.log(JSON.stringify(report, null, 2))

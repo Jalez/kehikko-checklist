@@ -94,9 +94,40 @@ import { readKey, targetKey, type Target } from './targets.ts'
  *
  * What survives is the part of the old rule that was doing the actual work:
  * **the tick may not be anonymous about where it came from.** Every tick names
- * its author and carries `viaMcp`; the row prints "ticked by claude, over MCP"
- * rather than a bare checkmark; and one press takes it back. An agent's claim is
- * a claim, legible as one, and reversible by the person who can judge it.
+ * its author and carries `viaMcp`, and one press takes it back. An agent's claim
+ * is a claim, legible as one, and reversible by the person who can judge it.
+ *
+ * ## The ROW no longer prints it, and the sentence that used to say so is
+ * corrected here rather than quietly left standing
+ *
+ * This paragraph read "the row prints 'ticked by claude, over MCP' rather than a
+ * bare checkmark". It does not any more:
+ *
+ * > "in checklist, information about what checklist items is and isn't written
+ * > by Claude is not important information, get rid of it."
+ *
+ * That is a judgement about a 220-pixel container rather than a hole in the
+ * argument, so it is worth being exact about what moved.
+ *
+ * **The record did not.** `by` and `viaMcp` are still written on every tick,
+ * still stored, and `viaMcp` is still never inferred from the name — which is
+ * why the field's own comment below no longer says "printed on the row". Taking
+ * the DISPLAY out is a rewording of one line of UI; taking the FIELDS out would
+ * be a migration with no undo, over somebody's record of who did what.
+ *
+ * **The place the claim is legible moved to where it was always doing more
+ * work.** `tick` in `tools()` answers an agent with `… is ticked for <target>,
+ * by <name>`, so an agent is told what it just asserted and in whose name; and
+ * the store is a JSON file in the project that a person can read. Neither of
+ * those depended on a badge under a checkmark, which was read only by somebody
+ * already looking at the tick and, in this container, nearly always the only
+ * person using it.
+ *
+ * **And the load-bearing half was never the badge.** "Legible as a claim and
+ * REVERSIBLE by the person who can judge it" — reversibility is what makes an
+ * agent's tick safe, it is a property of the row, and the row still has it at
+ * every size, with nothing behind a press. See the essay on `ItemRow` in
+ * `src/view/checklist.tsx`, which says the same from the other side.
  *
  * If somebody wants an item only they may tick, they write it as a question and
  * untick what they disagree with. That is a better answer than a permission
@@ -108,7 +139,15 @@ const tickSchema = z.object({
   at: z.string(),
   /** The agent's own name, or the owner as this app's page files them. */
   by: z.string(),
-  /** Whether it arrived through the MCP door. Printed on the row; never inferred from the name. */
+  /**
+   * Whether it arrived through the MCP door.
+   *
+   * Never inferred from the name — an agent may call itself anything, and a
+   * program that guessed "this looks like an agent" would be making up the one
+   * fact this field exists to record. It is no longer drawn on the row (see the
+   * essay above); it is still stored, still answered to an agent by the MCP
+   * door, and still readable in the file.
+   */
   viaMcp: z.boolean().default(false),
   /** How they know. */
   note: z.string().optional(),

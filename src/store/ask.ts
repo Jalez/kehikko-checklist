@@ -1,4 +1,5 @@
 import type { Held, Summary } from '../../list/checklists.ts'
+import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
 import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
 
@@ -68,7 +69,7 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return response.json()
 }
 
-export type { Held, Placed, Summary, Target }
+export type { Held, Outline, OutlineFile, OutlineSection, Placed, Summary, Target }
 
 /**
  * Which project every request below is about.
@@ -234,6 +235,36 @@ export async function openChecklist(
     }
   }
   return { error: typeof body.error === 'string' ? body.error : 'this app could not read that checklist.' }
+}
+
+/**
+ * The paper the reader is standing in, so the picker can offer its files and
+ * headings rather than a box to spell an id into.
+ *
+ * ## Asked once, when the picker opens, and not on every context
+ *
+ * This opens every `.tex` of a paper. `openChecklist` above runs on every
+ * context — and a context arrives after every selection change anywhere on the
+ * canvas — so folding this into that request would read the whole thesis several
+ * times a second to answer a question nobody has asked. `src/app.tsx` asks when
+ * the reader presses `change` and holds the answer until they move to another
+ * file, which is the point at which it would be about a different paper.
+ *
+ * ## Null is an ordinary answer and not a failure
+ *
+ * No project open, no document under the reader, a path the fence refused, a
+ * directory that will not list: every one of those is the same instruction to
+ * the screen — offer no files, say one short line, and leave the box that types
+ * anything exactly where it was. Distinguishing them here would be the existence
+ * oracle `file/confine.ts` refuses, one question at a time.
+ */
+export async function paperOutline(projectPath: string | null, path: string): Promise<Outline | null> {
+  const response = await fetch(
+    withProject(`/api/outline?path=${encodeURIComponent(path)}`, projectPath),
+  )
+  const body = (await response.json()) as { outline?: unknown }
+  const outline = body.outline as Outline | null | undefined
+  return outline && Array.isArray(outline.files) ? outline : null
 }
 
 export type Edit =

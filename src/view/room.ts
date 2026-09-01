@@ -59,7 +59,37 @@
  * So the thresholds are the places those readings change character rather than
  * round numbers: below `ROOM_TO_FLOW` the header and the items cannot both be on
  * screen and one of them has to be pinned; below `ROOM_TO_SPREAD` a row's
- * furniture wraps and costs more than folding it away would.
+ * furniture wraps and costs more than moving it would.
+ *
+ * ## And again, after the card became two pages
+ *
+ * The same probe, the same six items, the same four sizes. `chrome` is the fixed
+ * strip above the first item; `rows` is what those six items add up to; `asked`
+ * is the height this page tells its host it would like to be.
+ *
+ *                 chrome        rows          fully visible   asked
+ *     220×300     78 → 83       533 → 437     1 → 2           673 → 545
+ *     320×200     78 → 83       344 → 297     0 → 1           484 → 405
+ *     460×360     78 → 83       308 → 257     4 → 6           448 → 376
+ *     900×700     96 → 101      373 → 217     6 → 6           639 → 343
+ *
+ * **Five pixels of chrome, at every size, and it is the page switch's own
+ * height.** That is the whole cost of the split, and it is paid once. What it
+ * bought is the row: at 900×700 an ordinary item went from 59 pixels to 33,
+ * because "ticked by claude, over MCP" and the three inline controls were a
+ * second line under every single one of them. Chrome is paid once and a row is
+ * paid sixteen times, which is why a table that only watched the first number
+ * would have called this change a regression.
+ *
+ * The `fully visible` column is the reading that matters at 220×300, which is
+ * where this module lives: one item to two. At 460×360 it is four to six, which
+ * is the whole list.
+ *
+ * The edit page measures 129 pixels of chrome above its first item at every
+ * size — the header, and the box to type in, which is 83 of it. That box is not a
+ * regression of the 147-pixel strip this file was written about: it is on a page
+ * a reader pressed a button to reach, and it is not in front of the list they
+ * spend their day looking at.
  */
 
 /**
@@ -141,34 +171,74 @@ export interface Room {
    */
   prose: boolean
   /**
-   * "written by …" under an item nobody has ticked.
+   * The press that moves between the two pages: the word, or a glyph carrying
+   * the word in its label.
    *
-   * The tick's own provenance — who ticked it, and whether it came through the
-   * MCP door — is not covered by this and is never dropped at any size. That is
-   * the promise `list/checklists.ts` makes about an agent's claims being legible
-   * as claims, and a size is not a reason to break it. Who first typed a line is
-   * a different and much smaller fact; at small sizes it moves into the row's
-   * `title`.
-   */
-  authorship: boolean
-  /**
-   * Move-up, move-down and remove: on every row, or behind one press on the row
-   * that wants them.
+   * ## Nineteen pixels, found by the probe rather than by reasoning
    *
-   * Three buttons and their line cost more per item than the item does at 220
-   * wide. Folded they are one small control, and reordering — which is a thing
-   * somebody does once in a while to a list they are looking at — costs one
-   * extra press.
+   * The press sits on the header row beside the list's name and the count, and
+   * that row does not wrap — the NAME does. `Edit` at `container` size is about
+   * forty-four pixels wide. Measured with `dev/room.probe.mjs` at 220×300
+   * against a list called "What a change owes": with the word drawn, the name no
+   * longer fitted on one line and the chrome above the first item went from 78
+   * pixels to 97. With a glyph it is 83. Nineteen pixels of a three-hundred-pixel
+   * frame, spent on four letters, in the container this module spends its life
+   * in — which is exactly the shape of thing this file exists to catch, and it
+   * was caught by measuring rather than by looking at the JSX and thinking it
+   * looked fine.
+   *
+   * The remaining five pixels are the press's own height — `container` is 24
+   * against a 19-pixel line of text — and they are not negotiable. Every press on
+   * this page is the same height, which is the argument in
+   * `src/components/ui/button.tsx`, and a page with one smaller button on it is a
+   * page whose smallest target is the one nobody notices is smaller.
+   *
+   * ## The word is never actually lost
+   *
+   * `glyph` is about what is DRAWN. The button keeps `Edit` / `Done` in an
+   * `sr-only` span and in its `title` at every size, so nothing reading the page
+   * rather than looking at it can tell the difference — the same arrangement
+   * every other small control in this module uses, and the reason none of them is
+   * a bare glyph.
    */
-  controls: 'inline' | 'folded'
+  pageSwitch: 'named' | 'glyph'
   /**
-   * Writing something: in a strip at the bottom of the card, or over the whole
-   * frame.
+   * Move-up, move-down and remove on an edit-page row: beside the line, or on
+   * their own line under it.
+   *
+   * ## This field used to say something else, and the change is worth reading
+   *
+   * It was `'inline' | 'folded'`, and `folded` meant the three buttons went
+   * behind a `⋯` press on the row that wanted them — because at 220 pixels they
+   * cost more per item than the item did, on every row, forever.
+   *
+   * They are not on every row any more. Reordering, rewording and removing live
+   * on a page of their own now (see the essay in `src/view/checklist.tsx`), so
+   * the list a reader spends their day looking at carries no furniture at all
+   * and the fold has nothing left to hide. What survives of the measurement is
+   * the other half of it: the reading in `ROOM_TO_SPREAD` said that below 360
+   * pixels a row cannot carry its buttons BESIDE its text without wrapping to
+   * two lines anyway. That is still true and still decides something — on the
+   * edit page the buttons go under the line rather than beside it — so the
+   * threshold keeps its meaning and only the two words change.
+   *
+   * `under` is not a fold: both controls are drawn and reachable at every size.
+   * Nothing here is behind a press.
+   */
+  controls: 'beside' | 'under'
+  /**
+   * A box to type in: in a strip on the card, or over the whole frame.
    *
    * At 220×300 the add box measured 147 pixels — half the frame — to hold a
    * two-line textarea somebody uses for a few seconds at a time. As an overlay
    * it costs one button until it is wanted and then gets the whole frame, which
    * is more room to type in than it ever had inline.
+   *
+   * Two things read this now and they are on two different screens: the create
+   * box on the pick screen (`src/view/choose.tsx`), which is what it was written
+   * for, and the target picker, which opens over the frame rather than pushing
+   * the list it is about off the bottom. The add box is no longer one of them —
+   * it lives on the edit page, which is a whole frame already.
    */
   compose: 'inline' | 'overlay'
 }
@@ -181,8 +251,11 @@ export function room(width: number, height: number): Room {
     pinned: !tall,
     snap: !tall,
     prose: tall && wide,
-    authorship: tall,
-    controls: tall && wide ? 'inline' : 'folded',
+    /* Width alone. What the word costs is horizontal — it takes the room the
+       list's NAME needs on the same row — so a tall narrow column pays for it
+       exactly as a short one does. */
+    pageSwitch: wide ? 'named' : 'glyph',
+    controls: tall && wide ? 'beside' : 'under',
     /* Height alone, and deliberately not width. What made the strip wrong was
        that it was 147 pixels of a 300-pixel FRAME; a 320-pixel column with 700
        pixels of height has room for it and is better served by a box that is
