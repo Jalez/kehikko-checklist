@@ -165,13 +165,15 @@ describe('an apply', () => {
     }
   })
 
-  test('tells the project’s .gitignore about the folder it just made', () => {
+  /* This asked that a migration told the project's `.gitignore` about the folder
+     it had just made. It does not any more: whether that folder is committed is
+     a checkbox in the host, per project, and a migration that quietly added an
+     ignore to every project it touched would be the old behaviour in a hat. */
+  test('leaves the project’s .gitignore exactly as it was', () => {
     mkdirSync(join(project, '.git'))
     writeFileSync(join(project, '.gitignore'), 'node_modules\n')
     apply(data, project)
-    const after = readFileSync(join(project, '.gitignore'), 'utf8')
-    expect(after.startsWith('node_modules\n')).toBe(true)
-    expect(after).toContain(`${KEHIKOT_DIR}/`)
+    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toBe('node_modules\n')
   })
 })
 

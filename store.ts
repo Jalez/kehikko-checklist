@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, isAbsolute, join } from 'node:path'
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, withKehikotIgnored, within } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'roadmap-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -146,16 +146,6 @@ export const FILE = 'checklists'
 const MAX_PROJECT = 4096
 
 /**
- * How far up from a project this will look for a repository.
- *
- * A bound rather than an opinion about depth. `dirname('/')` is `/`, so the walk
- * below terminates on its own — this is here so that a path handed over the wire
- * cannot turn a loop into a hang if that ever stops being true somewhere.
- * Sixty-four is deeper than any real checkout and cheap to walk.
- */
-const UPWARD = 64
-
-/**
  * The one file, or a sentence about why there is not one.
  *
  * Three answers, and they are three because they mean three different things
@@ -250,86 +240,24 @@ export function makeDir(projectPath: string | null | undefined): { dir: string |
     if (escaped) return { dir: null, trouble: escaped }
   }
 
-  /* Only on the run that created this module's folder. A project that has
-     removed the ignore rule has said something, and a program that re-added it
-     on every save would be overruling them every few seconds — in a file that
-     shows up in their next diff under their name. */
-  if (fresh) ignore(root.path)
+  /*
+   * This used to append `.kehikot/` to the project's `.gitignore` on the run
+   * that created the folder, and it no longer does. The host owns that decision.
+   *
+   * Four programs used to write that one line in somebody else's repository —
+   * this module, notes, journeys, and learning's migration — none of them able
+   * to take it back, none aware of the others, and the rule appearing the first
+   * time a module happened to save something, which is not a moment anybody
+   * witnesses. The user's word for it: modules should not decide if the kehikot
+   * folder is gitignored.
+   *
+   * It is a checkbox in the host now, per project, written in one place. See
+   * `shareKehikot` in the host's `server/projects.ts`, and
+   * `withoutKehikotIgnored` in the protocol — the half that was missing, which
+   * is why this could only ever be turned on.
+   */
+  void fresh
   return { dir, trouble: null }
-}
-
-/**
- * Append the ignore rule to the project's `.gitignore`, if the project is in a
- * repository at all.
- *
- * The user asked for this in the same breath as the move, and gave the reason:
- *
- * > "By default kehikko should however be included in the project's .gitignore
- * > because we don't want to pollute other people with our work."
- *
- * ## Why it looks UPWARD for the repository, and still writes at the project
- *
- * The obvious rule — write it only when `<project>/.git` exists — is the one
- * that was here first, and a real project broke it. A thesis at
- * `…/CS-DEGREE/05_drafts/thesis_latex` has no `.git` of its own and sits inside
- * the CS-DEGREE repository, so under that rule its `.kehikot/` would have turned
- * up in somebody's `git status` with nothing ignoring it — which is exactly the
- * pollution the user asked not to cause, in the exact shape they asked about.
- *
- * So the search walks up. The WRITE stays at the project root, and that split is
- * deliberate: git honours a `.gitignore` in any directory, so a rule placed
- * beside the folder it is about does the job, and it does it without this app
- * editing a file several levels above the project it was pointed at. Somebody
- * who opens a checklist container on one subdirectory has not invited a program to
- * touch the root of a repository that may hold thirty others.
- *
- * A project with no `.git` anywhere above it gets nothing at all. That is a
- * folder somebody keeps outside version control, which is a decision they made,
- * and an ignore file written into it would be answering a question nobody asked.
- *
- * The text and the idempotence are `withKehikotIgnored`'s, which is append-only
- * — it never reorders, never normalises, never touches a byte that was already
- * there. That is not tidiness. This runs against repositories the user owns,
- * where every change is attributed to them, and a program that rewrote their
- * ignore file would put changes they did not make into their next commit. It
- * also carries a comment saying what the folder is and that removing the rule is
- * how you share it, because a rule somebody cannot explain is a rule they
- * delete. The rule covers the whole of `.kehikot/` rather than this module's
- * folder inside it, so the next module to be added does not need a line of its
- * own in a file nobody would remember to update.
- *
- * Every failure here is swallowed on purpose. Not being able to write somebody's
- * `.gitignore` — a read-only checkout, a permission, a `.gitignore` that is
- * somehow a directory — is not a reason to refuse to save their checklists.
- */
-function ignore(root: string): void {
-  try {
-    if (!inRepository(root)) return
-    const path = join(root, '.gitignore')
-    /* A project with no `.gitignore` of its own gets one holding only this,
-       which is not editing somebody's file. */
-    const before = existsSync(path) ? readFileSync(path, 'utf8') : ''
-    const after = withKehikotIgnored(before)
-    if (after !== before) writeFileSync(path, after)
-  } catch {
-    /* Deliberately silent. See above. */
-  }
-}
-
-/** Is this folder inside a git repository — here, or anywhere above it? */
-function inRepository(root: string): boolean {
-  let at = root
-  for (let up = 0; up < UPWARD; up += 1) {
-    /* `existsSync` rather than a directory check: `.git` is a FILE in a worktree
-       and in a submodule, and refusing to notice those would put this app's
-       folder into somebody's `git status` in exactly the checkouts an agent is
-       most likely to be working in. */
-    if (existsSync(join(at, '.git'))) return true
-    const above = dirname(at)
-    if (above === at) return false
-    at = above
-  }
-  return false
 }
 
 /**

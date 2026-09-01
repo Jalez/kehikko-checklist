@@ -223,149 +223,36 @@ describe('the fence, which is checked after realpath and not before', () => {
   })
 })
 
-describe('the project’s .gitignore', () => {
-  const gitignore = () => join(project, '.gitignore')
-
-  /** Make the project look like a git repository, without running git. */
-  function repo(existing: string | null = null): void {
-    mkdirSync(join(project, '.git'))
-    if (existing !== null) writeFileSync(gitignore(), existing)
-  }
-
-  test('gains the rule once, with a comment saying what the folder is', () => {
-    repo('node_modules\ndist\n')
-    change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-    const after = readFileSync(gitignore(), 'utf8')
-    expect(after.startsWith('node_modules\ndist\n')).toBe(true)
-    expect(after).toContain(`${KEHIKOT_DIR}/`)
-    /* The comment is the part that stops somebody deleting a rule they cannot
-       explain, six months from now, in their own file. */
-    expect(after).toContain('Remove these lines to')
-  })
-
-  /* The one that matters most, because this file is in the user's repository and
-     a second copy would show up in their next diff as a change they did not
-     make. */
-  test('is not appended to twice, however many writes follow', () => {
-    repo('node_modules\n')
-    change({ op: 'create', name: 'One', by: 'a test' }, project)
-    const once = readFileSync(gitignore(), 'utf8')
-    change({ op: 'create', name: 'Two', by: 'a test' }, project)
-    change({ op: 'add', id: checklists(project).lists[0]!.id, text: 'x', by: 'a test' }, project)
-    expect(readFileSync(gitignore(), 'utf8')).toBe(once)
-    expect(once.split(`${KEHIKOT_DIR}/`)).toHaveLength(2)
-  })
-
-  test('leaves every byte that was already there exactly where it was', () => {
-    const untidy = '  dist  \n\n\n#   node_modules\n\tbuild'
-    repo(untidy)
-    change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-    expect(readFileSync(gitignore(), 'utf8').startsWith(`${untidy}\n`)).toBe(true)
-  })
-
-  test('a repository with no .gitignore gets one holding only this', () => {
-    repo()
-    expect(existsSync(gitignore())).toBe(false)
-    change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-    expect(readFileSync(gitignore(), 'utf8')).toContain(`${KEHIKOT_DIR}/`)
-  })
-
-  /* A folder with no `.git` anywhere above it is one somebody keeps outside
-     version control, which is a decision they made. A temp directory is exactly
-     that, which is why every other test in this file leaves no ignore file
-     behind. */
-  test('a project with no .git anywhere above it gets no .gitignore at all', () => {
-    change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-    expect(existsSync(gitignore())).toBe(false)
-    expect(existsSync(join(project, '.git'))).toBe(false)
-    /* And the checklist was still saved — the ignore file is not a precondition
-       for keeping somebody's work. */
-    expect(checklists(project).lists).toHaveLength(1)
-  })
-
-  test('a rule that already ignores the folder is left alone, in any of its spellings', () => {
-    for (const rule of ['.kehikot', '.kehikot/', '/.kehikot/', '**/.kehikot/']) {
-      rmSync(project, { recursive: true, force: true })
-      mkdirSync(project)
-      repo(`dist\n${rule}\n`)
-      change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-      expect(readFileSync(gitignore(), 'utf8')).toBe(`dist\n${rule}\n`)
-    }
-  })
-
-  /* Somebody who commented it out decided something. Appending it back under
-     their `#` would be arguing with them in their own file. */
-  test('a commented-out rule is treated as a decision, not as an absence', () => {
-    repo('# .kehikot/\n')
-    change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-    expect(readFileSync(gitignore(), 'utf8')).toBe('# .kehikot/\n')
-  })
-
-  test('an unwritable .gitignore does not stop a checklist being saved', () => {
-    /* A directory where the file should be: every write to it throws. The
-       checklist still lands, because not being able to edit somebody's ignore
-       file is not a reason to refuse to keep their work. */
-    mkdirSync(join(project, '.git'))
-    mkdirSync(gitignore())
-    expect(change({ op: 'create', name: 'Mine', by: 'a test' }, project).ok).toBe(true)
-    expect(checklists(project).lists).toHaveLength(1)
-  })
-
-  /**
-   * The case that forced the walk upward, and it is a real project.
+describe('the .gitignore this module no longer writes', () => {
+  /*
+   * This module used to append `.kehikot/` to the project's `.gitignore` the
+   * first time it made its folder, and there were seven tests here for how it
+   * did it — the walk up to a repository several levels above, the `.git` that
+   * is a file in a worktree, the rule covering the whole folder rather than
+   * this module's part of it. They are gone with the behaviour.
    *
-   * The thesis at `…/CS-DEGREE/05_drafts/thesis_latex` has no `.git` of its own
-   * and sits several directories inside the CS-DEGREE repository. Under the rule
-   * that was here first — write only when `<project>/.git` exists — its
-   * `.kehikot/` would have turned up in somebody's `git status` with nothing
-   * ignoring it, which is precisely the pollution the user asked this app not to
-   * cause.
+   * It was four programs writing one line in somebody else's repository —
+   * checklist, notes, journeys and learning's migration — none able to take it
+   * back, none aware of the others, and the rule appearing the first time a
+   * module happened to save something. Whether that folder is committed is a
+   * checkbox in the host now, per project, with one writer: `shareKehikot` in
+   * the host's `server/projects.ts`. The walk up is not lost; the host does it,
+   * for the reason argued here, about the same thesis.
+   *
+   * What remains asserts this module keeps its hands off, because "we removed
+   * some code" is not a property and the way this comes back is somebody
+   * restoring a helper that looks harmless on its own.
    */
-  test('finds a repository several levels above the project, and still writes at the project', () => {
-    const repoRoot = mkdtempSync(join(tmpdir(), 'checklist-repo-'))
-    try {
-      mkdirSync(join(repoRoot, '.git'))
-      writeFileSync(join(repoRoot, '.gitignore'), 'build\n')
-      const deep = join(repoRoot, 'drafts', 'chapters', 'thesis_latex')
-      mkdirSync(deep, { recursive: true })
-
-      expect(change({ op: 'create', name: 'Mine', by: 'a test' }, deep).ok).toBe(true)
-
-      /* Written beside the folder it is about. Git honours a `.gitignore` in any
-         directory, so this does the job — and it does it without this app
-         editing a file three levels up, in the root of a repository that may
-         hold thirty other projects. */
-      expect(readFileSync(join(deep, '.gitignore'), 'utf8')).toContain(`${KEHIKOT_DIR}/`)
-      /* The repository's own ignore file is untouched, which is the half that
-         makes the split worth having. */
-      expect(readFileSync(join(repoRoot, '.gitignore'), 'utf8')).toBe('build\n')
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
-    }
+  test('saving a checklist leaves a repository’s .gitignore alone', () => {
+    mkdirSync(join(project, '.git'), { recursive: true })
+    makeDir(project)
+    expect(existsSync(join(project, '.gitignore'))).toBe(false)
   })
 
-  test('notices a .git that is a FILE, which is what a worktree and a submodule have', () => {
-    /* An agent is more likely to be standing in a worktree than anywhere else,
-       and a directory check would quietly skip exactly those checkouts. */
-    const repoRoot = mkdtempSync(join(tmpdir(), 'checklist-worktree-'))
-    try {
-      writeFileSync(join(repoRoot, '.git'), 'gitdir: /somewhere/else/.git/worktrees/thing\n')
-      const deep = join(repoRoot, 'sub')
-      mkdirSync(deep)
-      change({ op: 'create', name: 'Mine', by: 'a test' }, deep)
-      expect(readFileSync(join(deep, '.gitignore'), 'utf8')).toContain(`${KEHIKOT_DIR}/`)
-    } finally {
-      rmSync(repoRoot, { recursive: true, force: true })
-    }
-  })
-
-  test('the rule covers the whole .kehikot folder, not this one module’s', () => {
-    /* A per-module rule would need a new line every time a module was added,
-       which is a rule that goes quietly stale in somebody else's repository. */
-    repo('node_modules\n')
-    change({ op: 'create', name: 'Mine', by: 'a test' }, project)
-    const after = readFileSync(gitignore(), 'utf8')
-    expect(after).toContain(`${KEHIKOT_DIR}/`)
-    expect(after).not.toContain(`${KEHIKOT_DIR}/${moduleFolder(ID)}`)
+  test('and does not touch one that is already there', () => {
+    mkdirSync(join(project, '.git'), { recursive: true })
+    writeFileSync(join(project, '.gitignore'), 'node_modules\n')
+    makeDir(project)
+    expect(readFileSync(join(project, '.gitignore'), 'utf8')).toBe('node_modules\n')
   })
 })
