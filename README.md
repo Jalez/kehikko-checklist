@@ -1,15 +1,16 @@
 # Checklist
 
-Checklists somebody wrote, held against one thing at a time: an issue, a merge
-request, a pull request, or a paper — the whole of it, one file of it, or the
-section somebody is reading. **Nothing here ships a list.**
+Checklists somebody wrote, each **held against** the things a person assigned it
+to — issues, merge requests, pull requests, a paper, one file of it, one heading
+in it — and shown wherever one of those is in front of the reader. **Nothing
+here ships a list.**
 
-An app first. It holds every checklist a person or an agent has made, and every
-tick anybody has filed on one — **inside the project those checklists are
-about**, at `<project>/.kehikot/checklist/checklists.json`, as plain JSON beside
-the work.
+An app first. It holds every checklist a person or an agent has made, what each
+is held against, and every tick anybody has filed on one — **inside the project
+those checklists are about**, at `<project>/.kehikot/checklist/checklists.json`,
+as plain JSON beside the work.
 It has its own page, its own port and its own MCP door. A host may frame it, and
-then it learns which project is open, which kehikko it is standing on, and what
+then it learns which project is open, where in a paper the reader is, and what
 the canvas has picked out.
 
 ```bash
@@ -31,61 +32,75 @@ paper (an epic, optionally with a section of it). See `list/targets.ts` for what
 a paper target IS and, in particular, for the honest account of what happens to
 its ticks when the paper changes underneath them.
 
-## A pairing is the durable thing, and the reader chooses which one is in front
+A checklist **is held against** one or more targets. That is a stored property of
+the list — `targets`, a list of keys in the file — set on the list's edit page or
+through `hold_checklist`, and by nothing else.
 
-A list and a target together is a **pairing**, and it is what a tick belongs to.
-The container's job is not to AIM a list at whatever the reader happens to be
-looking at; it is to show whichever of the pairings somebody has already made
-they are standing in front of — the way `kehikko-notes` shows the notes for the
-page being read. `list/holding.ts` is the whole argument. The owner's report is
-what forced it:
+## A list's targets are assigned, and the reading page shows what is in front
 
-> "held against doesnt really seem to translate to 'show and expect to be filled
-> for x' … the checklist even if its pointed at some other section does not
-> 'disappear' from sight until you scroll to that tex file, instead it stays
-> there and if you scroll around it changes manually to another one. Unlike in
-> notes module for instance where it correctly knows what notes to show for each
-> page when I scroll around."
+The owner said it three times, and this is the third:
 
-The target used to be `candidates[0]` — the canvas's selection, else the paper
-the open epic is aimed at — narrowed by the last passage. A property of THE
-MOMENT. So one checklist silently re-pointed itself at whatever prose was in
-front of the reader, and "held against" named a cursor rather than a claim. The
-evidence for the other model was already in the store: ticks are keyed by
-`(checklist, target, item)`, so a pairing outlives every context, and the owner
-already had a word for one — *"all the checklists (not their instances)"*.
+> "I want to be able to connect one or more checklists in papers case to sections
+> or tex files and I want that to stick. … I dont want it to be able to change on
+> the fly, only when I am in edit mode of that checklist. I want to be able to
+> separately access a list of checklists available in the project. But by default
+> when I am scrolling in a paper i want to see the checklist(s) that I have
+> assigned for that section/file in question. … Or, in the case of selecting a
+> specific issue or an mr or a pr, I want to see the checklists specific to those
+> issues etc. Its all about knowing what is selected or seen in the app that's
+> important in the consumer/provider relationships."
 
-Three inputs and one answer, in `holdingAt`:
+Two versions of this module missed it. The first aimed one list at whatever the
+reader had scrolled to. The second kept one list on screen and, on every scroll,
+chose among the targets that list had TICKS against — a pairing came into being
+the first time somebody ticked something, and never before — calling anywhere
+else "not held here" and offering a press to hold it there. The owner's own store
+said what was wrong with both: seven chapter checklists and `"ticks": {}`. Every
+one of them was about a chapter, and not one of them was held against anything,
+because nothing had been ticked yet. The connection they asked for could not be
+written down.
 
-- **The pairings.** Durable, made by a person, never by this program.
-- **Where the reader is.** The ladder under their passage, narrowest first, or
-  the reference the canvas has selected. It chooses WHICH pairing is shown and
-  never what exists.
-- **The grain.** How narrow this reader likes it. It trims the ladder from below,
-  and names the rung a new pairing would be made at.
+So it is written down. `list/holding.ts` is the argument and `showing` is the
+whole of the decision:
 
-The **narrowest rung the reader is standing on that this list is already held
-against** wins — outward, not equality, because a list held against the whole
-paper is about everywhere in it. When no rung is, the container says the true
-thing: **not held here**, nothing below is tickable, how many other things it IS
-held against, and one press to hold it here. That press is the claim, and under
-the old model the claim was made by SCROLLING.
+- **What every list is held against.** Facts about the lists, made by a person on
+  the edit page, durable, in the file.
+- **Where the reader is.** The ladder under their passage — section, file, paper,
+  narrowest first — and the references the canvas has selected. Facts about the
+  moment. Together they are "what is selected or seen".
 
-This is not the guess `src/view/choose.tsx` forbids, and that essay is untouched.
-It is about which LIST, and nothing here chooses a list — the list is the one
-remembered for this kehikko in `list/keep.ts`, picked by a person, and that
-memory still survives a restart. What position chooses is which of that list's
-OWN pairings is in front, all of which somebody made. Inventing a pairing nobody
-made is the guess, and that is exactly the act that moved behind a press.
+Every list held against something in front of the reader is shown, against that
+target, with that target's ticks. A list held against the whole paper is in
+front of a reader anywhere in it, and one held against a file is in front of a
+reader in any section of it — the search walks outward, because a claim about
+the paper is a claim about everywhere in it. Where a list is held against a
+section and the file around it, the closer one is shown. **Nothing is invented**:
+a reader four chapters from the one a list is about sees the other lists, or
+none, and one line saying so with the way to every checklist beside it.
 
-**A ref has no passage** and can never be a rung. Its position is the canvas: a
-selected reference the list is held against is shown ahead of any paper rung, and
-the switcher still lists every pairing by name with its count, and the box under
-it still takes a reference typed by hand. What changed for a ref is only that the
-container stops claiming one the list was never held against. And because a
-pairing is out of sight from everywhere but its own target, the pick screen now
-says how many things each list is held against — that screen is what keeps the
-work from being invisible.
+Several apply at once, and they are all shown — "the checklist(s)" is plural.
+Seven chapter lists and one for the whole thesis means a reader in chapter 3 sees
+two, stacked, each foldable. A list held against `gh#105` and against the file
+the reader is in, with `gh#105` selected, is in front of them twice, and is
+shown twice, each instance saying which target it is; collapsing that to one
+would be this program picking. Selected references lead, in the canvas's order.
+
+**Nothing on the reading page changes what a list is held against.** The row
+that read `Reading <file>` with a `change` press, the screen that said "not held
+here" with a press to hold the list there, and the sentence about nothing having
+been ticked yet are all gone — the owner called them useless, and they were,
+because the thing they explained no longer happens. What survives is one muted
+line under each name saying which of its targets these ticks belong to, because
+two lists of ticks with nothing saying which is which is the two-halves-
+disagreeing failure this workspace keeps finding.
+
+`release` never deletes a tick: the ticks against a released target stay in the
+file and come back the moment the target is held again, because "I no longer
+want this list in front of me in chapter 3" and "forget what was done in chapter
+3" are two sentences and only the first was said. A tick made over the MCP door
+against a target the list is not held against holds it, and the sentence back
+says so — an agent that names a reference has named it, which is the opposite of
+a list re-pointing itself because somebody scrolled.
 
 ## The ladder the reader is standing on
 
@@ -94,86 +109,61 @@ there — and this module opens the file through its own fence, finds the headin
 those bytes fall under, and reads **the whole paper**, **the file**, or **the
 section**: a title and the paragraphs beneath it, up to the next heading of the
 same or a shallower level. Three rungs, no passage rung, and the reason there is
-no fourth is in `list/scope.ts`. Narrowing hides ticks, so the row always says how
-many it is hiding, and the **grain** filter the host draws in the container header
-— `section` / `file` / `paper`, offered over `roadmap.filters` and remembered per
-container — is what says how much of the paper a reader wants at once. Only the
-rungs that exist are offered, and a remembered rung that is not available here
-falls back rather than narrowing by nothing. The choice is remembered; the PLACE
-never is, which is what lets a rule that refuses to remember a scope and a filter
-the host keeps forever both be true. The offer is withdrawn only when what is in
-front is not on the ladder at all — a ref, or a target somebody pointed at in
-another chapter — because a withdrawal is a claim the host answers by pruning the
-grain it has remembered. None of this touches a target that is a ref: an issue has
-no document, no rungs, no offer, and nothing on that path so much as stats a disk.
+no fourth is in `list/scope.ts`. The ladder is a position and nothing else: it
+is never trimmed, never offered to the host, never remembered. There used to be
+a grain filter in the container header — `section` / `file` / `paper` — which
+trimmed the ladder one list was looked for on; it went with that model, and the
+page now sends an EMPTY offer once it is hosted, so a host still holding a grain
+for this container lets it go. `src/app.tsx` says why that is safe to say now and
+was not before.
 
 The scanner is this module's own, small, and honest about what it does not read —
 `file/sections.ts` — for the reason `kehikko-notes/notes/annotations.ts` argues:
 modules meet through the host or not at all, and making the paper module this
 one's data source would be a dependency neither manifest declares.
 
-A target can also be **pointed at rather than typed**. For a paper the switcher
-lists the paper's own files and the headings inside each of them, found by the
-same scanner through the same fence (`file/outline.ts`, `/api/outline`, asked for
-once when the switcher opens rather than on every context). A paper begins at the
-nearest directory holding a `.tex` that declares a `\documentclass`, which is the
-definition LaTeX itself uses; the file that declares it leads the list. This does
-not reverse "no default and no guess" — nothing is preselected, and what is
-removed is the requirement to SPELL an id this program mints out of somebody's
-`\label`. **The box is still there at every size**, because a file nobody has
-written yet, or a target that is not a document at all, must not be blocked by a
-picker. An issue has no chapters, so its switcher is exactly what it always was.
+The edit page offers the paper's own files and the headings inside each of them,
+found by the same scanner through the same fence (`file/outline.ts`,
+`/api/outline`, asked for while a list is being edited rather than on every
+context). A paper begins at the nearest directory holding a `.tex` that declares
+a `\documentclass`, climbing from the file the reader is in — so the page keeps
+the last file of a paper it saw for the session, which is the one place a
+position outlives its context, allowed because it decides only which files are
+OFFERED and never which are held. With no file ever seen it says to open the
+paper, and still offers the whole paper from the epic alone. **The box is still
+there at every size**, because a reference must not be blocked by a picker.
 
-## Two pages: what is ticked, and what can be edited
+## Three screens: what is in front, one list's edit page, and every list
 
-The container shows one of two. The **state page** answers "where am I and what
-is the state of the thing I am looking at": the list's name, the count, which
-rung of the paper the ticks belong to, how many ticks that rung is hiding, and
-the items with their ticks. Nothing on it changes the list, and a row is a mark
-and a line of text with no furniture beside it at any size.
+The **reading page** is the default and answers "what is in front of me":
+every instance — a list's name, its count, which target these ticks belong to,
+and the items, tickable. Nothing on it changes a list, a row is a mark and a
+line of text with no furniture beside it at any size, and one press per instance
+leads to its edit page. A strip at the bottom leads to every checklist.
 
-The **edit page** is the other half: add a line, press one to reword it, move it
-up or down, take it off, and leave or remove the checklist. Nothing on it is
-ticked and nothing on it names a target, because an edit is a change to the LIST
-— an item added is added for every target it is held against, and an item removed
-takes every tick on it with it.
+The **edit page** is where a list is changed: what it is **held against** — the
+targets it has, each releasable with one press, and a picker of the paper's
+files and headings, the canvas's selected references, and a box for a reference
+— and then add a line, press one to reword it, move it up or down, take it off,
+and remove the checklist. Nothing on it is ticked, because an edit is a change to
+the LIST: an item added is added for every target it is held against, and an
+item removed takes every tick on it with it. The sentence explaining how ticks
+are KEYED lives here, beside the targets it is about. `Done` goes back to where
+the reader came from.
 
-It is also where the sentence explaining how ticks are KEYED lives — "ticks
-belong to this list and one target together; the same list held against
-something else keeps its own". That used to sit under the target row on the
-state page, and the owner moved it: how a thing is keyed is true of every target
-the list will ever be held against, cannot change while somebody looks at it, and
-is read once while a list is being set up. On the page you use every day it is a
-paragraph of documentation standing on the items. The kind of the current target
-— *a paper*, *a section of a paper*, *an issue, merge request or pull request* —
-is still said on the state page, on the press that changes it, where it is about
-the row it sits on. The article belongs to `targetNoun` and no caller writes one;
-it read "A a section of a paper" for as long as they did.
-
-One press moves between them, in the header beside the count. Not a filter group
-in the container header (a mode is not a narrowing, and the host remembers a
-filter forever — you would come back tomorrow in edit mode), and not a tab row
-(this module deleted one on purpose). The edit page shows every item, and so does
-the state page: the grain filter has never hidden an item, only ticks.
-
-Measured with `dev/room.probe.mjs` against the same six items, before and after:
-five pixels of fixed chrome at every size — the switch's own height, paid once —
-against 26 pixels a row at 900x700, paid on every item, because "ticked by
-claude, over MCP" and the three inline controls were a second line under each of
-them. At 220x300 one item was fully visible and two are; at 460x360 four were and
-six are.
+**Every checklist** is the third screen, reached on purpose from the reading
+page and never in front of it: every list by name, how many targets each is held
+against — a list held against nothing is shown nowhere on the reading page, and
+this row is the one place that says so — a press to open one, a box to start
+one, and the way to copy one from another project. A new list opens on its edit
+page, because the next thing to do with it is say what it is held against.
 
 ## What it does with nothing else running
 
-- **The pick-or-create screen.** On first view in a kehikko there is no default
-  and no guess: the container lists the checklists that exist and offers a box to
-  start one. A checklist held against work is a claim about what that work owes,
-  and a container that opened on somebody else's list would have a person ticking
-  items off against a standard they never chose.
-- **The checklist, and only the checklist.** One list, its items, and the ticks
-  for whichever target is in front. There is no directory of references and no
-  tab row; the target switch is one row, not a screen, and editing the list is
-  one press away rather than a strip of controls on every line.
+- **What is in front, and only that.** No pick-or-create screen on first view,
+  no remembered choice, no default and no guess: the reading page opens on the
+  lists a person assigned to where they are, which may be none, and says so in
+  one line. The screen that lists every checklist is one press away.
 - **A store inside the project.**
   `<projectPath>/.kehikot/checklist/checklists.json` holds every list, every item
   and every tick for that project, with the `papers.json` it migrates from beside
@@ -213,11 +203,12 @@ six are.
   honours a `.gitignore` in any directory, so a rule beside the folder does the
   job without this app editing a file three levels up. A project with no `.git`
   anywhere above it gets nothing.
-- **Its MCP door**, `/mcp`, with seven tools:
+- **Its MCP door**, `/mcp`, with eight tools:
 
 ```
-checklists             every list, or one of them held against a target
+checklists             every list and where each is held, or one of them held against a target
 create_checklist       start one under a name
+hold_checklist         hold it against a ref, a paper, a file or a heading — or release: true
 add_checklist_item     a line on the end
 check_item             tick it FOR A TARGET, or done: false to take a tick back
 reword_checklist_item  the same item, sharper words, same id and same ticks
@@ -258,20 +249,19 @@ still stored, still in the file and still in what the MCP door says back. What
 made an agent's tick safe was never the badge under it; it was that the claim is
 reversible by the person who can judge it, and that is a property of the row,
 which still has it at every size. See the essay on `ItemRow` in
-`src/view/checklist.tsx` for which half of the old argument that overtakes.
+`src/view/here.tsx` for which half of the old argument that overtakes.
 
-## Remembered per kehikko, by the host
+## Nothing is remembered per kehikko, and `state:keep` is no longer declared
 
-`roadmap.context` carries `kehikko: {id, name} | null` — the only thing that says
-where this container is standing, because a module's page is loaded once and shown on
-whichever canvas asks for it. The choice of checklist is remembered against that.
-
-The host's kept state (`state.set`) is keyed by MODULE and by nothing else, so
-the per-kehikko map lives inside the one opaque string it keeps for us; see
-`list/keep.ts`, which never throws and turns anything it cannot read into no
-memory at all. A **null kehikko is a real state** — a host need not have canvases
-— and it gets its own screen: the container says it cannot tell where it is standing,
-and then works anyway for the session.
+This module used to remember which checklist was picked, per kehikko, through
+the host's kept state (`list/keep.ts`), and open on it. There is no pick any
+more: what a container shows is every checklist held against what the reader is
+looking at, and the holding is stored on the list in the project's own file. A
+remembered pick beside that would be a second answer to "which list is in front
+of me", and the two would disagree the first time the reader scrolled. So
+`list/keep.ts` is gone, `state:keep` is not declared, the kept string a host may
+still hold for this module is ignored on the greeting, and a null kehikko needs
+no screen of its own — nothing is keyed by it.
 
 ## What was deleted, and why it was safe
 
@@ -295,7 +285,20 @@ list of what a paper owes is not a special kind of thing under the new model —
 is an ordinary checklist held against a paper target. Every line, every id, every
 tick with its author, its time, its `viaMcp` and its note comes across, and
 `papers.json` is left on disk. See `list/checklists.ts` and
-`test/migration.test.ts`.
+`test/migration.test.ts`. Under assignment such a list comes across **held
+against its paper**, ticks or no ticks, because being about one paper was the
+whole meaning of the old store's key.
+
+**Targets are migrated the same way**, on read, once. A file written before
+`targets` was stored has no such field on any list, and under that version a
+tick WAS the assignment — so every list gets exactly the targets its tick map
+already named, and a list with no ticks gets `[]`, which is the truth of the
+owner's own file: seven chapter lists, held against nothing, waiting to be held
+on their edit pages. No tick is touched. The field is `optional()` in the schema
+rather than defaulted, deliberately, so that an absent array (an older file)
+and an empty one (somebody released every target) stay two different facts and
+a release does not undo itself on the next read. `test/targets.test.ts` opens a
+copy of the owner's real store and asserts all of it.
 
 The move out of `data/` is a second one, and it is a script rather than a read
 because this store has no project column — nothing in the old file says which
@@ -364,94 +367,84 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun test` covers the wire-independent half — 332 tests across the store, where
-it lives and what it refuses (a null project, a relative path, and either level
-of the folder — `.kehikot/` or `checklist/` — resolving outside the project after
-`realpath`), the `.gitignore` gaining its rule exactly once and being found
-through a repository several levels up, the move out of `data/`, the migration of
-a real `papers.json`, the per-kehikko memory, target identity, every MCP tool's
-argument validation, the components, the section scanner against the owner's real
-thesis, the scope ladder as a table of cases, which pairing is in front of a
-reader as another one (`test/holding.test.ts`, whose fixture is a paper with
-several chapters and a reader who walks out of the one their list is about and
-back into it, because the bug it exists to prevent cannot happen in a document
-with one section in it), and the fence — `test/confine.test.ts`
-exists entirely to try to get past it, because this module now opens documents a
-passage named. The rest was driven in a real
-browser with Playwright; the probes are in the job scratch directory as
-`ck-new.mjs` (the pick-or-create screen, a checklist created in the UI and read
-back after a reload, the same list against two targets holding two independent
-sets of ticks, a tick made over MCP appearing with no reload, the migrated paper
-lists, and no horizontal overflow at 220/280/320/400/1200px in both themes),
-`ck-kehikko.mjs` (the memory: picked on one kehikko, surviving a reframe, asked
-again on a second kehikko, still its own on the first, and the null-kehikko
-screen) and `ck-realhost.mjs` (the same container framed by the real host at 4181,
-opening on the pick screen, the choice surviving a full host reload, and the
-epic's paper offered as the target).
+`bun run test` covers the wire-independent half — 310 tests across the store,
+where it lives and what it refuses (a null project, a relative path, and either
+level of the folder — `.kehikot/` or `checklist/` — resolving outside the project
+after `realpath`), the move out of `data/`, the migration of a real
+`papers.json`, target identity, holding and releasing (`test/targets.test.ts`,
+which also opens a copy of the owner's real store — seven chapter lists and no
+ticks — and asserts every list, item and tick survives the read and comes
+across held against nothing), every MCP tool's argument validation, `/api/here`
+against a project with two chapters and two lists, the components (with every
+case on the reading page asserting the absence of the old `Reading` /
+`change` / "not held here" row beside whatever it asserts the presence of), the
+section scanner against the owner's real thesis, the scope ladder as a table of
+cases, which lists are in front of a reader as another one
+(`test/holding.test.ts`, whose fixture is a paper with several chapters, a list
+per chapter and one for the whole thing, and a reader who walks out of the
+chapter a list is about and back into it, because the bug it exists to prevent
+cannot happen in a document with one section in it), and the fence —
+`test/confine.test.ts` exists entirely to try to get past it.
 
-Four of those probes now live in the repository rather than in a scratch
-directory, because what they measure is a claim the code makes and can lose:
+happy-dom performs no layout, so what fits at a size is measured in a browser
+or not at all. Two Playwright probes are in the repository; a third needs no
+Playwright:
 
 ```bash
 PLAYWRIGHT=/path/to/playwright CHROME=/path/to/chrome-headless-shell \
   node dev/room.probe.mjs     # what fits at 220x300, 320x200, 460x360, 900x700
+                              # (drives the previous page's selectors; its numbers
+                              #  are the reading `src/view/room.ts` was written on)
   node dev/theme.probe.mjs    # the host's theme, both ways, at both machine settings
 
-ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4184" ./run.sh
-PLAYWRIGHT=… CHROME=… node dev/passage.probe.mjs
-                            # the container following a reader through a real thesis
-
-ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4185" ./run.sh
-PLAYWRIGHT=… CHROME=… node dev/filters.probe.mjs
-                            # the ladder offered to the host, and what the page gained
-
-ROADMAP_ORIGIN="http://127.0.0.1:4181 http://127.0.0.1:4187" ./run.sh
-PLAYWRIGHT=… CHROME=… node dev/picker.probe.mjs
-                            # what the target switcher offers for a real paper
+# A copy of a real thesis project, a scratch server kept out of ~/.roadmap, and
+# the headless shell alone — see the header of dev/here.probe.html.
+ROADMAP_MODULES_DIR=/tmp/ck-probe-registry PORT=7899 bunx vite
+chrome-headless-shell --headless --disable-gpu --no-sandbox --virtual-time-budget=40000 \
+  --dump-dom 'http://127.0.0.1:7899/dev/here.probe.html?project=/private/tmp/ck-probe-project' \
+  | grep -o 'PROBE:[^<]*'
 ```
 
-`picker.probe.mjs` is the one that could only be run against the real thing.
-Standing in `chapters/3_methods.tex` of the owner's thesis it offers nine
-readable files — `main.tex` first, then the README and snippet that sort before
-it, then the six chapters — with the file the reader is in already unfolded to
-its nineteen headings, and the box to type in still under all of it. It changed
-two things by being run: `main.tex` came third before, buried under two files
-that sort ahead of it alphabetically, and pressing a heading left the row reading
-`sec:meth-design` rather than "Research design", because `scopeOfTarget` prints
-an id for a section the reader is not standing in and the picker had just made
-that the ordinary case.
+`here.probe.html` is what this model was actually driven with, in Chromium,
+against a copy of the owner's thesis with its seven real chapter lists. It held
+chapter 1's list against chapter 1, chapter 3's against chapter 3 and against
+`gh#105`, and the thesis-wide list against the paper, all through the app's own
+door, then walked a reader through the paper at 220x300 and printed what was on
+screen:
 
-`passage.probe.mjs` is the reading the passage ladder is built on, and it runs
-against the owner's own thesis rather than a fixture. Before: six movements —
-`main.tex`, two chapters, two sections of one chapter, and nothing open — and the
-row said `thesis (the paper)` all six times, with a tick made in one section
-showing in the next. That is the report, reproduced. After: six distinct rows,
-`main.tex` / `1_introduction.tex` / `Research design` / `Model selection` /
-`5_discussion.tex` / `the whole paper`, each with its own ticks and each saying
-how many it is hiding. It also found the bug where pressing the way out landed
-back where it started, because `{epic, section: null}` on the wire is
-indistinguishable from a target nobody has narrowed.
+```
+main.tex                                -> Thesis paper checklist @ the whole paper 0/0
+chapters/1_introduction.tex             -> Thesis paper checklist @ the whole paper 0/0 | Chapter 1 … @ 1_introduction.tex 0/7
+chapters/3_methods.tex, §Research design-> Thesis paper checklist @ the whole paper 0/0 | Chapter 3 … @ 3_methods.tex 0/13
+chapters/3_methods.tex, §Study context  -> the same two
+chapters/5_discussion.tex               -> Thesis paper checklist @ the whole paper 0/0
+nothing open                            -> Thesis paper checklist @ the whole paper 0/0
+chapters/3_methods.tex, gh#105 selected -> Chapter 3 … @ gh#105 0/13 | Thesis paper checklist | Chapter 3 … @ 3_methods.tex 0/13
+nothing open, gh#105 selected           -> Chapter 3 … @ gh#105 0/13 | Thesis paper checklist @ the whole paper 0/0
+nothing open, gh#900 selected           -> Thesis paper checklist @ the whole paper 0/0
+```
 
-`filters.probe.mjs` is the reading behind moving that way out into the container
-header. The ladder is offered to the host over `roadmap.filters` as a GRAIN —
-`section` / `file` / `paper` — never as a place: which section and which file
-goes on being derived from the passage, so nothing that outlives its context is
-stored, and what the host remembers per container is only how narrow this reader
-likes it. Only the rungs that exist are offered (`main.tex` has no labelled
-heading, so it gets `file, paper`), a remembered rung that is not available falls
-back rather than narrowing by nothing, and a checklist held against an issue
-offers nothing at all. The probe filters recorded messages on `event.origin` —
-comparing `event.source` to `frame.contentWindow` silently drops everything,
-because a cross-origin frame hands back a different `Window` proxy. Driving the
-real host is what found the one bug in this: an empty offer is a CLAIM — the host
-prunes the container's stored choice against it — so a paper with no passage
-under it says nothing rather than saying `[]`, and only a ref withdraws. Before
-that, the filter worked perfectly and was erased on every reload. What the page
-gained is **18 pixels on every rung below the paper**, at every size: the strip
-was 70px in a section at 220x300 and is 52px, because the `Show <wider>` line was
-drawn on every rung whether or not anything was hidden behind it. The count —
-`N ticked elsewhere in this paper` — stayed in the page, because a host cannot
-add up ticks in a store on another origin.
+None of the old row was on screen at any move. A line ticked in chapter 3 read
+`1/13`, still read `1/13` after walking to chapter 1 (where chapter 1's list
+read `0/7`) and back, and the thesis-wide instance beside it was untouched. The
+edit page listed `3_methods.tex` and `gh#105` as the holdings, its picker opened
+over the frame with the seven real files and the held one marked, and releasing
+and re-holding `3_methods.tex` from it changed the count from 2 to 1 to 2. `All
+checklists` listed 8 rows; `Back` and `Done` both led back to the same two
+instances. `document.scrollWidth` equalled the frame's width at 900, and the
+console carried no error. The one thing that probe could not settle is the
+900x700 label of the edit press, because a `ResizeObserver` under virtual time
+did not fire before the dump; at 220x300 it is the glyph, as `room.ts` says.
+
+Three probes went with the model they measured — `passage.probe.mjs` (one list
+following a reader, which is the thing the owner asked to stop), `filters.probe.mjs`
+(the grain filter) and `picker.probe.mjs` (the target switcher on the reading
+page). One finding from the last of them survives in `file/outline.ts`: the file
+declaring `\documentclass` leads the list, because alphabetically `main.tex` came
+third under two files that sort ahead of it. And one from the filters probe
+survives as a rule in `src/app.tsx`: an empty `roadmap.filters` offer is a CLAIM
+the host acts on by pruning the container's stored choice, which is why it is
+sent now — once, when it is true at every moment — and was withheld before.
 
 `room.probe.mjs` is the reading `src/view/room.ts` is built on. At 220x300 with
 six ordinary items this module used to spend 160 of its 300 pixels above the
@@ -478,7 +471,7 @@ the header and the target strip, above a refusal. Those are not the frame being
 complained about; they are what makes a list read as rows instead of one block,
 and they now run the full width of the container the way the host's own do. The
 `relative overflow-hidden` pair stayed too, and neither half is decoration: see
-the essay on it in `src/view/checklist.tsx`.
+the essay on it in `src/view/edit.tsx`.
 
 Padding survives in exactly four places, each drawn only on the screen that needs
 it: the `<h1>` block, which exists only when nothing is framing this page and

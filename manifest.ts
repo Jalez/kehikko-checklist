@@ -51,17 +51,17 @@ export const FORMAT = 'roadmap.notifications@1'
  *
  * ## What it declares, and the longer list of what it does not
  *
- * - **`state:keep` — declared.** The user asked that
- *   somebody looking at this container for the first time IN A KEHIKKO pick an
- *   existing checklist or create one, and that the choice then stick. A module's
- *   page is loaded once and shown on whichever canvas asks for it, so it cannot
- *   tell where it is standing except by `context.kehikko` — and it has nowhere
- *   of its own to write the answer that travels with `data/`. `state.set` is the
- *   protocol's answer: the host keeps one opaque string per module and hands it
- *   back in the greeting, before first render, so the page does not draw the
- *   pick screen and then correct itself. The host's state is keyed by MODULE and
- *   not by kehikko, so the per-kehikko map lives inside the string; see
- *   `list/keep.ts`.
+ * - **`state:keep` — NOT declared any more, and it was.** It held which
+ *   checklist a person had picked on which kehikko, so a container opened on
+ *   the same list tomorrow. There is no pick to remember: what a container
+ *   shows is every checklist held against what the reader is looking at —
+ *   the section or file under their passage, the reference they selected —
+ *   and a list is held against those because a person assigned it, on the edit
+ *   page, where the assignment is stored with the list in the project's own
+ *   file. A remembered pick beside that would be a second answer to "which
+ *   list is in front of me", and the two would disagree the first time the
+ *   reader scrolled. The kept string a host may still hold for this module is
+ *   ignored on the greeting; see `src/wire/use-roadmap.ts`.
  * - **`projects:pick` — declared, and it is the newest one.** A checklist lives
  *   in the project it is about, so reusing one somebody wrote in another
  *   project is inherently cross-project — and this app is told exactly one
@@ -123,9 +123,8 @@ export const FORMAT = 'roadmap.notifications@1'
  *
  * And per the protocol's own README: a declaration is not a request and is not
  * answered. The host refuses whatever it likes at every call whatever is written
- * here, so the page is built to be refused — a kept string arriving is drawn as
- * a remembered choice, and its absence is drawn as the pick screen rather than
- * as a guess.
+ * here, so the page is built to be refused — a refused `projects.pick` is drawn
+ * as "nothing was imported", and a refused announcement is nothing at all.
  *
  * ## `prompt: false`, deliberately, and the reasoning survived the rewrite
  *
@@ -156,26 +155,24 @@ export const FORMAT = 'roadmap.notifications@1'
  * ## The mode, and what it is now told
  *
  * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
- * every other module's. `scope: 'epic'` matters for two separate reasons now.
- * An epic-scoped mode is told which epic is open by `roadmap.context`, on load
- * and on every switch — which is what makes "the paper this epic is aimed at"
- * offerable as a target without anybody typing a slug. And a context is the only
- * message carrying `kehikko`, which is what the remembered choice is keyed by.
+ * every other module's. `scope: 'epic'` matters because an epic-scoped mode is
+ * told which epic is open by `roadmap.context`, on load and on every switch —
+ * which is what makes "the paper this epic is aimed at", its files and its
+ * headings, things a checklist can be held against without anybody typing a
+ * slug.
  *
- * ## The one control this page hands to the host, and the one it keeps
+ * ## No control in the container header, and an empty offer that says so
  *
- * Nothing here declares it, because `roadmap.filters` is not a capability — a
- * module simply says what it can be narrowed by and the host draws a control in
- * the container header, or has never heard of the idea and draws nothing. What
- * this module offers is the GRAIN of the paper it is following: `section`,
- * `file`, `paper`. Which section and which file is derived from `passage` on
- * every context and is written down by nobody, which is what makes a preference
- * the host keeps against this container forever an honest thing to keep. The
- * argument is in `list/scope.ts`, and it reverses one this module used to make.
- *
- * What stays in the page is the COUNT — `N ticked elsewhere in this paper`.
- * A host sees rows it does not render, in a store on another origin, and cannot
- * add up ticks it was never told about. Choice in the header, truth in the page.
+ * `roadmap.filters` is not a capability — a module says what it can be
+ * narrowed by and the host draws the control, or draws nothing. This module
+ * used to offer the grain of the paper it was following (`section`, `file`,
+ * `paper`), and the host remembered it per container. It offers nothing now,
+ * because there is nothing to narrow: what is in front of a reader is every
+ * list a person assigned to where they are, and fewer lists is a decision
+ * about a list rather than a preference about a container. The page sends an
+ * empty offer once it is hosted, so a host still holding a grain for this
+ * container prunes it; `src/app.tsx` says why that is safe to say now and was
+ * not before.
  *
  * ## Storage, and why THIS module asks for it when Atlas and References do not
  *
@@ -233,8 +230,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * before the passage arrived.
    */
   summary:
-    'Checklists somebody wrote, held against one thing at a time: an issue, a change, or a paper — the whole of it, '
-    + 'one file, or the section being read. Nothing here ships a list.',
+    'Checklists somebody wrote, held against the issues, changes, paper files and sections a person assigned them '
+    + 'to, and shown where one of those is in front of you. Nothing here ships a list.',
   /**
    * What an agent should do about this module, given that it is here.
    *
@@ -251,15 +248,15 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    */
   guidance:
     'Work here is held to checklists somebody wrote — nothing is hardcoded, so read them rather than assuming. '
-    + 'Call `checklists` to see what exists, then call it again with a checklist id and the thing you are working '
-    + 'on (a ref like gh#105, or an epic whose paper it is) to see what is still owed FOR THAT TARGET. Ticks are '
-    + 'per target: the same list held against two issues keeps two separate sets, so finishing one says nothing '
-    + 'about the other. Before calling anything done, satisfy each item or say plainly which you could not, and '
-    + 'why. You MAY tick, with `check_item`, under your own name — every tick records that it came through the MCP '
-    + 'door and a person can take it back with one press. So tick what you actually did, and leave what you cannot '
-    + 'judge. On a paper, give `path` (and `from`/`to`) instead of a section: this answers about the file or the '
-    + 'heading those bytes fall in, which is what the reader is looking at. If no list fits, `create_checklist` '
-    + 'makes one — but look first.',
+    + 'Call `checklists` to see what exists and where each is held, then call it again with a checklist id and '
+    + 'the thing you are working on (a ref like gh#105, or an epic whose paper it is) to see what is still owed '
+    + 'FOR THAT TARGET. Ticks are per target: the same list held against two issues keeps two separate sets. '
+    + 'Before calling anything done, satisfy each item or say plainly which you could not, and why. You MAY tick, '
+    + 'with `check_item`, under your own name — every tick records that it came through the MCP door and a person '
+    + 'can take it back with one press. Tick what you actually did; leave what you cannot judge. On a paper, give '
+    + '`path` (and `from`/`to`) instead of a section to mean the file or heading being looked at. A person sees a '
+    + 'list only where it is held: `hold_checklist` puts it in front of them for a file, a heading or a reference. '
+    + 'If no list fits, `create_checklist` makes one — but look first.',
   entry: '/app',
   modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
   mcp: {
@@ -271,10 +268,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   /**
    * ## `reacts: ['selection', 'passage']`, which is a description and not a request
    *
-   * The selection decides what a tick can be filed against. `src/app.tsx`
-   * builds its candidate targets out of the selected refs and drops a locally
-   * picked target when the canvas selection moves under it, which is a
-   * reaction rather than a reading: the page is different afterwards.
+   * The selection decides what is in front of the reader: every checklist
+   * held against a selected reference is drawn, and the edit page offers the
+   * selected references as targets. That is a reaction rather than a reading:
+   * the page is different afterwards.
    *
    * The field is new, and the reason to fill it in is a person browsing the
    * module registry. Until now a host could say who SENDS — References declares
@@ -305,10 +302,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * `list/scope.ts`, including why the ladder stops before a passage rung.
    *
    * The line is earned rather than aspirational, which is the test this field
-   * has to pass: the page is DIFFERENT after a passage arrives — a different
-   * target, a different set of ticks, a different heading — and
-   * `dev/passage.probe.mjs` moves a host between two files of a real thesis and
-   * asserts it.
+   * has to pass: the page is DIFFERENT after a passage arrives — the lists
+   * held against the file or heading the reader walked into, and none of the
+   * others.
    *
    * `passage:set` is deliberately still not declared, and there is nothing here
    * that would use it. This module reads passages and never sets one, so it
@@ -321,7 +317,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   reacts: ['selection', 'passage'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'projects:pick', 'state:keep'],
+    uses: ['events:emit', 'projects:pick'],
     storage: true,
     prompt: false,
   },

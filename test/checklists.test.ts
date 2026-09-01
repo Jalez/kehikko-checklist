@@ -145,13 +145,19 @@ describe('ticks belong to a checklist, a target and an item together', () => {
     expect(tick?.viaMcp).toBe(true)
   })
 
-  test('an untick leaves nothing behind, so a target with no ticks is not offered as one', async () => {
+  test('an untick leaves no empty tick map behind, and the target stays held', async () => {
+    /* The tick map is cleaned so a file full of empty objects does not read as
+       holding something. The HOLDING is a fact about the list and survives:
+       taking a tick back is not the same as saying the list is no longer about
+       that work — that is `release`, in `test/targets.test.ts`. */
     const { change, targetsOf } = await store()
     const { list, item } = await aList()
     change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' }, dir)
-    expect(targetsOf(list, dir)).toHaveLength(1)
+    expect(targetsOf(list, dir)).toEqual([{ target: { kind: 'ref', ref: 'gh#1' }, done: 1 }])
     change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: false, by: 'a test' }, dir)
-    expect(targetsOf(list, dir)).toEqual([])
+    expect(targetsOf(list, dir)).toEqual([{ target: { kind: 'ref', ref: 'gh#1' }, done: 0 }])
+    const raw = JSON.parse(readFileSync(file(), 'utf8')) as { ticks: Record<string, unknown> }
+    expect(raw.ticks[list]).toBeUndefined()
   })
 
   test('targets a list has ticks against come back, so nothing recorded becomes unreachable', async () => {
