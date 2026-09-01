@@ -149,6 +149,43 @@ export function App() {
     onDoor,
   )
 
+  /*
+   * Nothing is offered to `roadmap.filters`, and the ladder is the reason.
+   *
+   * The protocol lets a module say what it can be narrowed by so that the host
+   * draws one control in the container header instead of every module drawing
+   * its own. This page has exactly one thing that looks like that control — the
+   * scope ladder and its `Show <wider>` press — and it is not a filter. It is
+   * worth being precise about the difference, because the two are easy to
+   * confuse and moving the wrong one would break this container:
+   *
+   * - **A filter is a choice from a fixed set of options this module names.**
+   *   `all` or `here`, `issues` or `changes`: the words are the same next week,
+   *   they mean the same thing on every canvas, and a host can remember one
+   *   against a container and hand it back before this page has drawn anything.
+   *
+   * - **The ladder is a POSITION.** Which rung it is on is derived from the
+   *   passage the reader is standing in — the answer the server gave, not a
+   *   request this page made — and the rungs themselves are the targets this
+   *   list happens to have ticks against, which change as work is done. There
+   *   is no fixed set to enumerate, so there is nothing that could be offered
+   *   as options; and even if there were, a remembered one would be wrong by
+   *   design. `list/scope.ts` says it under "Nothing here is remembered": a
+   *   remembered scope outlives the context that justified it, and the
+   *   container would come back tomorrow showing a section of a file the reader
+   *   is not in. The host remembers a filter choice per container, forever,
+   *   which is exactly the behaviour this module refuses.
+   *
+   * The widen press is also the way back OUT of a narrowed view, and it has to
+   * sit beside the count of what is being hidden — `N ticked elsewhere in this
+   * paper` — because the number and the undo are one sentence. Splitting them
+   * across two surfaces would leave the reader the half that says something is
+   * missing and put the half that fixes it somewhere else.
+   *
+   * So this module sends no offer. Not an empty one, which would mean
+   * "withdraw the control I gave you"; it has never given one.
+   */
+
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.
    *
