@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { choose, reading, unchoose, writing, type Kept } from '../../list/keep.ts'
-import { projectPickResult, type FilterChoice, type FilterGroup } from 'roadmap-module-protocol'
+import { projectPickResult, type FilterGroup } from 'roadmap-module-protocol'
 import {
   PERSON_ANSWERS_WITHIN_MS,
   connect,
@@ -29,8 +28,8 @@ import { wearTheme } from './theme.ts'
  * already grown the same two bugs independently.
  *
  * The core client is used here rather than `…/client/react`, and the reason is
- * the state below: this hook compares a kehikko by id before writing it, holds
- * the kept map in a ref beside the state, and normalises two spellings of "no
+ * the state below: this hook flattens the passage to one string, compares a
+ * kehikko by id before writing it, and normalises two spellings of "no
  * project" to one. A generic hook that handed back the whole context would make
  * every one of those a thing done downstream, on a fresh object identity every
  * two seconds. The client is a convenience and this is what it looks like to
@@ -46,8 +45,12 @@ import { wearTheme } from './theme.ts'
  * answer arriving after the epic moved, because no answer is being waited for.
  *
  * What is left is what a context actually carries: which epic is open, which
- * kehikko this container is standing on, what the canvas has picked out, and the
- * theme. Plus one new thing, which is the reason `state:keep` is declared.
+ * project, where in a document the reader is, what the canvas has picked out,
+ * and the theme. Nothing is kept with the host any more: this hook used to read
+ * a `state:keep` string carrying which checklist was picked per kehikko, and
+ * that pick no longer exists — what is in front of a reader is decided by
+ * where they are and what every list is held against (`list/holding.ts`), and
+ * a remembered pick would have been a second answer to the same question.
  *
  * ## The grace, and why there is still one
  *
@@ -113,9 +116,9 @@ export interface Roadmap {
    * The kehikko this container is on, or null.
    *
    * Null is a REAL state and not a missing one: a host need not have canvases at
-   * all, and this module cannot tell where it is standing without being told. It
-   * gets its own screen rather than a wrong answer — see `Unplaced` in
-   * `src/view/choose.tsx`.
+   * all. Nothing on this page is keyed by it any more — the per-kehikko pick
+   * went with `list/keep.ts` — and it is carried because a context says it and
+   * a later reader of this hook should not have to add it back.
    */
   kehikko: Kehikko | null
   /**
@@ -123,10 +126,9 @@ export interface Roadmap {
    *
    * Never what this page asked for — this page never asks. It declares no
    * `selection:set`, has no control that would set one, and its job is to answer
-   * a question about what somebody else picked. Under the new model these are
-   * candidate TARGETS: a ref selected on the canvas is a thing a checklist can
-   * be held against, and offering it is cheaper and more accurate than asking
-   * somebody to type it.
+   * a question about what somebody else picked. A selected reference does two
+   * things here: every checklist held against it is in front of the reader, and
+   * the edit page offers it as a target to hold a list against.
    */
   selection: string[]
   /**
@@ -154,44 +156,15 @@ export interface Roadmap {
    */
   passage: string
   /**
-   * Which of the filters this page offered are chosen for THIS container.
-   *
-   * `{}` before any host has said anything, and `{}` from a host that has never
-   * heard of filters — the true answer in both cases: nothing is narrowed, and
-   * the container is on the resting rung it has always been on.
-   *
-   * The only thing in it is the grain: how much of a paper the reader wants in
-   * front of them. Which file and which section is still derived from `passage`
-   * and is stored by nobody — `list/scope.ts` argues that at length, because it
-   * is the difference between this being a preference worth remembering and a
-   * place that must not be.
-   *
-   * Compared key by key before it is written, for the reason `kehikko` is: a
-   * context arrives after every change anywhere on the canvas, carrying a record
-   * the host rebuilt whatever happened, and a fresh identity here would be a new
-   * dependency for the offer effect and the fetch — several times a second while
-   * a reader does nothing.
-   */
-  chosen: FilterChoice
-  /** Which checklist was last picked, per kehikko, as the host kept it for us. */
-  kept: Kept
-  /**
    * Say what this page can be narrowed by, so the host draws the control.
    *
    * Fire and forget, like `resize`: the host may draw the offer, may draw part
-   * of it, or may never have heard of the idea. What comes back is not an answer
-   * but a `roadmap.context` with `filters` in it.
-   *
-   * Stable across renders, so the effect that sends the offer can depend on the
-   * one thing that makes the offer change — which here is the LADDER, because
-   * the rungs on offer are a function of where the reader is standing. The
-   * client replays the last offer after every greeting, so a page that stopped
-   * sending is still drawn correctly after a reload; a page whose ladder has
-   * changed has to send again itself.
+   * of it, or may never have heard of the idea. This page offers NOTHING now,
+   * and says so once — see the essay on the empty offer in `src/app.tsx` for
+   * why that is a sentence rather than a silence. The client replays the last
+   * offer after every greeting, so once is enough.
    */
   filters: (groups: FilterGroup[]) => void
-  /** Remember a pick for one kehikko, or forget it. Silent when nothing is framing this page. */
-  remember: (kehikko: number, checklist: string | null) => void
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
   resize: (height: number) => void
   /**
@@ -217,9 +190,9 @@ export interface Roadmap {
    * ## It waits on a person, so it waits longer than anything else here
    *
    * `PERSON_ANSWERS_WITHIN_MS` rather than the wire's ordinary twelve seconds,
-   * passed per call rather than set on the connection — the other question this
-   * page asks is `state.set`, and a page that waited five minutes to find out
-   * the host was gone would be holding a pick nobody had kept.
+   * passed per call rather than set on the connection — a page that waited five
+   * minutes on every request to find out the host was gone would be a page that
+   * hangs.
    */
   pickProject: () => Promise<{ path: string; name: string } | null>
 }
@@ -242,22 +215,7 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [projectName, setProjectName] = useState<string | null>(null)
   const [kehikko, setKehikko] = useState<Kehikko | null>(null)
-  const [kept, setKept] = useState<Kept>([])
-  const [chosen, setChosen] = useState<FilterChoice>({})
   const host = useRef<Connection | null>(null)
-
-  /**
-   * The kept list as the sender sees it, beside the state the page renders from.
-   *
-   * Two holders of one fact is normally the defect this codebase argues against.
-   * Here the alternative is worse: `remember` is a stable callback that must not
-   * be rebuilt every time the map changes — it is passed to components and used
-   * in effects — and a stale closure over `kept` would write a map missing
-   * whatever was chosen in between. So the ref is what `remember` reads and the
-   * state is what React draws, and they are assigned on the same line every
-   * time.
-   */
-  const held = useRef<Kept>([])
 
   /**
    * The handler, held in a ref and read at the moment a `goto` arrives.
@@ -298,7 +256,6 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
-      filters?: FilterChoice
     }) => {
       wearTheme(document.documentElement, context.theme)
 
@@ -360,15 +317,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       setKehikko((was) =>
         was?.id === context.kehikko?.id && was?.name === context.kehikko?.name ? was : context.kehikko,
       )
-      /*
-       * Compared before it is written, and for the same reason the kehikko is:
-       * this is a record the host rebuilds on every context whatever happened,
-       * so a blind write would be a new identity in the offer effect and in the
-       * fetch several times a second. `kept` above can be written blindly
-       * because it arrives only in the greeting; this arrives always.
-       */
-      const said = context.filters ?? {}
-      setChosen((was) => (agrees(was, said) ? was : said))
+      /* `context.filters` is deliberately not read. This page offers no filter,
+         so any choice a host still holds for this container is one an older
+         version of this module asked for, and the empty offer `src/app.tsx`
+         sends is what tells the host to let it go. */
     }
 
     /**
@@ -403,25 +355,14 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
-      filters?: FilterChoice
     }
-    const deliver = (context: Context, state: string | null | undefined) => {
-      /* The kept string arrives ONLY in the greeting, and is read before the
-         context is applied so the first render already has the remembered
-         choice. A page that drew the pick screen and then replaced it with the
-         remembered list would be teaching the reader that the pick screen is
-         noise — the same argument as the greeting grace above. */
-      if (state !== undefined) {
-        const was = reading(state)
-        held.current = was
-        setKept(was)
-      }
-      arrived(context)
-    }
-
+    /* The greeting's kept `state` is deliberately not read. A string an older
+       version of this module asked the host to keep — which checklist was
+       picked on which kehikko — means nothing to this one, and reading it
+       would be a page opening on a list nobody asked for today. */
     const live = connect(id, {
-      onHello: (context, state) => deliver(context as Context, state),
-      onContext: (context) => deliver(context as Context, undefined),
+      onHello: (context) => arrived(context as Context),
+      onContext: (context) => arrived(context as Context),
       onGoto: (message, answer) => goto.current(message, answer),
     })
     host.current = live
@@ -460,26 +401,6 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       if (host.current === live) host.current = null
     }
   }, [id])
-
-  /**
-   * Remember which checklist was picked on one kehikko, or forget it.
-   *
-   * Fire and forget, deliberately. A host may refuse `state.set` — it is a
-   * declared capability and a declaration is not a request — and the correct
-   * response to a refusal is that the choice holds for this session and is
-   * asked for again next time. Blocking the pick on a round trip, or drawing a
-   * failure beside it, would make a page's most ordinary action wait on
-   * somebody else's storage.
-   */
-  const remember = useCallback((canvas: number, checklist: string | null) => {
-    const next = checklist === null ? unchoose(held.current, canvas) : choose(held.current, canvas, checklist)
-    held.current = next
-    setKept(next)
-    void host.current?.request('state.set', { state: writing(next) }).catch(() => {
-      /* Reported nowhere on purpose. See above: a refused keep is a choice that
-         lasts the session, which is a state this page is already correct in. */
-    })
-  }, [])
 
   const resize = useCallback((height: number) => host.current?.resize(height), [])
 
@@ -526,9 +447,6 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       kehikko,
       selection,
       passage,
-      chosen,
-      kept,
-      remember,
       resize,
       filters,
       pickProject,
@@ -541,25 +459,9 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       kehikko,
       selection,
       passage,
-      chosen,
-      kept,
-      remember,
       resize,
       filters,
       pickProject,
     ],
   )
-}
-
-/**
- * Whether two filter choices say the same thing.
- *
- * Key by key, because the host builds a new record on every context whatever
- * happens, and the identity of that record is what every memo downstream would
- * otherwise be comparing.
- */
-function agrees(a: FilterChoice, b: FilterChoice): boolean {
-  const keys = Object.keys(a)
-  if (keys.length !== Object.keys(b).length) return false
-  return keys.every((key) => a[key] === b[key])
 }

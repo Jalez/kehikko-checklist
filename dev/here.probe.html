@@ -1,0 +1,183 @@
+<!doctype html>
+<!--
+  Does the reading page show the lists a person ASSIGNED to where they are, and
+  nothing else — in a real browser, against a copy of a real thesis?
+
+      PROJECT=/private/tmp/ck-probe-project   (a copy of the owner's thesis project)
+      ROADMAP_MODULES_DIR=/tmp/ck-probe-registry PORT=7899 bunx vite
+      chrome-headless-shell --headless --disable-gpu --no-sandbox \
+        --virtual-time-budget=40000 --dump-dom --enable-logging=stderr --v=1 \
+        'http://127.0.0.1:7899/dev/here.probe.html?project=/private/tmp/ck-probe-project' \
+        2>console.log | grep 'PROBE:'
+
+  ## Why a page and not a Playwright script
+
+  The other probes in this directory drive a fake host with Playwright, which
+  is not installed on every machine this runs on; the headless shell is. It
+  can only dump the TOP document, so this harness is served from the module's
+  own origin — `frame-ancestors 'self'` lets it frame `/app`, and same-origin
+  lets it read the frame's DOM and copy what it finds into the `<pre>` below,
+  which is what the dump prints. The host it fakes is two messages:
+  `roadmap.hello` with the context nested under `context`, then a
+  `roadmap.context` per move with the context's fields at the TOP level of the
+  message — which is the shape the client unwraps, and not the nested one the
+  older Playwright probes in this directory still send.
+
+  ## What it does
+
+  Holds three of the copied thesis's real lists — chapter 1's, chapter 3's,
+  and the thesis-wide one — against chapter 1, chapter 3 and the whole paper,
+  through the app's own door with the ticket the page carries. Then walks a
+  reader through the paper and prints, per move, every instance on screen:
+  name, which target, count. Then ticks an item in chapter 3, walks away and
+  back, opens the edit page, opens the picker, and opens the list of every
+  checklist. Everything printed is read off the rendered DOM.
+
+  Never run against the owner's live project: it writes holdings. Copy the
+  project first (see the report that introduced this file).
+-->
+<body style="margin:0">
+<iframe id="f" style="width:220px;height:300px;border:0;display:block"
+ sandbox="allow-scripts allow-forms allow-popups allow-same-origin"></iframe>
+<pre id="out"></pre>
+<script>
+const PROJECT = new URLSearchParams(location.search).get('project') || '/private/tmp/ck-probe-project'
+const PAPER = `${PROJECT}/.kehikot/paper/thesis`
+const EPIC = 'thesis'
+const CH = (n) => `.kehikot:paper:thesis:chapters:${n}`
+
+const out = document.getElementById('out')
+const log = (s) => { out.textContent += `PROBE: ${s}\n` }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+const passage = (file, from = null, to = null) => ({ path: `${PAPER}/${file}`, page: null, from, to, quoted: '' })
+const MOVES = [
+  ['main.tex', passage('main.tex'), []],
+  ['chapters/1_introduction.tex', passage('chapters/1_introduction.tex'), []],
+  ['chapters/3_methods.tex, in §Research design', passage('chapters/3_methods.tex', 800, 820), []],
+  ['chapters/3_methods.tex, in §Study context', passage('chapters/3_methods.tex', 6800, 6820), []],
+  ['chapters/5_discussion.tex', passage('chapters/5_discussion.tex'), []],
+  ['nothing open', null, []],
+  ['chapters/3_methods.tex, gh#105 selected', passage('chapters/3_methods.tex', 800, 820), ['gh#105']],
+  ['nothing open, gh#105 selected', null, ['gh#105']],
+  ['nothing open, gh#900 selected', null, ['gh#900']],
+]
+
+const context = (p, selection) => ({
+  epic: EPIC, project: 'probe', projectPath: PROJECT, theme: 'light', selection, passage: p, kehikko: { id: 7, name: 'Thesis' },
+})
+
+const f = document.getElementById('f')
+const doc = () => f.contentDocument
+const send = (type, extra) => f.contentWindow.postMessage({ type, ...extra }, '*')
+
+window.addEventListener('message', (e) => {
+  if (e.data && typeof e.data.type === 'string' && e.data.type !== 'roadmap.context') log(`from module: ${e.data.type}${e.data.type === 'roadmap.filters' ? ' ' + JSON.stringify(e.data.groups ?? e.data) : ''}`)
+})
+
+function instances() {
+  const d = doc()
+  const found = [...d.querySelectorAll('[data-instance]')].map((n) =>
+    `${n.querySelector('h2')?.textContent} @ ${n.querySelector('[data-label]')?.textContent} ${n.querySelector('[data-count]')?.textContent}`)
+  if (found.length) return found.join('  |  ')
+  const none = d.querySelector('[data-none]')
+  if (none) return `(none: ${none.getAttribute('data-none')}) ${none.textContent}`
+  return `(no instances) ${d.body.textContent.replace(/\s+/g, ' ').slice(0, 160)}`
+}
+
+function old() {
+  const d = doc()
+  const words = ['Reading ', 'Held against', 'not held', 'Nothing has been ticked', 'Hold it against']
+  const text = d.body.textContent
+  const hit = words.filter((w) => text.includes(w))
+  const sel = ['[data-switch]', '[data-hold]', '[data-unheld]', '[data-strip]'].filter((s) => d.querySelector(s))
+  return hit.length || sel.length ? `OLD ROW PRESENT: ${[...hit, ...sel].join(', ')}` : 'none of the old row'
+}
+
+f.contentWindow.addEventListener('error', (e) => log(`frame error: ${e.message}`))
+f.addEventListener('load', async () => {
+  f.contentWindow.addEventListener('error', (e) => log(`frame error: ${e.message}`))
+  send('roadmap.hello', { protocol: 2, session: 'probe', context: context(MOVES[0][1], []), state: null })
+  await sleep(1200)
+
+  /* Seed through the app's own door, with the ticket the page carries. */
+  const ticket = JSON.parse(doc().getElementById('ticket').textContent)
+  const post = (b) => fetch('/api/checklist', { method: 'POST', headers: { 'content-type': 'application/json', 'x-checklist-ticket': ticket }, body: JSON.stringify({ ...b, project: PROJECT }) }).then((r) => r.json())
+  const lists = (await fetch(`/api/checklists?project=${encodeURIComponent(PROJECT)}`).then((r) => r.json())).lists
+  const by = (part) => lists.find((l) => l.name.includes(part))?.id
+  const ch1 = by('Chapter 1'), ch3 = by('Chapter 3'), whole = by('Thesis paper checklist')
+  log(`lists in the copy: ${lists.length}; ch1=${ch1} ch3=${ch3} whole=${whole}`)
+  for (const [id, t] of [[ch1, { epic: EPIC, section: CH('1_introduction') }], [ch3, { epic: EPIC, section: CH('3_methods') }], [whole, { epic: EPIC }], [ch3, { ref: 'gh#105' }]]) {
+    const r = await post({ op: 'hold', id, ...t })
+    log(`hold: ${r.ok ? r.said : 'REFUSED ' + r.error}`)
+  }
+
+  /* A DIFFERENT context from the greeting's, so the first move below is a
+     move. The holds above were made outside the page, and a context identical
+     to the last one is — correctly — not re-asked about; on the real canvas a
+     hold is made on the page or through the MCP door, and both re-ask. */
+  send('roadmap.context', { protocol: 2, ...context(null, []) })
+  await sleep(900)
+  log('--- 220x300, walking ---')
+  for (const [label, p, selection] of MOVES) {
+    send('roadmap.context', { protocol: 2, ...context(p, selection) })
+    await sleep(900)
+    log(`${label.padEnd(44)} -> ${instances()}   [${old()}]`)
+  }
+
+  /* Tick one item in chapter 3, walk away, come back. */
+  send('roadmap.context', { protocol: 2, ...context(MOVES[2][1], []) })
+  await sleep(900)
+  const row = doc().querySelector(`[data-instance="${ch3}"] li[data-item] button`)
+  row?.click()
+  await sleep(900)
+  log(`after ticking one line in chapter 3            -> ${instances()}`)
+  send('roadmap.context', { protocol: 2, ...context(MOVES[1][1], []) })
+  await sleep(900)
+  log(`walked to chapter 1                            -> ${instances()}`)
+  send('roadmap.context', { protocol: 2, ...context(MOVES[2][1], []) })
+  await sleep(900)
+  log(`and back to chapter 3                          -> ${instances()}`)
+
+  /* The edit page, from the chapter 3 instance. */
+  doc().querySelector(`[data-edit="${ch3}"]`)?.click()
+  await sleep(900)
+  const holding = doc().querySelector('[data-holding]')
+  log(`edit page: data-page=${doc().querySelector('[data-page]')?.getAttribute('data-page')} held against ${holding?.getAttribute('data-holding')}: ${[...doc().querySelectorAll('[data-release]')].map((n) => n.textContent.replace('Release', '').trim()).join(' | ')}`)
+  doc().querySelector('[data-switch]')?.click()
+  await sleep(900)
+  const files = [...doc().querySelectorAll('[data-pick-file]')].map((n) => `${n.textContent.replace(/held|not held/g, '').trim()}${n.getAttribute('data-held') === 'yes' ? '✓' : ''}`)
+  log(`picker: paper=${doc().querySelector('[data-paper]')?.getAttribute('data-paper')} files: ${files.join(', ')}`)
+  log(`picker: sections open in the reader's file: ${doc().querySelectorAll('[data-pick-section]').length}, sheet=${Boolean(doc().querySelector('[data-sheet]'))}`)
+  /* Release chapter 3's file from the picker, then hold it again. */
+  doc().querySelector(`[data-pick-file="${CH('3_methods')}"]`)?.click()
+  await sleep(900)
+  log(`after releasing 3_methods in the picker: held against ${doc().querySelector('[data-holding]')?.getAttribute('data-holding')}`)
+  doc().querySelector(`[data-pick-file="${CH('3_methods')}"]`)?.click()
+  await sleep(900)
+  log(`after holding it again: held against ${doc().querySelector('[data-holding]')?.getAttribute('data-holding')}`)
+  doc().querySelector('[data-sheet-close]')?.click()
+  await sleep(300)
+  doc().querySelector('[data-done]')?.click()
+  await sleep(900)
+  log(`Done leads back to                             -> ${instances()}`)
+
+  /* Every checklist. */
+  doc().querySelector('[data-all]')?.click()
+  await sleep(900)
+  log(`all checklists: ${doc().querySelector('[data-all]')?.getAttribute('data-all')} rows, summaries: ${[...doc().querySelectorAll('[data-summary]')].map((n) => n.textContent).join(',')}`)
+  doc().querySelector('[data-back]')?.click()
+  await sleep(900)
+  log(`Back leads to                                  -> ${instances()}`)
+
+  /* And with room to spare. */
+  f.style.width = '900px'
+  f.style.height = '700px'
+  await sleep(900)
+  log(`--- 900x700 --- ${instances()}  edit press reads "${doc().querySelector('[data-edit]')?.textContent.trim()}"`)
+  log(`body scrollWidth ${doc().documentElement.scrollWidth} vs client ${doc().documentElement.clientWidth}`)
+  log('done')
+})
+f.src = '/app'
+</script>
+</body>

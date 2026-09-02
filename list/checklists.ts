@@ -3,7 +3,8 @@ import { basename } from 'node:path'
 import { z } from 'zod'
 
 import { dataFile, makeDir, oldPapersFile } from '../store.ts'
-import { readKey, targetKey, type Target } from './targets.ts'
+import { showing } from './holding.ts'
+import { readKey, targetKey, targetName, type Target } from './targets.ts'
 
 /**
  * Every checklist this app holds, and every tick anybody has made on one.
@@ -207,8 +208,51 @@ const checklistSchema = z.object({
    */
   origin: z.string().nullable().default(null),
   items: z.array(itemSchema).default([]),
+  /**
+   * What this list is HELD AGAINST: the keys of its targets, as `targetKey`
+   * spells them. A stored property of the list, set by a person on the edit
+   * page or by an agent through `hold_checklist`, and by nothing else.
+   *
+   * ## This field is the answer to the report, and its shape is the argument
+   *
+   * The owner, three times in three wordings, and this is the third:
+   *
+   * > "I want to be able to connect one or more checklists in papers case to
+   * > sections or tex files and I want that to stick. … I dont want it to be
+   * > able to change on the fly, only when I am in edit mode of that
+   * > checklist."
+   *
+   * Under the model this replaces a list was "held against" whatever it had
+   * TICKS on: a pairing came into being the first time somebody ticked an item
+   * against a target, and never before. That is why the owner's own store, on
+   * disk, held seven chapter checklists and `"ticks": {}` — every one of them
+   * was about a chapter and not one of them was held against anything, because
+   * nothing had been ticked yet. The connection they asked for could not be
+   * written down, so the container derived one from wherever they had scrolled
+   * to, and derived a different one on the next scroll.
+   *
+   * So the connection is a field. Plural, because "one or more"; keys rather
+   * than `Target` objects because the `ticks` map below is already keyed by the
+   * same spelling, and one spelling in the file is what lets a person reading
+   * it join the two by eye.
+   *
+   * ## Optional in the schema, and the absence MEANS something
+   *
+   * Every other field a later version added arrived with `.default()`. This
+   * one is `.optional()`, deliberately, because an absent array and an empty
+   * one are two different facts about a file. Absent says "written before this
+   * field existed", and `settleTargets` fills it in from the ticks — a target
+   * somebody ticked against under the old model is a target they meant. Empty
+   * says "somebody released every target on purpose", and has to stay empty. A
+   * `.default([])` would make the second indistinguishable from the first, and
+   * a release would quietly undo itself on the next read.
+   *
+   * `Checklist` below narrows it back to `string[]`: past `read()` the field is
+   * always there, and nothing downstream should have to ask.
+   */
+  targets: z.array(z.string()).optional(),
 })
-export type Checklist = z.infer<typeof checklistSchema>
+export type Checklist = Omit<z.infer<typeof checklistSchema>, 'targets'> & { targets: string[] }
 
 const storeSchema = z.object({
   checklists: z.record(z.string(), checklistSchema).default({}),
@@ -370,6 +414,9 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
        section here would be this migration claiming to know something the file
        never said. */
     const key = targetKey({ kind: 'paper', epic, section: null })
+    /* And the list IS held against that paper, ticks or no ticks: being about
+       one paper was the whole meaning of the old store's key. */
+    store.checklists[id]!.targets = [key]
     const ticked: Record<string, Tick> = {}
     for (const item of paper.items) {
       if (!item.done) continue
@@ -439,8 +486,41 @@ function read(projectPath: string | null | undefined): Opened {
      only safe order: bringing somebody's paper lists across into a store this
      app has just failed to parse would write them over the file it could not
      read. */
-  if (migrate(store, projectPath)) save(store, projectPath)
+  const moved = migrate(store, projectPath)
+  const settled = settleTargets(store)
+  if (moved || settled) save(store, projectPath)
   return { store, where: 'here', trouble: null }
+}
+
+/**
+ * Give every list written before `targets` existed the targets it already had.
+ *
+ * A file from the previous version has no `targets` on any list, and it may
+ * have ticks. Under that version a tick WAS the assignment — the only way a
+ * list came to be about `gh#105` was somebody ticking an item against it — so
+ * the keys of its tick map are exactly the targets that person meant, and they
+ * are copied across. No tick is touched, and none is dropped. A list with no
+ * ticks gets `[]`, which is the true answer: nothing had ever connected it to
+ * anything, and that is the state the owner's seven chapter lists were in on
+ * disk when this was written (`test/targets.test.ts` opens a copy of that file).
+ *
+ * Runs once per list: after this the field is present and `optional()` no
+ * longer fires — see the essay on the field. Idempotent for the same reason
+ * the papers migration is, which is that the file itself is the marker.
+ */
+function settleTargets(store: Store): boolean {
+  let changed = false
+  for (const list of Object.values(store.checklists)) {
+    if (Array.isArray(list.targets)) continue
+    list.targets = Object.keys(store.ticks[list.id] ?? {})
+    changed = true
+  }
+  return changed
+}
+
+/** A list as everything past `read()` holds it: `targets` present, always. */
+function settled(list: z.infer<typeof checklistSchema>): Checklist {
+  return { ...list, targets: list.targets ?? [] }
 }
 
 /**
@@ -516,6 +596,8 @@ export const MAX_ID = 64
  */
 export const MAX_ITEMS = 200
 export const MAX_LISTS = 200
+/** How many targets one checklist may be held against. A thesis is seven chapters; sixty-four is a mistake. */
+export const MAX_TARGETS = 64
 
 function newId(): string {
   return crypto.randomUUID().replace(/-/g, '').slice(0, 8)
@@ -577,7 +659,7 @@ const MAX_RENAMES = 20
  * name past `MAX_NAME` — which would be stored clipped, and a clipped name can
  * collide with the very thing it was lengthened to avoid.
  */
-function free(wanted: string, here: readonly Checklist[], project: string): string | null {
+function free(wanted: string, here: readonly { name: string }[], project: string): string | null {
   const taken = new Set(here.map((list) => list.name.toLowerCase()))
   const fits = (name: string): string | null =>
     name.length <= MAX_NAME && !taken.has(name.toLowerCase()) ? name : null
@@ -604,8 +686,10 @@ export interface Summary {
   at: string
   by: string
   items: number
-  /** How many targets this list has ever been ticked against. */
+  /** How many targets this list is held against. */
   targets: number
+  /** Which ones, so the screen listing every checklist can say where each is in use. */
+  held: Target[]
 }
 
 export interface Held {
@@ -641,7 +725,8 @@ export function checklists(projectPath: string | null | undefined): Store_ {
       at: list.at,
       by: list.by,
       items: list.items.length,
-      targets: Object.keys(store.ticks[list.id] ?? {}).length,
+      targets: (list.targets ?? []).length,
+      held: (list.targets ?? []).map(readKey).filter((one): one is Target => one !== null),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
   return { lists, trouble, nowhere: where === 'nowhere' }
@@ -667,22 +752,59 @@ export function held(
   const on = target ? (store.ticks[id]?.[targetKey(target)] ?? {}) : {}
   const rows = checklist.items.map((item) => ({ item, done: on[item.id] ?? null }))
   return {
-    held: { checklist, target, rows, done: rows.filter((r) => r.done).length, total: rows.length },
+    held: { checklist: settled(checklist), target, rows, done: rows.filter((r) => r.done).length, total: rows.length },
     trouble,
     nowhere,
   }
 }
 
-/** Every target one checklist has ticks against, so nothing recorded becomes unreachable. */
+/**
+ * Every target one checklist is held against, with how much is ticked on each.
+ *
+ * Read off `targets`, not off the tick map, and that is the change. A target
+ * with ticks on it that somebody has since released is NOT listed: the ticks
+ * stay in the file untouched and come back the moment the target is held
+ * again (see `release` below). What this answers is "where is this list in
+ * use", and a released target is precisely the thing that is not.
+ */
 export function targetsOf(id: string, projectPath: string | null | undefined): { target: Target; done: number }[] {
   const { store } = read(projectPath)
-  return Object.entries(store.ticks[id] ?? {})
-    .map(([key, ticks]) => {
+  const list = store.checklists[id]
+  if (!list) return []
+  return (list.targets ?? [])
+    .map((key) => {
       const target = readKey(key)
-      return target ? { target, done: Object.keys(ticks).length } : null
+      return target ? { target, done: Object.keys(store.ticks[id]?.[key] ?? {}).length } : null
     })
     .filter((row): row is { target: Target; done: number } => row !== null)
-    .sort((a, b) => targetKey(a.target).localeCompare(targetKey(b.target)))
+}
+
+/**
+ * Every checklist in front of a reader, each with the ticks for the target it
+ * is in front of them AS.
+ *
+ * One read of the file for the whole answer, which is the reason this is here
+ * rather than in `doors.ts` calling `held` once per list: the reading page asks
+ * this on every context, and a context arrives after every selection change
+ * anywhere on the canvas. `showing` in `list/holding.ts` decides which pairings
+ * qualify and is pure; this is the half that has the store.
+ */
+export function inFront(
+  input: { ladder: string; selection: string[] },
+  projectPath: string | null | undefined,
+): { instances: Held[]; trouble: string | null; nowhere: boolean } {
+  const { store, where, trouble } = read(projectPath)
+  const lists = Object.values(store.checklists)
+    .map((list) => ({ id: list.id, name: list.name, targets: list.targets ?? [] }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const instances = showing({ ladder: input.ladder, selection: input.selection, lists }).flatMap((one) => {
+    const list = store.checklists[one.id]
+    if (!list) return []
+    const on = store.ticks[one.id]?.[targetKey(one.target)] ?? {}
+    const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
+    return [{ checklist: settled(list), target: one.target, rows, done: rows.filter((r) => r.done).length, total: rows.length }]
+  })
+  return { instances, trouble, nowhere: where === 'nowhere' }
 }
 
 /* ------------------------------------------------------------------ *
@@ -716,6 +838,19 @@ export type Op =
   | { op: 'reword'; id: string; item: string; text: string; by: string; viaMcp?: boolean }
   | { op: 'move'; id: string; item: string; to: number; by: string; viaMcp?: boolean }
   | { op: 'drop'; id: string; item: string; by: string; viaMcp?: boolean }
+  /**
+   * Hold this list against one more target, or stop holding it against one.
+   *
+   * The two writes the report asked for, and the only two that change what a
+   * list is ABOUT; everything else here changes what a list says or what has
+   * been done on it. `release` never deletes a tick. The ticks against a
+   * released target stay in the file and are shown again the moment the target
+   * is held again, because "I no longer want this list in front of me in
+   * chapter 3" and "forget what was done in chapter 3" are two sentences, and
+   * only the first was said.
+   */
+  | { op: 'hold'; id: string; target: Target; by: string; viaMcp?: boolean }
+  | { op: 'release'; id: string; target: Target; by: string; viaMcp?: boolean }
   | { op: 'tick'; id: string; item: string; target: Target; done: boolean; by: string; viaMcp?: boolean; note?: string }
 
 export type Result =
@@ -765,7 +900,9 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
       said,
       id,
       lists: checklists(projectPath).lists,
-      held: list ? { checklist: list, target, rows, done: rows.filter((r) => r.done).length, total: rows.length } : null,
+      held: list
+        ? { checklist: settled(list), target, rows, done: rows.filter((r) => r.done).length, total: rows.length }
+        : null,
     }
   }
 
@@ -799,7 +936,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
       }
     }
     const id = newId()
-    store.checklists[id] = { id, name, at, by, origin: null, items: [] }
+    store.checklists[id] = { id, name, at, by, origin: null, items: [], targets: [] }
     return answer(id, `created "${name}" as ${id}`, null)
   }
 
@@ -910,6 +1047,10 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
        */
       origin: `import:${named(input.from)}#${source.id}`,
       items: source.items.map((item) => ({ id: newId(), text: item.text, at: item.at, by: item.by })),
+      /* And held against nothing, for the reason it carries no ticks: what a
+         list is about is a fact about the project it is in, and the chapters of
+         somebody else's paper are not in this one. */
+      targets: [],
     }
     /*
      * And no ticks — which needs no code, and that is worth saying out loud.
@@ -959,6 +1100,39 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
        silently inherited somebody else's answers. */
     delete store.ticks[input.id]
     return answer(input.id, `"${list.name}" is gone, along with every tick made on it`, null)
+  }
+
+  if (input.op === 'hold' || input.op === 'release') {
+    const key = targetKey(input.target)
+    const targets = list.targets ?? []
+    const has = targets.includes(key)
+    if (input.op === 'hold') {
+      if (has) return answer(list.id, `"${list.name}" is already held against ${targetName(input.target)}`, null)
+      if (targets.length >= MAX_TARGETS) {
+        return {
+          ok: false,
+          error:
+            `"${list.name}" is already held against ${targets.length} targets, which is the most one list is held `
+            + 'against here. Release one first.',
+        }
+      }
+      list.targets = [...targets, key]
+      return answer(list.id, `"${list.name}" is now held against ${targetName(input.target)}`, null)
+    }
+    if (!has) return answer(list.id, `"${list.name}" was not held against ${targetName(input.target)}`, null)
+    list.targets = targets.filter((one) => one !== key)
+    const kept = Object.keys(store.ticks[list.id]?.[key] ?? {}).length
+    /* The ticks stay, and the sentence says so: a person releasing a chapter
+       should know that holding it again brings the work back rather than
+       starting it over. */
+    return answer(
+      list.id,
+      `"${list.name}" is no longer held against ${targetName(input.target)}`
+      + (kept
+        ? `; the ${kept === 1 ? 'tick' : `${kept} ticks`} made there ${kept === 1 ? 'is' : 'are'} kept and come back if it is held again`
+        : ''),
+      null,
+    )
   }
 
   if (input.op === 'add') {
@@ -1046,8 +1220,23 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     )
   }
 
-  /* A tick, which is the only operation that involves a target at all. */
+  /* A tick, the one operation left that names a target AND a line. */
   const key = targetKey(input.target)
+  /*
+   * A tick against a target this list is not held against HOLDS it, and says so.
+   *
+   * The page cannot produce this — it only ever draws a tick control on a
+   * target the list is already held against — so this is about the MCP door.
+   * An agent that ticks item 3 for gh#105 has named the target in so many
+   * words, and a refusal here would send it round a second call to say the
+   * same thing again. What the owner asked not to happen is a list re-pointing
+   * itself because somebody SCROLLED; an agent naming a reference is the
+   * opposite of that, and the sentence it gets back says what it just did.
+   * An untick holds nothing: taking a tick back is not a claim about the work.
+   */
+  const targets = list.targets ?? []
+  const newlyHeld = input.done && !targets.includes(key)
+  if (newlyHeld) list.targets = [...targets, key]
   const forList = (store.ticks[list.id] ??= {})
   const forTarget = (forList[key] ??= {})
   if (input.done) {
@@ -1072,6 +1261,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     list.id,
     input.done
       ? `${item.id} on "${list.name}" is ticked for ${key}, by ${by}`
+        + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(input.target)}` : '')
       : `${item.id} on "${list.name}" is no longer ticked for ${key}`,
     input.target,
   )

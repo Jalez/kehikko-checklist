@@ -7,12 +7,13 @@ import {
   change,
   checklists,
   held,
+  inFront,
   targetsOf,
   type Op,
 } from './list/checklists.ts'
 import { announce, since } from './list/outbox.ts'
-import { narrow, scopeOf, targetOf } from './list/scope.ts'
-import { MAX_TARGET_PART, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
+import { ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
+import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
 import { placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 
@@ -288,7 +289,7 @@ function resolve(args: Record<string, unknown>, where: string | null): Target | 
 }
 
 /**
- * The seven tools, which are the whole of what an agent can do here.
+ * The eight tools, which are the whole of what an agent can do here.
  *
  * Streamable HTTP, one request one answer — no sessions and no stream, because
  * nothing here pushes.
@@ -335,9 +336,10 @@ function tools() {
       name: 'checklists',
       description:
         'Every checklist this app holds, or one of them in full. Nothing here ships a list: each one was created by '
-        + 'a person or by an agent, so what comes back is exactly what somebody has written down and no more. Give a '
-        + 'checklist id to read that list; add a ref or an epic to see what has been ticked on it FOR that target, '
-        + 'which is where the ticks actually live — the same list held against two issues keeps two separate sets. '
+        + 'a person or by an agent, so what comes back is exactly what somebody has written down and no more. Every '
+        + 'list says what it is HELD AGAINST — the issues, changes, paper files and sections somebody assigned it to, '
+        + 'which is where a person sees it. Give a checklist id to read that list; add a ref or an epic to see what '
+        + 'has been ticked on it FOR that target — the same list held against two issues keeps two separate sets. '
         + 'Read this before starting work and again before saying you are done.',
       inputSchema: {
         type: 'object',
@@ -364,6 +366,27 @@ function tools() {
           agent: { type: 'string', description: 'Your own name, so the list says who started it' },
         },
         required: ['project', 'name'],
+      },
+    },
+    {
+      name: 'hold_checklist',
+      description:
+        'Hold a checklist against one more target — an issue, merge request or pull request, or a paper, one of its '
+        + 'files, or one heading in it — or, with release: true, stop holding it against one. What a list is held '
+        + 'against is what decides where a PERSON sees it: reading that file or section, or selecting that '
+        + 'reference, puts the list in front of them. A list held against nothing is shown nowhere. Releasing keeps '
+        + 'every tick made there; holding it again brings them back. On a paper, give path (and from/to) to mean '
+        + 'the file or heading being looked at, exactly as check_item does.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTY,
+          checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
+          ...TARGET_PROPERTIES,
+          release: { type: 'boolean', description: 'true to stop holding it against this target. Defaults to false.' },
+          agent: { type: 'string' },
+        },
+        required: ['project', 'checklist'],
       },
     },
     {
@@ -482,8 +505,10 @@ function listsText(where: string): string {
     `Checklists in ${where}:`,
     ...lists.map(
       (list) =>
-        `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, held against `
-        + `${list.targets} target${list.targets === 1 ? '' : 's'}, started by ${list.by})`,
+        `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
+        + (list.held.length
+          ? `held against ${list.held.map(targetName).join(', ')})`
+          : 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'),
     ),
     '',
     'Ticks live per (checklist, target, item): ask again with a ref or an epic to see what is ticked for it.',
@@ -512,40 +537,20 @@ function listText(id: string, target: Target | null, where: string): string {
     const who = done ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''})` : ''
     return `${at + 1}. [${done ? 'x' : ' '}] ${row.item.id} — ${row.item.text}${who}`
   })
+  /*
+   * Where else this list is held, with what is ticked there. Every target the
+   * list is ASSIGNED to, whether or not anything is ticked on it — an agent
+   * reading `0/12` for one chapter should be able to see that the same list
+   * is held against six others, and that the person will see it in each.
+   */
   const all = targetsOf(id, where)
   const others = all.filter((row) => !target || targetKey(row.target) !== targetKey(target))
   const tail = others.length
-    ? `\n\nAlso held against: ${others.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
-    : ''
-  /*
-   * What the narrowing is hiding, said in the answer rather than left to be
-   * inferred from the tail above.
-   *
-   * The tail lists every other target this list has ticks against, which an
-   * agent could add up for itself — but an agent that did not add it up would
-   * read `0/12` on a section of a paper somebody has half finished and conclude
-   * that nothing has been done, which is the same lie the page is careful not to
-   * tell. So the count is stated, in the same terms the page states it, with the
-   * one word that undoes it: drop `path`, or drop `section`.
-   */
-  const narrowed = target && target.kind === 'paper' && target.section
-    ? narrow(
-      /* The scope is built here rather than read back through `scopeOf`,
-         because `scopeOf` starts from a passage and this starts from a target
-         somebody typed — there may be no file at all behind a section id an
-         agent named directly. `narrow` reads the epic and the rung and nothing
-         else, so the file and the title are the id itself: it is what would be
-         printed if either were ever shown, and nothing here shows them. */
-      { kind: 'section', epic: target.epic, file: target.section, id: target.section, title: target.section },
-      all,
-    ).elsewhere
-    : 0
-  const hidden = narrowed
-    ? `\n\nThis is one place in that paper, not the whole of it: ${narrowed} tick${narrowed === 1 ? ' is' : 's are'} `
-      + `held against somewhere else in ${target?.kind === 'paper' ? target.epic : 'this paper'}, and not shown `
-      + 'above. Ask again without a section (or without a path) to see the paper whole.'
-    : ''
-  return `${head}\n${lines.join('\n')}${tail}${hidden}`
+    ? `\n\n${target ? 'Also held' : 'Held'} against: ${others.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
+    : target
+      ? ''
+      : '\n\nHeld against nothing yet, so nobody sees it anywhere: hold_checklist puts it in front of somebody.'
+  return `${head}\n${lines.join('\n')}${tail}`
 }
 
 /**
@@ -580,6 +585,24 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
       + '— a name can be changed and an id cannot.',
     )
   }
+  if (name === 'hold_checklist') {
+    /* The same passage resolution as `check_item`, so an agent that was told
+       what is owed "here" can hold a list here without spelling the section id
+       this program mints. */
+    const target = resolve(args, where)
+    if (!target) {
+      throw new Error(
+        'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
+        + 'e.g. "gh#105") or an epic whose paper this is, optionally with a section of it or a path into it. What a '
+        + 'list is held against is where a person sees it, so there is nothing to do without one.',
+      )
+    }
+    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target, by, viaMcp: true }
+    const out = change(op, where)
+    if (!out.ok) throw new Error(out.error)
+    return `${out.said}.\n\n${listText(id, null, where)}`
+  }
+
   const item = str(args.item, MAX_ID)
   if (name !== 'add_checklist_item' && !item) {
     throw new Error(
@@ -765,6 +788,7 @@ function mcp(rpc: Rpc): Reply {
       }
       if (
         name === 'create_checklist'
+        || name === 'hold_checklist'
         || name === 'add_checklist_item'
         || name === 'check_item'
         || name === 'reword_checklist_item'
@@ -843,27 +867,58 @@ export function answer(
   }
 
   /*
-   * One checklist, held against one target.
+   * Everything in front of the reader: every checklist held against where they
+   * are standing or what they have selected, each with the ticks for that
+   * target. The reading page's one request.
+   *
+   * ## Where the reader is standing is answered HERE, and not on a door of its own
+   *
+   * The obvious build was `/api/where`: the page sends the passage, gets back a
+   * file and a section, and then asks for the lists. Two round trips, and — the
+   * part that decided it — two answers that can disagree. Between the first and
+   * the second the reader moves, the second is about a place the first never
+   * named, and the container prints one chapter's lists under another chapter.
+   * That is the "two halves quietly disagreeing" failure this workspace keeps
+   * finding, built in on purpose.
+   *
+   * So the passage rides on this request, the ladder is built before the store
+   * is read, and `placed` comes back beside the instances: one answer, about
+   * one place, or none. Nothing here writes, and nothing here CHOOSES: which
+   * lists come back is `showing` in `list/holding.ts` reading what a person
+   * assigned, and a position nothing was assigned to comes back empty.
+   *
+   * `refs` is the canvas's selection, space separated, which is safe because
+   * `part()` refuses whitespace inside a reference.
+   */
+  if (path === '/api/here' && method === 'GET') {
+    const where = project(query.get('project'))
+    const epic = part(query.get('epic'))
+    const passage = str(query.get('path'), MAX_PROJECT)
+    const placed = where && passage
+      ? placeOf(
+        where,
+        passage,
+        query.has('from') ? Number(query.get('from')) : null,
+        query.has('to') ? Number(query.get('to')) : null,
+      )
+      : null
+    const ladder = ladderKey(rungsOf(scopeOf(epic, placed)))
+    const selection = str(query.get('refs'), MAX_PROJECT)
+      .split(' ')
+      .map(part)
+      .filter((one): one is string => one !== null)
+    const { instances, trouble, nowhere } = inFront({ ladder, selection }, where)
+    return ok({ ok: true, placed, instances, trouble, nowhere })
+  }
+
+  /*
+   * One checklist, held against one target — or on its own, which is what the
+   * edit page opens it as.
    *
    * The target rides in the query rather than the path because it has two or
    * three parts and a path would have to encode them into one — which is exactly
    * the ambiguity `list/targets.ts` builds its key to avoid. Reads are ungated
    * like every other read here; a checklist is not a secret.
-   *
-   * ## Where the reader is standing is answered HERE, and not on a door of its own
-   *
-   * The obvious build was `/api/where`: the page sends the passage, gets back a
-   * file and a section, and then asks this door for the ticks. Two round trips,
-   * and — the part that decided it — two answers that can disagree. Between the
-   * first and the second the reader moves, the second is about a target the
-   * first never named, and the container prints one heading over another
-   * heading's ticks. That is the "two halves quietly disagreeing" failure this
-   * workspace keeps finding, built in on purpose.
-   *
-   * So the passage rides on this request, the section is resolved before the
-   * ticks are read, and `placed` comes back beside them: one answer, about one
-   * place, or none. The page draws its heading from what came back rather than
-   * from what it asked for.
    */
   if (path === '/api/checklist' && method === 'GET') {
     const id = str(query.get('id'), MAX_ID)
@@ -906,17 +961,9 @@ export function answer(
             : `there is no checklist "${id}" in this project.`),
       })
     }
-    /*
-     * `placed` is answered from the passage EVEN WHEN a section was named, and
-     * that is not redundant with the target above.
-     *
-     * The two say different things. The target is what the ticks belong to,
-     * which is whatever the reader last settled on — including a widened one,
-     * where they climbed out of a section on purpose. `placed` is where the
-     * reader's document actually is. The page needs both: one to draw the ticks,
-     * the other to know that widening is still undoable and that the passage has
-     * moved out from under a pick.
-     */
+    /* `placed` is answered from the passage even when a section was named: the
+       target is what the ticks belong to and `placed` is where the reader's
+       document actually is, and an agent asking both may want both. */
     const passage = str(query.get('path'), MAX_PROJECT)
     const placed = passage
       ? placeOf(
@@ -1044,6 +1091,16 @@ export function answer(
         if (to === null) return bad('a move needs a position to move to, and nothing was moved.')
         return ok(change({ op: 'move', id, item, to, by }, where))
       }
+      if (op === 'hold' || op === 'release') {
+        const target = readTarget(body)
+        if (!target) {
+          return bad(
+            `that ${op} did not say which target. A checklist is held against an issue, a merge request, a pull `
+            + 'request, or a paper, one of its files or one heading in it.',
+          )
+        }
+        return ok(change({ op, id, target, by }, where))
+      }
       if (op === 'tick') {
         const target = readTarget(body)
         if (!target) {
@@ -1071,7 +1128,7 @@ export function answer(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, add, reword, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, hold, release, add, reword, move, drop or tick.`,
       )
     }
   }

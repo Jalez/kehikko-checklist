@@ -29,13 +29,19 @@ describe('the manifest', () => {
     expect(MANIFEST.modes[0]?.scope).toBe('epic')
   })
 
-  test('declares exactly the three it calls, and every name is one the protocol knows', () => {
+  test('declares exactly the two it calls, and every name is one the protocol knows', () => {
     /* `events:emit` for the one thing it says: an agent came through the MCP
        door — which is the one thing that happens to this app that nobody
-       watching the screen can see. `state:keep` for the one thing it remembers:
-       which checklist was picked, per kehikko. `projects:pick` for the one thing
-       it cannot work out on its own: which OTHER project a checklist is being
-       copied out of, which a person answers in the host's own dialog.
+       watching the screen can see. `projects:pick` for the one thing it cannot
+       work out on its own: which OTHER project a checklist is being copied out
+       of, which a person answers in the host's own dialog.
+
+       `state:keep` is NOT here any more, and its absence is asserted below. It
+       remembered which checklist was picked per kehikko, and there is no pick:
+       what a container shows is every list held against what the reader is
+       looking at, and the holding is stored on the list in the project's own
+       file. A remembered pick beside that would be a second answer to "which
+       list is in front of me". See `manifest.ts`.
 
        What is not here, and must never be, is anything that reads the projects.
        There is no such capability in the protocol and there is not meant to be:
@@ -48,7 +54,8 @@ describe('the manifest', () => {
        are no hardcoded items now. A capability asked for and never used is the
        fastest way to teach somebody to press yes without reading, so it is gone
        and this test is what stops it drifting back. */
-    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'projects:pick', 'state:keep'])
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'projects:pick'])
+    expect(MANIFEST.declares.uses).not.toContain('state:keep')
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('projects:read')
     /* Checked against the protocol's own list rather than against a string

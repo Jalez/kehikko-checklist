@@ -132,6 +132,19 @@ describe('a papers.json from yesterday', () => {
     expect(tick?.note).toContain('§3.2')
   })
 
+  test('comes across HELD against its paper, ticks or no ticks, because that was what the old key meant', async () => {
+    /* The list with a tick and the list without one are both about their
+       paper — the old store was keyed by epic — so both are shown to a reader
+       in that paper, which is what being held against it means now. */
+    const { targetsOf } = await store()
+    expect(targetsOf('paper-modes-are-modules', dir)).toEqual([
+      { target: { kind: 'paper', epic: 'modes-are-modules', section: null }, done: 1 },
+    ])
+    expect(targetsOf('paper-practices-are-the-only-governor', dir)).toEqual([
+      { target: { kind: 'paper', epic: 'practices-are-the-only-governor', section: null }, done: 0 },
+    ])
+  })
+
   test('files the ticks against the WHOLE paper, because the old store never named a section', async () => {
     /* Inventing a section here would be the migration claiming to know something
        the file never said — and it would put ticks on a target nobody can find. */

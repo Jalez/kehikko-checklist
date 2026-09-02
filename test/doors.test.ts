@@ -107,6 +107,66 @@ describe('reads', () => {
     expect(body.held.rows[0]?.done).toBeNull()
   })
 
+  /**
+   * The reading page's one request: where the reader is and what is selected
+   * in, every checklist in front of them out. Position never invents a
+   * pairing — a list is in front of the reader only where somebody held it.
+   */
+  test('/api/here answers with every list held against where the reader is, and nothing else', async () => {
+    const { TICKET, answer } = await import('../doors.ts')
+    const { list, item } = await aList()
+    const other = answer('POST', '/api/checklist', query, { op: 'create', name: 'What the thesis owes', project: dir }, TICKET)
+    const otherId = (other?.body as { id: string }).id
+    answer('POST', '/api/checklist', query, { op: 'hold', id: list, epic: 'thesis', section: 'chapters:3_methods', project: dir }, TICKET)
+    answer('POST', '/api/checklist', query, { op: 'hold', id: otherId, epic: 'thesis', project: dir }, TICKET)
+    answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, epic: 'thesis', section: 'chapters:3_methods', done: true, project: dir }, TICKET)
+
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    mkdirSync(join(dir, 'chapters'), { recursive: true })
+    writeFileSync(join(dir, 'chapters', '3_methods.tex'), '\\section{Research design}\\label{sec:meth-design}\n\nWords.\n')
+    writeFileSync(join(dir, 'chapters', '1_introduction.tex'), '\\section{Why}\\label{sec:intro}\n\nWords.\n')
+
+    type Here = { instances: { checklist: { id: string }; target: unknown; done: number }[]; placed: { file: string } | null }
+    const inMethods = answer('GET', '/api/here', asking({ epic: 'thesis', path: 'chapters/3_methods.tex', from: '40', to: '45' }), null, null)
+    const methods = inMethods?.body as Here
+    expect(methods.placed?.file).toBe('chapters/3_methods.tex')
+    expect(methods.instances.map((one) => one.checklist.id)).toEqual([list, otherId])
+    /* The chapter list's ticks are the chapter's, and the whole-paper list is
+       shown as the whole paper — each instance says which target it is. */
+    expect(methods.instances[0]?.target).toEqual({ kind: 'paper', epic: 'thesis', section: 'chapters:3_methods' })
+    expect(methods.instances[0]?.done).toBe(1)
+    expect(methods.instances[1]?.target).toEqual({ kind: 'paper', epic: 'thesis', section: null })
+
+    const inIntro = answer('GET', '/api/here', asking({ epic: 'thesis', path: 'chapters/1_introduction.tex' }), null, null)
+    expect((inIntro?.body as Here).instances.map((one) => one.checklist.id)).toEqual([otherId])
+
+    /* A selected reference nothing is held against adds nothing; one that is
+       held leads. */
+    answer('POST', '/api/checklist', query, { op: 'hold', id: list, ref: 'gh#105', project: dir }, TICKET)
+    const selected = answer('GET', '/api/here', asking({ epic: 'thesis', path: 'chapters/1_introduction.tex', refs: 'gh#900 gh#105' }), null, null)
+    expect((selected?.body as Here).instances.map((one) => `${one.checklist.id}`)).toEqual([list, otherId])
+    expect((selected?.body as Here).instances[0]?.target).toEqual({ kind: 'ref', ref: 'gh#105' })
+
+    /* Nothing open and nothing selected: nothing in front. */
+    const nothing = answer('GET', '/api/here', asking(), null, null)
+    expect((nothing?.body as Here).instances).toEqual([])
+  })
+
+  test('the page can hold and release through its own door, and a release with no target is refused', async () => {
+    const { TICKET, answer } = await import('../doors.ts')
+    const { list } = await aList()
+    const held = answer('POST', '/api/checklist', query, { op: 'hold', id: list, ref: 'gh#105', project: dir }, TICKET)
+    expect((held?.body as { ok: boolean }).ok).toBe(true)
+    const back = answer('GET', '/api/checklist', asking({ id: list }), null, null)
+    expect((back?.body as { targets: { target: unknown; done: number }[] }).targets).toEqual([
+      { target: { kind: 'ref', ref: 'gh#105' }, done: 0 },
+    ])
+    const refused = answer('POST', '/api/checklist', query, { op: 'release', id: list, project: dir }, TICKET)
+    expect(refused?.status).toBe(400)
+    expect((refused?.body as { error: string }).error).toContain('did not say which target')
+  })
+
   test('a target that is not a name is refused with a sentence, not read as no target', async () => {
     /* The failure this refuses is silent: a ref with a space in it, quietly
        dropped, would show the list with no ticks at all — which looks exactly
@@ -205,13 +265,14 @@ describe('the agent’s door', () => {
     expect(out.text).toContain('is ticked for ref:gh#105')
   })
 
-  test('lists exactly the seven tools this app now has', async () => {
+  test('lists exactly the eight tools this app now has', async () => {
     const { answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const names = (reply?.body as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)
     expect(names).toEqual([
       'checklists',
       'create_checklist',
+      'hold_checklist',
       'add_checklist_item',
       'check_item',
       'reword_checklist_item',
@@ -313,6 +374,56 @@ describe('the agent’s door', () => {
     await tool('check_item', { checklist: list, item, ref: '!1848', agent: 'a test', note: 'ran it against the parent commit' })
     const back = await tool('checklists', { checklist: list, ref: '!1848' })
     expect(back.text).toContain('a test, over MCP: ran it against the parent commit')
+  })
+
+  test('hold_checklist holds a list against a target, and the listing says where every list is held', async () => {
+    /* The tool that answers the report from the agent's side: a list is SHOWN
+       to a person where it is held, and this is how an agent puts one there. */
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods' })
+    expect(out.isError).toBe(false)
+    expect(out.text).toContain('is now held against thesis · chapters:3_methods')
+    const all = await tool('checklists', {})
+    expect(all.text).toContain('held against thesis · chapters:3_methods')
+    const one = await tool('checklists', { checklist: list })
+    expect(one.text).toContain('Held against: thesis · chapters:3_methods (0 ticked)')
+  })
+
+  test('hold_checklist with release: true lets go, and says the ticks are kept', async () => {
+    const { list, item } = await aList()
+    await tool('check_item', { checklist: list, item, ref: 'gh#105' })
+    const out = await tool('hold_checklist', { checklist: list, ref: 'gh#105', release: true })
+    expect(out.isError).toBe(false)
+    expect(out.text).toContain('is no longer held against gh#105')
+    expect(out.text).toContain('kept')
+    expect(out.text).toContain('Held against nothing yet')
+  })
+
+  test('hold_checklist resolves a path into the heading being looked at, like check_item does', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    mkdirSync(join(dir, 'chapters'), { recursive: true })
+    const source = '\\section{Research design}\\label{sec:meth-design}\n\nWords.\n'
+    writeFileSync(join(dir, 'chapters', '3_methods.tex'), source)
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', from: 40, to: 45 })
+    expect(out.isError).toBe(false)
+    expect(out.text).toContain('chapters:3_methods#sec:meth-design')
+  })
+
+  test('hold_checklist with nothing to hold against is refused and told what a target is', async () => {
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list })
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('needs to say WHAT to hold the list against')
+  })
+
+  test('a tick against a target the list is not held against holds it, and the agent is told', async () => {
+    const { list, item } = await aList()
+    const out = await tool('check_item', { checklist: list, item, ref: 'gh#105' })
+    expect(out.text).toContain('is now held against gh#105')
+    const listed = await tool('checklists', {})
+    expect(listed.text).toContain('held against gh#105')
   })
 
   test('a tick with no target is refused in a sentence that says why there is nothing to record', async () => {

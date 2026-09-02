@@ -9,13 +9,13 @@ import type { Target } from '../../list/targets.ts'
  *
  * ## Why these are plain relative fetches and it is worth saying so
  *
- * `/api/checklists` and `/api/checklist` are relative paths, so the browser
- * resolves them against the document — which is `http://127.0.0.1:7860/app`,
- * framed or not, because this module declares `storage: true` and therefore
- * keeps its origin. Every request below is an ordinary same-origin request: no
- * preflight, no CORS header offered to anybody, and no way for a page in another
- * tab to make one of them. The essay in `manifest.ts` is why that was worth the
- * declaration.
+ * `/api/here`, `/api/checklists` and `/api/checklist` are relative paths, so
+ * the browser resolves them against the document — which is
+ * `http://127.0.0.1:7860/app`, framed or not, because this module declares
+ * `storage: true` and therefore keeps its origin. Every request below is an
+ * ordinary same-origin request: no preflight, no CORS header offered to
+ * anybody, and no way for a page in another tab to make one of them. The essay
+ * in `manifest.ts` is why that was worth the declaration.
  *
  * ## The types come from the server's own files
  *
@@ -31,10 +31,10 @@ import type { Target } from '../../list/targets.ts'
  * tidy: `list/checklists.ts` imports `node:fs`, and a value import would drag it
  * into the browser bundle. `tsc` would say nothing, `bun test` would say nothing,
  * and the only symptom would be a page that loads and never answers the host's
- * greeting. `list/targets.ts` and `list/keep.ts` touch no node module at all and
- * are imported for their functions on purpose — target identity has to be spelled
- * the same on both sides of that socket or the page asks about a target the
- * server does not have.
+ * greeting. `list/targets.ts`, `list/scope.ts` and `list/holding.ts` touch no
+ * node module at all and are imported for their functions on purpose — target
+ * identity has to be spelled the same on both sides of that socket or the page
+ * asks about a target the server does not have.
  */
 
 /**
@@ -105,7 +105,7 @@ export interface Everything {
   nowhere: boolean
 }
 
-/** Every checklist in the open project. The first thing the page asks for. */
+/** Every checklist in the open project: the screen behind `All checklists`. */
 export async function everyChecklist(projectPath: string | null): Promise<Everything> {
   const response = await fetch(withProject('/api/checklists', projectPath))
   const body = (await response.json()) as { lists?: unknown; trouble?: unknown; nowhere?: unknown }
@@ -142,112 +142,87 @@ export function pointing(passage: string): Pointing | null {
 }
 
 /**
- * The target and the passage, spelled into a query the server reads back with
- * the same rules.
- *
- * Both, and not one or the other, because they answer two different questions
- * and the server needs both to answer honestly — see the essay on
- * `/api/checklist` in `doors.ts`. The passage says where the reader IS; the
- * target says what the ticks are about, which differs the moment somebody
- * widens.
- *
- * ## `pick=1`, which is the whole of the difference between the two
- *
- * The path is sent whether or not the reader picked their target by hand,
- * because the heading wants the file's real name and the words at the top of the
- * section either way. What `pick` says is who DECIDED: without it the server may
- * derive the target from the path, and with it the target is somebody's choice
- * and the path is only there to be described.
- *
- * It exists because of a bug this probe found rather than one anybody predicted.
- * Pressing "show the whole paper" produced `{epic, section: null}`, which is
- * indistinguishable on the wire from a target nobody has narrowed yet — so the
- * server dutifully resolved the path back into the section the reader had just
- * climbed out of, and the control appeared to do nothing. A derivation must
- * never overrule a decision, and this is the one bit that says which it is
- * looking at.
+ * What is in front of the reader: every checklist held against where they
+ * are or what they have selected, each with the ticks for that target.
  */
-function query(id: string, target: Target | null, at: Pointing | null, picked: boolean): string {
-  const parts = [`id=${encodeURIComponent(id)}`]
-  if (target?.kind === 'ref') parts.push(`ref=${encodeURIComponent(target.ref)}`)
-  if (target?.kind === 'paper') {
-    parts.push(`epic=${encodeURIComponent(target.epic)}`)
-    if (target.section) parts.push(`section=${encodeURIComponent(target.section)}`)
-  }
-  /* Sent only with a paper target. A checklist held against an issue has no
-     document and never will, and putting a path on that request would be asking
-     the server to open a file in order to answer a question that does not
-     involve one. That is the whole of "non-document targets keep working exactly
-     as they do", enforced one line above the fence rather than inside it. */
-  if (at && target?.kind === 'paper') {
-    parts.push(`path=${encodeURIComponent(at.path)}`)
-    if (at.from !== null && at.to !== null) parts.push(`from=${at.from}`, `to=${at.to}`)
-    if (picked) parts.push('pick=1')
-  }
-  return parts.join('&')
-}
-
-export interface Opened {
-  held: Held
-  /** Every target this list has ticks against, so nothing recorded becomes unreachable. */
-  targets: { target: Target; done: number }[]
-  /**
-   * Where the reader turned out to be, as the server read the file — not as this
-   * page guessed.
-   *
-   * Null whenever nothing narrowed: no passage, a ref target, a path the fence
-   * refused, a file with no headings this app recognises. Every one of those is
-   * the same instruction to the screen — say the paper — which is why they are
-   * one value rather than four.
-   */
+export interface Here {
+  /** Where the reader's document turned out to be, as the server read it. Null when nothing narrowed. */
   placed: Placed | null
+  /** One entry per (checklist, target) pairing in front of the reader. `held.target` is never null here. */
+  instances: Held[]
+  trouble: string | null
+  nowhere: boolean
 }
 
 /**
- * One checklist, with the ticks for one target.
+ * The reading page's one request: position and selection in, instances out.
  *
- * Refused rather than empty when the list is gone or the target is not a name —
- * the server says so in a sentence, and this hands the sentence on rather than
- * turning it into an empty list. "Nobody has ticked anything" and "that
- * checklist is not here" are two different answers with two different remedies,
- * and this is a module whose whole argument is that those do not get flattened.
+ * The passage is sent only with an epic. A checklist held against a paper
+ * needs an epic to name the paper, so a passage with no epic narrows nothing —
+ * and sending it would be asking the server to open a file in order to answer
+ * a question that does not involve one.
  */
-export async function openChecklist(
-  id: string,
-  target: Target | null,
+export async function whatIsHere(
   projectPath: string | null,
-  at: Pointing | null = null,
-  picked = false,
-): Promise<Opened | { error: string }> {
-  const response = await fetch(withProject(`/api/checklist?${query(id, target, at, picked)}`, projectPath))
-  const body = (await response.json()) as {
-    ok?: unknown
-    held?: unknown
-    targets?: unknown
-    placed?: unknown
-    error?: unknown
+  epic: string | null,
+  at: Pointing | null,
+  selection: string[],
+): Promise<Here> {
+  const parts: string[] = []
+  if (epic) parts.push(`epic=${encodeURIComponent(epic)}`)
+  if (epic && at) {
+    parts.push(`path=${encodeURIComponent(at.path)}`)
+    if (at.from !== null && at.to !== null) parts.push(`from=${at.from}`, `to=${at.to}`)
   }
+  if (selection.length) parts.push(`refs=${encodeURIComponent(selection.join(' '))}`)
+  const response = await fetch(withProject(`/api/here${parts.length ? `?${parts.join('&')}` : ''}`, projectPath))
+  const body = (await response.json()) as { placed?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown }
+  return {
+    placed: (body.placed as Placed | null) ?? null,
+    instances: Array.isArray(body.instances) ? (body.instances as Held[]) : [],
+    trouble: typeof body.trouble === 'string' ? body.trouble : null,
+    nowhere: body.nowhere === true,
+  }
+}
+
+export interface Opened {
+  /** The list on its own: `target` null, nothing ticked, because the edit page ticks nothing. */
+  held: Held
+  /** Every target this list is held against, with how much is ticked on each. */
+  targets: { target: Target; done: number }[]
+}
+
+/**
+ * One checklist, on its own, for the edit page.
+ *
+ * Refused rather than empty when the list is gone — the server says so in a
+ * sentence, and this hands the sentence on rather than turning it into an
+ * empty list. "This list has no items" and "that checklist is not here" are two
+ * different answers with two different remedies.
+ */
+export async function openChecklist(id: string, projectPath: string | null): Promise<Opened | { error: string }> {
+  const response = await fetch(withProject(`/api/checklist?id=${encodeURIComponent(id)}`, projectPath))
+  const body = (await response.json()) as { ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }
   if (body.ok === true && body.held) {
     return {
       held: body.held as Held,
       targets: Array.isArray(body.targets) ? (body.targets as { target: Target; done: number }[]) : [],
-      placed: (body.placed as Placed | null) ?? null,
     }
   }
   return { error: typeof body.error === 'string' ? body.error : 'this app could not read that checklist.' }
 }
 
 /**
- * The paper the reader is standing in, so the picker can offer its files and
- * headings rather than a box to spell an id into.
+ * The paper the reader is standing in, so the edit page can offer its files and
+ * headings as targets rather than a box to spell an id into.
  *
- * ## Asked once, when the picker opens, and not on every context
+ * ## Asked when the edit page opens, and not on every context
  *
- * This opens every `.tex` of a paper. `openChecklist` above runs on every
- * context — and a context arrives after every selection change anywhere on the
- * canvas — so folding this into that request would read the whole thesis several
+ * This opens every `.tex` of a paper. `whatIsHere` above runs on every context
+ * — and a context arrives after every selection change anywhere on the canvas
+ * — so folding this into that request would read the whole thesis several
  * times a second to answer a question nobody has asked. `src/app.tsx` asks when
- * the reader presses `change` and holds the answer until they move to another
+ * somebody is editing a list and holds the answer until they move to another
  * file, which is the point at which it would be about a different paper.
  *
  * ## Null is an ordinary answer and not a failure
@@ -255,13 +230,11 @@ export async function openChecklist(
  * No project open, no document under the reader, a path the fence refused, a
  * directory that will not list: every one of those is the same instruction to
  * the screen — offer no files, say one short line, and leave the box that types
- * anything exactly where it was. Distinguishing them here would be the existence
- * oracle `file/confine.ts` refuses, one question at a time.
+ * a reference exactly where it was. Distinguishing them here would be the
+ * existence oracle `file/confine.ts` refuses, one question at a time.
  */
 export async function paperOutline(projectPath: string | null, path: string): Promise<Outline | null> {
-  const response = await fetch(
-    withProject(`/api/outline?path=${encodeURIComponent(path)}`, projectPath),
-  )
+  const response = await fetch(withProject(`/api/outline?path=${encodeURIComponent(path)}`, projectPath))
   const body = (await response.json()) as { outline?: unknown }
   const outline = body.outline as Outline | null | undefined
   return outline && Array.isArray(outline.files) ? outline : null
@@ -281,6 +254,9 @@ export type Edit =
   | { op: 'import'; from: string; id: string }
   | { op: 'rename'; id: string; name: string }
   | { op: 'forget'; id: string }
+  /** Hold this list against one more target, or stop. The edit page's two presses; see `list/checklists.ts`. */
+  | { op: 'hold'; id: string; target: Target }
+  | { op: 'release'; id: string; target: Target }
   | { op: 'add'; id: string; text: string }
   | { op: 'reword'; id: string; item: string; text: string }
   | { op: 'move'; id: string; item: string; to: number }
@@ -304,12 +280,14 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
      target across both doors is what stops the page and an agent naming the same
      work two ways. */
   const target =
-    change.op === 'tick'
+    change.op === 'tick' || change.op === 'hold' || change.op === 'release'
       ? change.target.kind === 'ref'
         ? { ref: change.target.ref }
         : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
       : {}
-  const body = (await post('/api/checklist', { ...change, ...target, project: projectPath })) as {
+  const { ...sent } = change as Record<string, unknown>
+  delete sent.target
+  const body = (await post('/api/checklist', { ...sent, ...target, project: projectPath })) as {
     ok?: unknown
     said?: unknown
     id?: unknown
