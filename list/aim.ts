@@ -99,6 +99,19 @@ export interface InFront {
   documents: Place[]
   /** Whether the picks narrowed this: some container is picked out and the reader is following. */
   narrowed: boolean
+  /**
+   * Whether the whole paper is in front — the rung a list held against the
+   * epic with no section sits on.
+   *
+   * True whenever nothing narrows: an epic open is the paper open, which is
+   * what the page has always shown. False when the picks narrow to containers
+   * none of which shows a place in a document — a journeys pane picked out
+   * alone is not showing the paper, and the whole-thesis list appearing under
+   * it would be the page deciding that every container is about the paper
+   * because the kehikko is. Measured rather than reasoned about: it did
+   * exactly that on the first live run.
+   */
+  paper: boolean
   /** The picked-out containers, in the canvas's order. Empty when nothing is picked out. */
   picked: string[]
   /** Those of them that show nothing at all — refs or documents — and so cannot have a list in front. */
@@ -133,6 +146,7 @@ export function inFrontOf(input: {
     refs,
     documents,
     narrowed,
+    paper: !narrowed || documents.length > 0,
     picked: picked.map((one) => one.module),
     quiet: picked.filter((one) => one.refs.length === 0 && one.documents.length === 0).map((one) => one.module),
   }

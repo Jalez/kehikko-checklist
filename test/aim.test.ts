@@ -31,6 +31,7 @@ describe('nothing picked out means everything on the kehikko', () => {
   test('the passage and the selection lead, and every container\'s showing follows', () => {
     const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(), aim: 'follow' })
     expect(front.narrowed).toBe(false)
+    expect(front.paper).toBe(true)
     expect(front.picked).toEqual([])
     expect(front.refs).toEqual(['gh#7', 'gh#10', 'gh#11'])
     /* The reader's own passage first and once, though the paper says it too. */
@@ -59,6 +60,7 @@ describe('some picked out means only what those show', () => {
     expect(front.picked).toEqual(['roadmap.paper', 'roadmap.journeys'])
     expect(front.refs).toEqual(['gh#10', 'gh#11'])
     expect(front.documents).toEqual([PARAGRAPH, CHAPTER])
+    expect(front.paper).toBe(true)
     expect(front.quiet).toEqual([])
     expect(whyEmpty(front)).toBe('paper and journeys are picked out; no checklist is held against what they show.')
   })
@@ -69,6 +71,8 @@ describe('some picked out means only what those show', () => {
     const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(['roadmap.journeys']), aim: 'follow' })
     expect(front.refs).toEqual(['gh#10', 'gh#11'])
     expect(front.documents).toEqual([])
+    /* And the whole paper is not in front of a journeys pane. */
+    expect(front.paper).toBe(false)
     expect(whyEmpty(front)).toBe('journeys is picked out; no checklist is held against what it shows.')
   })
 

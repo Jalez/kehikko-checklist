@@ -247,7 +247,11 @@ export function App() {
    */
   useEffect(() => {
     let alive = true
-    void whatIsHere(projectPath, epic, front.documents, front.refs)
+    /* No epic when the whole paper is not in front — see `paper` on
+       `InFront`. The server builds the whole-paper rung from the epic alone,
+       and a page narrowed to containers showing no document must not hand it
+       one. */
+    void whatIsHere(projectPath, front.paper ? epic : null, front.documents, front.refs)
       .then((got) => {
         if (alive) setHere(got)
       })
