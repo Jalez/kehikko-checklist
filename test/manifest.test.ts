@@ -112,7 +112,7 @@ describe('the manifest', () => {
        files of a real thesis. A `reacts` entry with nothing behind it would be a
        name in somebody's registry that is not true of this program, which is
        exactly what the essay this replaced refused to write. */
-    expect(MANIFEST.reacts).toEqual(['selection', 'passage'])
+    expect(MANIFEST.reacts).toEqual(['selection', 'passage', 'containers'])
   })
 
   test('still does not ask to SET a passage, so there is no echo to guard against', () => {

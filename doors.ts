@@ -71,6 +71,8 @@ const MAX_FROM = 80
  * meaning.
  */
 const MAX_PROJECT = 4096
+/** How many places one reading-page request may name. The protocol's own bound on what a container shows, plus the reader's passage. */
+const MAX_DOCS = 17
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -887,28 +889,55 @@ export function answer(
    * lists come back is `showing` in `list/holding.ts` reading what a person
    * assigned, and a position nothing was assigned to comes back empty.
    *
-   * `refs` is the canvas's selection, space separated, which is safe because
-   * `part()` refuses whitespace inside a reference.
+   * `refs` is every reference in front of the reader, space separated, which
+   * is safe because `part()` refuses whitespace inside a reference.
+   *
+   * ## Several documents, one request
+   *
+   * `path`/`from`/`to` name ONE place, and are kept: an agent at the MCP door
+   * and every test written against this door say it that way. `doc` may be
+   * repeated and names one place each — `path`, `from` and `to` tab separated,
+   * the same flattening the page's own wire holds a passage as — because a
+   * kehikko can have several containers each showing a place in the paper and
+   * every one of them is in front. Each is placed, each gets a ladder, and
+   * `inFront` walks them all. `placed` stays the FIRST place, which the page
+   * sends as the reader's own passage; `positions` is every place resolved, in
+   * the order asked, so a row can be labelled with the words of whichever
+   * heading it belongs to.
    */
   if (path === '/api/here' && method === 'GET') {
     const where = project(query.get('project'))
     const epic = part(query.get('epic'))
-    const passage = str(query.get('path'), MAX_PROJECT)
-    const placed = where && passage
-      ? placeOf(
-        where,
-        passage,
-        query.has('from') ? Number(query.get('from')) : null,
-        query.has('to') ? Number(query.get('to')) : null,
-      )
-      : null
-    const ladder = ladderKey(rungsOf(scopeOf(epic, placed)))
+    const one = str(query.get('path'), MAX_PROJECT)
+    const asked: { path: string; from: number | null; to: number | null }[] = []
+    if (one) {
+      asked.push({
+        path: one,
+        from: query.has('from') ? Number(query.get('from')) : null,
+        to: query.has('to') ? Number(query.get('to')) : null,
+      })
+    }
+    for (const doc of query.getAll('doc').slice(0, MAX_DOCS)) {
+      const [docPath, docFrom, docTo] = str(doc, MAX_PROJECT).split('\t')
+      if (!docPath) continue
+      const from = docFrom ? Number(docFrom) : null
+      const to = docTo ? Number(docTo) : null
+      asked.push({ path: docPath, from: Number.isFinite(from) ? from : null, to: Number.isFinite(to) ? to : null })
+    }
+    const positions = where ? asked.map((at) => placeOf(where, at.path, at.from, at.to)) : []
+    const placed = positions[0] ?? null
+    /* One ladder per place, and the paper rung once even with no place at
+       all: a reader with an epic and no document open is still standing on
+       the whole paper, which is what `scopeOf(epic, null)` says. */
+    const ladders = positions.length
+      ? positions.map((at) => ladderKey(rungsOf(scopeOf(epic, at))))
+      : [ladderKey(rungsOf(scopeOf(epic, null)))]
     const selection = str(query.get('refs'), MAX_PROJECT)
       .split(' ')
       .map(part)
       .filter((one): one is string => one !== null)
-    const { instances, trouble, nowhere } = inFront({ ladder, selection }, where)
-    return ok({ ok: true, placed, instances, trouble, nowhere })
+    const { instances, trouble, nowhere } = inFront({ ladders, selection }, where)
+    return ok({ ok: true, placed, positions, instances, trouble, nowhere })
   }
 
   /*

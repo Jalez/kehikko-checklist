@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { ID } from '../manifest.ts'
 
+import { aimOf, aimOffer, inFrontOf, whyEmpty } from '../list/aim.ts'
 import {
   edit,
   everyChecklist,
   openChecklist,
   paperOutline,
   pointing,
+  shown,
   whatIsHere,
   type Edit,
   type Here,
@@ -34,9 +36,12 @@ import { cn } from '@/lib/utils.ts'
  * > in the consumer/provider relationships."
  *
  * So the page opens on what is in front of the reader: every checklist held
- * against the section or file under their passage, or against a reference the
- * canvas has selected — several at once when several apply, none when none
- * does. That is `HereView`, and it is the default because it is the sentence.
+ * against the section or file under their passage, against a reference the
+ * canvas has selected, or against anything a container on the kehikko says it
+ * is showing — several at once when several apply, none when none does. And
+ * when the person has picked containers out, only what THOSE show; see
+ * `list/aim.ts` for the rule and the second sentence it implements. That is
+ * `HereView`, and it is the default because it is the sentence.
  * From it, one press leads to a list's edit page (`EditView`), where what the
  * list says and what it is held against are changed, and one press leads to
  * every checklist in the project (`AllView`), where a list that is held
@@ -61,22 +66,25 @@ import { cn } from '@/lib/utils.ts'
  * already say what is in front. So `list/keep.ts` is gone, `state:keep` is no
  * longer declared, and the kept string a host still holds is ignored.
  *
- * ## The empty filter offer, and why it is now safe to send
+ * ## The filter offer, which was empty and is one group again
  *
  * This page used to offer the host a grain — `section` / `file` / `paper` —
  * over `roadmap.filters`, and there is an essay's worth of care in the history
  * about WHEN to send `[]`: an empty offer is a claim the host acts on by
  * pruning the container's stored choice, and sending it before the canvas had
- * spoken erased the reader's remembered grain on every reload. That care was
- * about a filter this page would offer again a moment later.
+ * spoken erased the reader's remembered grain on every reload. The grain went
+ * with the model it served, and for a while the offer was `[]`, sent once,
+ * so a host still holding a grain let it go.
  *
- * There is no such filter now and there will not be one a moment later. The
- * grain trimmed the ladder one list was looked for on; with assignment there
- * is no trimming, and fewer lists in a section is a release on the edit page.
- * So `[]` is true at every moment, and it is sent once, when the host has
- * greeted this page, so a host still holding a grain for this container lets
- * it go rather than carrying it forever. The client replays the last offer on
- * every greeting, which is why once is enough.
+ * There is one group now, and it is not the grain come back. `aim` says
+ * whether this container follows what is picked out on the kehikko or shows
+ * everything on it whatever is picked — see `list/aim.ts` — and it is offered
+ * ONLY when the host lists containers, because on a host that does not there
+ * is nothing the control could turn off. The old care about timing does not
+ * bite: the offer is a function of what the host said in the greeting, so it
+ * is right from the first context, and it is re-sent whenever the count in
+ * its label changes, which the protocol asks for. A host that never heard of
+ * containers is sent `[]`, which is what it was sent before.
  *
  * ## A null projectPath stops the page, and a null kehikko does not
  *
@@ -163,11 +171,8 @@ export function App() {
     )
   }, [])
 
-  const { where, epic, projectPath, project, selection, passage, resize, filters, pickProject } = useRoadmap(
-    ID,
-    onGoto,
-    bump,
-  )
+  const { where, epic, projectPath, project, selection, passage, containers, chosen, resize, filters, pickProject } =
+    useRoadmap(ID, onGoto, bump)
 
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.
@@ -182,6 +187,27 @@ export function App() {
   const selected = selection.join(' ')
 
   /**
+   * What is in front of the reader, once the picks are taken into account.
+   *
+   * Memoised on strings only — the passage's, the selection's, the host's list
+   * of containers and the header's choice — so that a context which re-states
+   * the same canvas hands back the same object and the fetch below does not
+   * re-run. The rule is in `list/aim.ts`; this is where its inputs meet.
+   */
+  const front = useMemo(
+    () =>
+      inFrontOf({
+        passage: at,
+        selection: selected ? selected.split(' ') : [],
+        containers: shown(containers),
+        aim: aimOf(chosen ? (JSON.parse(chosen) as Record<string, string>) : null),
+      }),
+    [at, selected, containers, chosen],
+  )
+  /** And the same, as one string, for the fetch to depend on. */
+  const frontKey = JSON.stringify({ refs: front.refs, documents: front.documents })
+
+  /**
    * Whether there is anywhere at all to read from or write to.
    *
    * Held from the server's answer rather than derived from `projectPath`
@@ -193,10 +219,11 @@ export function App() {
    */
   const [nowhere, setNowhere] = useState(false)
 
-  /* Withdraw the filter offer, once hosted. See the essay above. */
+  /* The one offer, once hosted, and again whenever the count in its label
+     changes. `[]` on a host that lists no containers. See the essay above. */
   useEffect(() => {
-    if (where === 'hosted') filters([])
-  }, [where, filters])
+    if (where === 'hosted') filters(aimOffer(shown(containers)))
+  }, [where, filters, containers])
 
   /* Every checklist that exists. This app's own material, read at load, after
      every change, and on the doorbell. */
@@ -220,7 +247,11 @@ export function App() {
    */
   useEffect(() => {
     let alive = true
-    void whatIsHere(projectPath, epic, at, selected ? selected.split(' ') : [])
+    /* No epic when the whole paper is not in front — see `paper` on
+       `InFront`. The server builds the whole-paper rung from the epic alone,
+       and a page narrowed to containers showing no document must not hand it
+       one. */
+    void whatIsHere(projectPath, front.paper ? epic : null, front.documents, front.refs)
       .then((got) => {
         if (alive) setHere(got)
       })
@@ -230,7 +261,9 @@ export function App() {
     return () => {
       alive = false
     }
-  }, [projectPath, epic, at, selected, stamp])
+    /* `frontKey` and not `front`: the value, not the identity. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, epic, frontKey, stamp])
 
   /** Which list the edit page is on, or null. A string, so the fetch keys on it by value. */
   const editing = view.kind === 'edit' ? view.id : null
@@ -448,7 +481,11 @@ export function App() {
         held={opened.held}
         targets={opened.targets}
         epic={epic}
-        selection={selection}
+        /* Every reference in front — the canvas's selection and whatever the
+           containers show — offered as targets, for the reason the selection
+           was: a reference somebody has in front of them is the likeliest
+           thing to hold a list against. */
+        selection={front.refs}
         placed={here?.placed ?? null}
         outline={outline}
         paperKnown={reading !== null}
@@ -482,7 +519,8 @@ export function App() {
   ) : (
     <HereView
       here={here}
-      somewhere={Boolean(epic) || selection.length > 0}
+      somewhere={Boolean(epic) || front.refs.length > 0 || front.documents.length > 0}
+      why={whyEmpty(front)}
       listening={where === 'listening'}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}

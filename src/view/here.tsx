@@ -54,7 +54,13 @@ import { cn } from '@/lib/utils.ts'
  * None: one line, and the way to every checklist beside it. Which line
  * depends on whether there is anything in front of the reader at all — "no
  * list is held against this" and "nothing is open or selected" send a person
- * to two different places, and only the first is fixed on an edit page.
+ * to two different places, and only the first is fixed on an edit page. And a
+ * third line, ahead of both, when it was the PICKS that emptied the page:
+ * "paper and journeys are picked out; no checklist is held against what they
+ * show". A pane that went empty because a neighbour was ticked has to say so,
+ * or its emptiness has no visible cause — the sentence names the containers,
+ * says which of them show nothing, and the way out is the filter in this
+ * container's own header. `list/aim.ts` writes it.
  *
  * One: the list, its label, its items.
  *
@@ -73,6 +79,7 @@ import { cn } from '@/lib/utils.ts'
 export function HereView({
   here,
   somewhere,
+  why = null,
   listening,
   onEdit,
   onOpen,
@@ -83,8 +90,10 @@ export function HereView({
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
-  /** Whether there is anything at all in front of the reader: an epic, a passage or a selection. */
+  /** Whether there is anything at all in front of the reader: an epic, a passage, a selection, or something a container shows. */
   somewhere: boolean
+  /** Why the page is empty when the picks emptied it, or null when they did not. See `whyEmpty` in `list/aim.ts`. */
+  why?: string | null
   /** True for the moment before the host has greeted this page. */
   listening: boolean
   onEdit: (edit: Edit) => void
@@ -148,11 +157,12 @@ export function HereView({
       ) : (
         <p
           className={cn('px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground', room.pinned && 'min-h-0 flex-1')}
-          data-none={somewhere ? 'held' : 'front'}
+          data-none={why ? 'narrowed' : somewhere ? 'held' : 'front'}
         >
-          {somewhere
-            ? 'No checklist is held against what is in front of you.'
-            : 'Nothing is in front of you: no paper is open and nothing is selected.'}
+          {why
+            ?? (somewhere
+              ? 'No checklist is held against what is in front of you.'
+              : 'Nothing is in front of you: no paper is open and nothing is selected.')}
         </p>
       )}
 
