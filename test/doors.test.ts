@@ -151,6 +151,18 @@ describe('reads', () => {
     /* Nothing open and nothing selected: nothing in front. */
     const nothing = answer('GET', '/api/here', asking(), null, null)
     expect((nothing?.body as Here).instances).toEqual([])
+
+    /* Several places at once — two chapters, each shown by a container on
+       the kehikko — and every list held against either is in front, with the
+       whole-paper list once though both chapters are in it. */
+    const both = new URLSearchParams(asking({ epic: 'thesis', path: 'chapters/1_introduction.tex' }))
+    both.append('doc', 'chapters/3_methods.tex\t40\t45')
+    const several = answer('GET', '/api/here', both, null, null)
+    const spread = several?.body as Here & { positions: ({ file: string } | null)[] }
+    expect(spread.placed?.file).toBe('chapters/1_introduction.tex')
+    expect(spread.positions.map((one) => one?.file)).toEqual(['chapters/1_introduction.tex', 'chapters/3_methods.tex'])
+    expect(spread.instances.map((one) => one.checklist.id)).toEqual([otherId, list])
+    expect(spread.instances.filter((one) => one.checklist.id === otherId)).toHaveLength(1)
   })
 
   test('the page can hold and release through its own door, and a release with no target is refused', async () => {

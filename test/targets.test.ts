@@ -218,12 +218,12 @@ describe('holding and releasing', () => {
 
     const inMethods = ladderKey(rungsOf(scopeOf('thesis', { file: 'chapters/3_methods.tex', section: null, title: null })))
     const inIntro = ladderKey(rungsOf(scopeOf('thesis', { file: 'chapters/1_introduction.tex', section: null, title: null })))
-    expect(inFront({ ladder: inMethods, selection: [] }, dir).instances.map((one) => one.checklist.id)).toEqual([
+    expect(inFront({ ladders: [inMethods], selection: [] }, dir).instances.map((one) => one.checklist.id)).toEqual([
       list,
       other.id,
     ])
-    expect(inFront({ ladder: inIntro, selection: [] }, dir).instances.map((one) => one.checklist.id)).toEqual([other.id])
-    expect(inFront({ ladder: '', selection: [] }, dir).instances).toEqual([])
+    expect(inFront({ ladders: [inIntro], selection: [] }, dir).instances.map((one) => one.checklist.id)).toEqual([other.id])
+    expect(inFront({ ladders: [], selection: [] }, dir).instances).toEqual([])
   })
 })
 
@@ -319,9 +319,9 @@ describe('a file written before targets were stored', () => {
       section: null,
       title: null,
     })))
-    expect(inFront({ ladder: inMethods, selection: [] }, dir).instances.map((one) => one.checklist.name)).toEqual([
+    expect(inFront({ ladders: [inMethods], selection: [] }, dir).instances.map((one) => one.checklist.name)).toEqual([
       methods!.name,
     ])
-    expect(inFront({ ladder: inIntro, selection: [] }, dir).instances).toEqual([])
+    expect(inFront({ ladders: [inIntro], selection: [] }, dir).instances).toEqual([])
   })
 })

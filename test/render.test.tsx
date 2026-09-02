@@ -100,7 +100,7 @@ function held(over: Partial<Held> = {}): Held {
 const noop = () => {}
 
 function here(instances: Held[], placed: Placed | null = null): Here {
-  return { placed, instances, trouble: null, nowhere: false }
+  return { placed, positions: placed ? [placed] : [], instances, trouble: null, nowhere: false }
 }
 
 /** `HereView` with everything a case is not about already filled in. */
@@ -166,6 +166,18 @@ describe('the reading page: what is in front of the reader', () => {
   test('with nothing in front at all, says the other sentence, which has a different remedy', () => {
     const { container } = render(<Reading here={here([])} somewhere={false} room={ROOMY} />)
     expect(container.querySelector('[data-none="front"]')?.textContent).toContain('no paper is open and nothing is selected')
+  })
+
+  test('when the picks emptied it, says which containers are picked out, ahead of either sentence', () => {
+    /* A pane that went empty because a neighbour was ticked has to say so.
+       The sentence is `list/aim.ts`'s; this asserts the page prints it and
+       prints nothing else in its place. */
+    const why = 'paper and journeys are picked out; no checklist is held against what they show.'
+    const { container } = render(<Reading here={here([])} why={why} room={ROOMY} />)
+    expect(container.querySelector('[data-none="narrowed"]')?.textContent).toBe(why)
+    expect(container.querySelector('[data-none="held"]')).toBeNull()
+    expect(container.querySelector('[data-all]')).toBeTruthy()
+    nothingOld(container)
   })
 
   test('one list: its name, which target these ticks belong to, and its items — and none of the old row', () => {

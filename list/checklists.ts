@@ -790,20 +790,39 @@ export function targetsOf(id: string, projectPath: string | null | undefined): {
  * qualify and is pure; this is the half that has the store.
  */
 export function inFront(
-  input: { ladder: string; selection: string[] },
+  /**
+   * Several ladders rather than one, because several containers on a kehikko
+   * can each be showing a place in the paper — two chapters open side by side,
+   * or one chapter under the reader and another a container says it holds —
+   * and every one of them is in front. The selection first and then each
+   * ladder in turn, which keeps the order `showing` gives; a pairing found
+   * twice — the whole-paper list, in front of both chapters — is one instance,
+   * because it is one set of ticks.
+   */
+  input: { ladders: readonly string[]; selection: string[] },
   projectPath: string | null | undefined,
 ): { instances: Held[]; trouble: string | null; nowhere: boolean } {
   const { store, where, trouble } = read(projectPath)
   const lists = Object.values(store.checklists)
     .map((list) => ({ id: list.id, name: list.name, targets: list.targets ?? [] }))
     .sort((a, b) => a.name.localeCompare(b.name))
-  const instances = showing({ ladder: input.ladder, selection: input.selection, lists }).flatMap((one) => {
-    const list = store.checklists[one.id]
-    if (!list) return []
-    const on = store.ticks[one.id]?.[targetKey(one.target)] ?? {}
-    const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
-    return [{ checklist: settled(list), target: one.target, rows, done: rows.filter((r) => r.done).length, total: rows.length }]
-  })
+  const ladders = input.ladders.length ? input.ladders : ['']
+  const seen = new Set<string>()
+  const instances = ladders
+    .flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))
+    .filter((one) => {
+      const key = `${one.id}|${targetKey(one.target)}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .flatMap((one) => {
+      const list = store.checklists[one.id]
+      if (!list) return []
+      const on = store.ticks[one.id]?.[targetKey(one.target)] ?? {}
+      const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
+      return [{ checklist: settled(list), target: one.target, rows, done: rows.filter((r) => r.done).length, total: rows.length }]
+    })
   return { instances, trouble, nowhere: where === 'nowhere' }
 }
 

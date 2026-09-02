@@ -156,13 +156,39 @@ export interface Roadmap {
    */
   passage: string
   /**
+   * Every container on the kehikko, whether it is picked out, and what it says
+   * it is showing, as the host last said it — flattened to ONE STRING, for the
+   * reason `passage` is: a context arrives after every change anywhere on the
+   * canvas, and a fresh array of fresh rows each time would re-run the fetch
+   * below several times a second while a reader does nothing. `shown` in
+   * `src/store/ask.ts` inflates it once, in one memo.
+   *
+   * `''` is no containers: nothing is framing this page, or a host too old to
+   * say. Both are answered the same way — everything the page always showed,
+   * and no control offered — see `list/aim.ts`.
+   *
+   * Read structurally rather than through the protocol's type, so that this
+   * page typechecks against a copy of the package from before the field
+   * existed and simply finds nothing there. That is also what the wire does:
+   * an older client strips the field before this page sees it.
+   */
+  containers: string
+  /**
+   * Which of the filters this page offered are chosen for THIS container, as
+   * the host last said — as one string, for the reason everything above is.
+   * `list/aim.ts` reads it leniently, because the greeting carries a remembered
+   * choice before this page has said what it offers, and an option this
+   * version does not know falls back to following the picks.
+   */
+  chosen: string
+  /**
    * Say what this page can be narrowed by, so the host draws the control.
    *
    * Fire and forget, like `resize`: the host may draw the offer, may draw part
-   * of it, or may never have heard of the idea. This page offers NOTHING now,
-   * and says so once — see the essay on the empty offer in `src/app.tsx` for
-   * why that is a sentence rather than a silence. The client replays the last
-   * offer after every greeting, so once is enough.
+   * of it, or may never have heard of the idea. This page offers ONE group,
+   * and only when the host lists containers — see `aimOffer` in `list/aim.ts`
+   * — and re-offers it whenever the count in its label changes. The client
+   * replays the last offer after every greeting.
    */
   filters: (groups: FilterGroup[]) => void
   /** Say how tall this page would like its frame to be. Silent when nothing is framing it. */
@@ -211,6 +237,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [where, setWhere] = useState<Where>('listening')
   const [selection, setSelection] = useState<string[]>([])
   const [passage, setPassage] = useState('')
+  const [containers, setContainers] = useState('')
+  const [chosen, setChosen] = useState('')
   const [epic, setEpic] = useState<string | null>(null)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [projectName, setProjectName] = useState<string | null>(null)
@@ -256,6 +284,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
+      containers?: unknown
+      filters?: unknown
     }) => {
       wearTheme(document.documentElement, context.theme)
 
@@ -280,6 +310,14 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
           ? [here.path, here.page ?? '', here.from ?? '', here.to ?? ''].join('\t')
           : '',
       )
+      /*
+       * The host's list of containers, flattened on arrival for the reason the
+       * passage is. Each document inside is flattened the same way the passage
+       * is — path, page, from, to — so one parser reads both. A row that is not
+       * a row is left out; a host that sends nothing is `''`.
+       */
+      setContainers(flattenContainers(context.containers))
+      setChosen(flattenChoice(context.filters))
       setEpic(context.epic)
       /*
        * Normalised to null the moment it arrives, rather than at each call site.
@@ -317,10 +355,6 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       setKehikko((was) =>
         was?.id === context.kehikko?.id && was?.name === context.kehikko?.name ? was : context.kehikko,
       )
-      /* `context.filters` is deliberately not read. This page offers no filter,
-         so any choice a host still holds for this container is one an older
-         version of this module asked for, and the empty offer `src/app.tsx`
-         sends is what tells the host to let it go. */
     }
 
     /**
@@ -355,6 +389,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       selection: string[]
       passage: { path: string; page: number | null; from: number | null; to: number | null } | null
       kehikko: Kehikko | null
+      containers?: unknown
+      filters?: unknown
     }
     /* The greeting's kept `state` is deliberately not read. A string an older
        version of this module asked the host to keep — which checklist was
@@ -447,6 +483,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       kehikko,
       selection,
       passage,
+      containers,
+      chosen,
       resize,
       filters,
       pickProject,
@@ -459,9 +497,51 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       kehikko,
       selection,
       passage,
+      containers,
+      chosen,
       resize,
       filters,
       pickProject,
     ],
   )
+}
+
+/**
+ * The host's containers as one string, or `''`.
+ *
+ * Only what this page reads survives the flattening: the module, the flag,
+ * the refs, and each document as the same tab-separated four fields the
+ * passage travels as. The quote is dropped here as it is for the passage, and
+ * for the same reason — this page never re-anchors anything by its words.
+ */
+function flattenContainers(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return ''
+  const rows = value.flatMap((one) => {
+    if (typeof one !== 'object' || one === null) return []
+    const row = one as { module?: unknown; selected?: unknown; showing?: unknown }
+    if (typeof row.module !== 'string' || !row.module) return []
+    const showing = (typeof row.showing === 'object' && row.showing !== null ? row.showing : {}) as {
+      refs?: unknown
+      documents?: unknown
+    }
+    const refs = Array.isArray(showing.refs) ? showing.refs.filter((r): r is string => typeof r === 'string') : []
+    const documents = Array.isArray(showing.documents)
+      ? showing.documents.flatMap((d) => {
+          const doc = d as { path?: unknown; page?: unknown; from?: unknown; to?: unknown } | null
+          if (!doc || typeof doc.path !== 'string' || !doc.path) return []
+          return [[doc.path, doc.page ?? '', doc.from ?? '', doc.to ?? ''].join('\t')]
+        })
+      : []
+    return [{ module: row.module, selected: row.selected === true, refs, documents }]
+  })
+  return rows.length ? JSON.stringify(rows) : ''
+}
+
+/** The choice as one string with its keys in a fixed order, so equal choices compare equal. */
+function flattenChoice(value: unknown): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return ''
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter((pair): pair is [string, string] => typeof pair[1] === 'string')
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  return entries.length ? JSON.stringify(Object.fromEntries(entries)) : ''
 }

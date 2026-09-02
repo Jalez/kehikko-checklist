@@ -2,6 +2,7 @@ import type { Held, Summary } from '../../list/checklists.ts'
 import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
 import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
+import type { Shown } from '../../list/aim.ts'
 
 /**
  * Talking to this app's own server, which is the same origin this page came
@@ -69,7 +70,7 @@ async function post(path: string, body: unknown): Promise<unknown> {
   return response.json()
 }
 
-export type { Held, Outline, OutlineFile, OutlineSection, Placed, Summary, Target }
+export type { Held, Outline, OutlineFile, OutlineSection, Placed, Shown, Summary, Target }
 
 /**
  * Which project every request below is about.
@@ -148,6 +149,8 @@ export function pointing(passage: string): Pointing | null {
 export interface Here {
   /** Where the reader's document turned out to be, as the server read it. Null when nothing narrowed. */
   placed: Placed | null
+  /** Every place asked about, resolved, in the order asked — the reader's own first. For labelling rows. */
+  positions: (Placed | null)[]
   /** One entry per (checklist, target) pairing in front of the reader. `held.target` is never null here. */
   instances: Held[]
   trouble: string | null
@@ -155,33 +158,76 @@ export interface Here {
 }
 
 /**
- * The reading page's one request: position and selection in, instances out.
+ * The reading page's one request: what is in front in, instances out.
  *
- * The passage is sent only with an epic. A checklist held against a paper
- * needs an epic to name the paper, so a passage with no epic narrows nothing —
- * and sending it would be asking the server to open a file in order to answer
- * a question that does not involve one.
+ * `documents` is every place in a document that is in front of the reader —
+ * their own passage first, then whatever the containers on the kehikko say
+ * they show; see `list/aim.ts`. Each goes as one `doc`, flattened the way the
+ * wire holds a passage. Sent only with an epic: a checklist held against a
+ * paper needs an epic to name the paper, so a place with no epic narrows
+ * nothing, and sending it would be asking the server to open a file in order
+ * to answer a question that does not involve one.
  */
 export async function whatIsHere(
   projectPath: string | null,
   epic: string | null,
-  at: Pointing | null,
-  selection: string[],
+  documents: readonly Pointing[],
+  refs: readonly string[],
 ): Promise<Here> {
   const parts: string[] = []
   if (epic) parts.push(`epic=${encodeURIComponent(epic)}`)
-  if (epic && at) {
-    parts.push(`path=${encodeURIComponent(at.path)}`)
-    if (at.from !== null && at.to !== null) parts.push(`from=${at.from}`, `to=${at.to}`)
+  if (epic) {
+    for (const at of documents) {
+      const range = at.from !== null && at.to !== null ? `\t${at.from}\t${at.to}` : ''
+      parts.push(`doc=${encodeURIComponent(`${at.path}${range}`)}`)
+    }
   }
-  if (selection.length) parts.push(`refs=${encodeURIComponent(selection.join(' '))}`)
+  if (refs.length) parts.push(`refs=${encodeURIComponent(refs.join(' '))}`)
   const response = await fetch(withProject(`/api/here${parts.length ? `?${parts.join('&')}` : ''}`, projectPath))
-  const body = (await response.json()) as { placed?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown }
+  const body = (await response.json()) as {
+    placed?: unknown
+    positions?: unknown
+    instances?: unknown
+    trouble?: unknown
+    nowhere?: unknown
+  }
   return {
     placed: (body.placed as Placed | null) ?? null,
+    positions: Array.isArray(body.positions) ? (body.positions as (Placed | null)[]) : [],
     instances: Array.isArray(body.instances) ? (body.instances as Held[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
     nowhere: body.nowhere === true,
+  }
+}
+
+/**
+ * The host's list of containers, inflated from the string the wire holds.
+ *
+ * The parse lives here beside `pointing` for the same reason: one file spells
+ * it onto the page and one file flattened it, and a format with two owners is
+ * a format that drifts. `''` — no host, or a host too old to say — is no
+ * containers, which `list/aim.ts` answers as the page always did.
+ */
+export function shown(containers: string): Shown[] {
+  if (!containers) return []
+  try {
+    const parsed: unknown = JSON.parse(containers)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((one): Shown[] => {
+      if (typeof one !== 'object' || one === null) return []
+      const row = one as { module?: unknown; selected?: unknown; refs?: unknown; documents?: unknown }
+      if (typeof row.module !== 'string' || !row.module) return []
+      const refs = Array.isArray(row.refs) ? row.refs.filter((r): r is string => typeof r === 'string' && r !== '') : []
+      const documents = Array.isArray(row.documents)
+        ? row.documents.flatMap((d): Pointing[] => {
+            const place = typeof d === 'string' ? pointing(d) : null
+            return place ? [place] : []
+          })
+        : []
+      return [{ module: row.module, selected: row.selected === true, refs, documents }]
+    })
+  } catch {
+    return []
   }
 }
 

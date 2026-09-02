@@ -313,8 +313,25 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * third was found not to: the reasoning differs each time and copying either
    * answer would be adding machinery against a hazard this program does not
    * have.
+   *
+   * ## `containers`, which is the word for both halves of the newest ask
+   *
+   * > "if user selects x number of the modules then we should only show those
+   * > modules checklist"
+   *
+   * The host lists every container on the kehikko, whether it is picked out,
+   * and what it says it is showing. This page reads it two ways — every list
+   * held against anything any container shows is in front, and when some are
+   * picked out only what those show is — and both are reactions in the field's
+   * own sense: the page is different afterwards. `list/aim.ts` is the rule.
+   *
+   * `showing:set` is deliberately not declared. This module shows checklists,
+   * and a checklist is not a thing anybody files a checklist against; a row
+   * for it in the host's list would be a claim with no consumer. The day
+   * somebody wants to hold notes against a checklist, that is the line to
+   * add, and the reasoning to revisit.
    */
-  reacts: ['selection', 'passage'],
+  reacts: ['selection', 'passage', 'containers'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['events:emit', 'projects:pick'],
