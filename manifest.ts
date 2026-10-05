@@ -106,10 +106,24 @@ export const FORMAT = 'roadmap.notifications@1'
  *   arriving and needs no declaration.
  * - **`stage:report` — not declared.** Saying where work is belongs to whoever
  *   is doing it. A checklist has no opinion about that.
- * - **Tracker access — not declared, and there is no capability for it.** This
- *   app never speaks to GitHub or GitLab, holds no token, and has no code path
- *   that could. That was true when it derived items from a host's reading and it
- *   is more obviously true now that it derives nothing.
+ * - **`trackers:read` — declared, and it is not `live:read` coming back.**
+ *   Jalez/kehikko-checklist#1: checking "pipeline green" or "the description
+ *   explains the why" meant leaving the page to read the issue or change
+ *   somewhere else. The host now reads GitHub and GitLab once for every
+ *   module and hands the reading over through `tracker.get`, and this page
+ *   asks it for the refs its lists are held against, with the detail a
+ *   checklist is checked against — description, files, head commit,
+ *   approvals. What is different from the capability deleted below is the
+ *   direction: nothing is DERIVED from the reading. It is drawn beside the
+ *   list, an item may name one fact as its evidence, and a tick made on the
+ *   page keeps what that fact said — but every tick is still a press or a
+ *   `check_item`. See `list/evidence.ts`. This app still speaks to no
+ *   tracker and holds no token: the host reads, and a host that refuses is
+ *   a page drawn as it was before.
+ * - **`trackers:refresh` — not declared.** A refresh spends the person's rate
+ *   limit for every module on the canvas, and the issue asked to read what is
+ *   there, not to press for more. A refresh pressed anywhere else still lands
+ *   here, through `reacts: ['tracker']`.
  * - **`events:emit` — declared, and `emits` names one format.** What is
  *   announced is NOT a tick. A tick is a thing a person does in this container, in
  *   front of them, and announcing it to a panel two inches away is telling
@@ -331,10 +345,18 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * somebody wants to hold notes against a checklist, that is the line to
    * add, and the reasoning to revisit.
    */
-  reacts: ['selection', 'passage', 'containers'],
+  /*
+   * `tracker` and `dispositions`, which arrived with the shared tracker
+   * reading, and both are earned in the field's sense. When
+   * `context.tracker.at` moves, the page asks `tracker.get` again and the facts
+   * beside a ref's lists change — including a ref that came back `pending` the
+   * first time. When somebody marks why a ref closed, the state drawn beside
+   * it says the mark rather than the tracker's reason. See `src/view/facts.tsx`.
+   */
+  reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'projects:pick'],
+    uses: ['events:emit', 'projects:pick', 'trackers:read'],
     storage: true,
     prompt: false,
   },

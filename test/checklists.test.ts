@@ -220,3 +220,67 @@ describe('migration is additive', () => {
     expect(out.lists[0]?.name).toBe('Old')
   })
 })
+
+describe('a tracker fact as an item’s evidence (Jalez/kehikko-checklist#1)', () => {
+  const EVIDENCE = {
+    fact: 'pipeline' as const,
+    said: 'pipeline: success at 4f6d7bb',
+    print: 'pipeline: success at 4f6d7bb',
+    sha: '4f6d7bbf9bdbf209913746fa669904fa5a0616ca',
+    read: '2026-10-05T10:00:00Z',
+  }
+
+  test('an item names a fact, and naming none clears it, with its ticks untouched', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    const target = { kind: 'ref' as const, ref: '!7' }
+    change({ op: 'tick', id: list, item, target, done: true, by: 'a test' }, dir)
+    const cited = change({ op: 'cite', id: list, item, fact: 'pipeline', by: 'a test' }, dir)
+    expect(cited.ok).toBe(true)
+    expect(held(list, target, dir).held!.rows[0]!.item.fact).toBe('pipeline')
+    change({ op: 'cite', id: list, item, fact: null, by: 'a test' }, dir)
+    const after = held(list, target, dir).held!.rows[0]!
+    expect(after.item.fact).toBeUndefined()
+    expect(after.done).not.toBeNull()
+  })
+
+  test('a tick on a ref keeps the evidence for the fact the item names', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'cite', id: list, item, fact: 'pipeline', by: 'a test' }, dir)
+    const target = { kind: 'ref' as const, ref: '!7' }
+    change({ op: 'tick', id: list, item, target, done: true, by: 'a test', evidence: EVIDENCE }, dir)
+    expect(held(list, target, dir).held!.rows[0]!.done!.evidence).toEqual(EVIDENCE)
+  })
+
+  test('evidence for another fact, or on a paper, is not kept — the tick still is', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'cite', id: list, item, fact: 'review', by: 'a test' }, dir)
+    const ref = { kind: 'ref' as const, ref: '!7' }
+    change({ op: 'tick', id: list, item, target: ref, done: true, by: 'a test', evidence: EVIDENCE }, dir)
+    const onRef = held(list, ref, dir).held!.rows[0]!.done!
+    expect(onRef.evidence).toBeUndefined()
+
+    change({ op: 'cite', id: list, item, fact: 'pipeline', by: 'a test' }, dir)
+    const paper = { kind: 'paper' as const, epic: 'thesis', section: null }
+    change({ op: 'tick', id: list, item, target: paper, done: true, by: 'a test', evidence: EVIDENCE }, dir)
+    const onPaper = held(list, paper, dir).held!.rows[0]!.done!
+    expect(onPaper).not.toBeNull()
+    expect(onPaper.evidence).toBeUndefined()
+  })
+
+  test('an import carries the fact an item names', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'cite', id: list, item, fact: 'description', by: 'a test' }, dir)
+    const other = mkdtempSync(join(tmpdir(), 'checklist-other-'))
+    try {
+      const copied = change({ op: 'import', from: dir, id: list, by: 'a test' }, other)
+      if (!copied.ok) throw new Error(copied.error)
+      expect(held(copied.id, null, other).held!.rows[0]!.item.fact).toBe('description')
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
+  })
+})

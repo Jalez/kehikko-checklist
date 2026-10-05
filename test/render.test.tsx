@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 
 import type { Held } from '../list/checklists.ts'
+import { FACTS } from '../list/evidence.ts'
+import { trackerReadingResult, trackerRowSchema } from 'roadmap-module-protocol'
+import { factsOf } from '../src/view/facts.tsx'
 import type { Outline } from '../file/outline.ts'
 import type { Placed } from '../list/scope.ts'
 import type { Target } from '../list/targets.ts'
@@ -564,5 +567,121 @@ describe('the screen for "there is nowhere to keep a checklist"', () => {
   test('says something different again when nothing is framing the page at all', () => {
     render(<Nowhere unhosted project={null} />)
     expect(screen.getByText(/Nothing is framing this page/)).toBeTruthy()
+  })
+})
+
+describe('what the tracker says, beside a ref’s lists (Jalez/kehikko-checklist#1)', () => {
+  /* Stand-ins through the protocol's own schema: the host side,
+     Jalez/kehikko#25, is what will send real readings. */
+  const ROW = trackerRowSchema.parse({
+    ref: 'gh#105',
+    tracker: 'github',
+    host: 'github.com',
+    repo: 'owner/repo',
+    number: 105,
+    kind: 'change',
+    state: 'open',
+    title: 'Teach the parser tabs',
+    url: 'https://github.com/owner/repo/pull/105',
+    labels: ['parser'],
+    pipeline: 'success',
+    review: 'approved',
+    readAt: '2026-10-05T10:00:00Z',
+    detail: {
+      body: 'Tabs were read as spaces.',
+      files: [{ path: 'src/parse.ts', additions: 3, deletions: 1 }],
+      headSha: '4f6d7bbf9bdbf209913746fa669904fa5a0616ca',
+      approvedBy: ['jaakko'],
+      readAt: '2026-10-05T10:00:00Z',
+    },
+  })
+  const facts = (rows: (typeof ROW)[], missing: { ref: string; reason: 'pending' | 'not-found' | 'no-tracker' | 'failed' }[] = []) =>
+    factsOf(trackerReadingResult.parse({ at: '2026-10-05T10:00:00Z', rows, missing }), [], false)
+
+  function cited(done: Held['rows'][number]['done'] = null): Held {
+    const item = { id: 'aaa', text: 'Pipeline is green', at: '2026-01-01T00:00:00Z', by: 'the owner', fact: 'pipeline' as const }
+    return held({ rows: [{ item, done }], done: done ? 1 : 0, total: 1 })
+  }
+
+  test('the ref’s title, state, pipeline, review and labels are drawn under the list’s name', () => {
+    const { container } = render(<Reading here={here([held()])} facts={facts([ROW])} room={ROOMY} />)
+    const panel = container.querySelector('[data-facts="gh#105"]')!
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('https://github.com/owner/repo/pull/105')
+    expect(panel.querySelector('[data-facts-state]')?.textContent).toBe('openpipeline successreview approvedparser')
+    expect(panel.querySelector('[data-facts-detail] summary')?.textContent).toBe('description · 1 files · approved by jaakko · at 4f6d7bb')
+    expect(panel.querySelector('[data-facts-files]')?.textContent).toContain('src/parse.ts')
+  })
+
+  test('no reading draws nothing, which is the page as it was', () => {
+    const { container } = render(<Reading here={here([cited()])} room={ROOMY} />)
+    expect(container.querySelector('[data-facts]')).toBeNull()
+    expect(container.querySelector('[data-fact]')).toBeNull()
+  })
+
+  test('a ref not read yet says the tracker is being asked, and the item says so too', () => {
+    const { container } = render(<Reading here={here([cited()])} facts={facts([], [{ ref: 'gh#105', reason: 'pending' }])} room={ROOMY} />)
+    expect(container.querySelector('[data-facts="missing"]')?.textContent).toBe('Asking the tracker about gh#105.')
+    expect(container.querySelector('[data-fact="pipeline"]')?.textContent).toBe('pipeline: asking the tracker')
+  })
+
+  test('an item shows the fact it is checked against, and a press keeps it on the tick — nothing ticks itself', () => {
+    const sent: unknown[] = []
+    const { container } = render(
+      <Reading here={here([cited()])} facts={facts([ROW])} onEdit={(e) => sent.push(e)} room={ROOMY} />,
+    )
+    expect(container.querySelector('[data-fact="pipeline"]')?.textContent).toBe('pipeline: success at 4f6d7bb')
+    expect(container.querySelector('li[data-item="aaa"]')?.getAttribute('data-done')).toBe('no')
+    expect(sent).toEqual([])
+    fireEvent.click(screen.getByText('Pipeline is green'))
+    expect(sent[0]).toEqual({
+      op: 'tick',
+      id: 'list1',
+      item: 'aaa',
+      target: REF,
+      done: true,
+      evidence: {
+        fact: 'pipeline',
+        said: 'pipeline: success at 4f6d7bb',
+        print: 'pipeline: success at 4f6d7bb',
+        sha: '4f6d7bbf9bdbf209913746fa669904fa5a0616ca',
+        read: '2026-10-05T10:00:00Z',
+      },
+    })
+  })
+
+  test('a tick whose ref has moved on since says it is stale, and stays ticked', () => {
+    const done = {
+      at: '2026-10-05T10:00:00Z',
+      by: 'the owner',
+      viaMcp: false,
+      evidence: {
+        fact: 'pipeline' as const,
+        said: 'pipeline: success at 4f6d7bb',
+        print: 'pipeline: success at 4f6d7bb',
+        sha: '4f6d7bbf9bdbf209913746fa669904fa5a0616ca',
+        read: '2026-10-05T10:00:00Z',
+      },
+    }
+    const moved = trackerRowSchema.parse({
+      ...ROW,
+      pipeline: 'failed',
+      detail: { ...ROW.detail, headSha: 'b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1' },
+    })
+    const { container } = render(<Reading here={here([cited(done)])} facts={facts([moved])} room={ROOMY} />)
+    const line = container.querySelector('[data-fact="pipeline"]')!
+    expect(line.getAttribute('data-stale')).toBe('yes')
+    expect(line.textContent).toBe(
+      'ticked on pipeline: success at 4f6d7bbStale: new commits since it was ticked (4f6d7bb → b2c3d4e); now pipeline: failed at b2c3d4e.',
+    )
+    expect(container.querySelector('li[data-item="aaa"]')?.getAttribute('data-done')).toBe('yes')
+  })
+
+  test('the edit page offers the facts per item, and choosing one sends a cite', () => {
+    const sent: unknown[] = []
+    const { container } = render(<Editing held={held()} onEdit={(e) => sent.push(e)} room={ROOMY} />)
+    const select = container.querySelector('select[data-cite="aaa"]') as HTMLSelectElement
+    expect([...select.options].map((o) => o.value)).toEqual(['', ...FACTS])
+    fireEvent.change(select, { target: { value: 'description' } })
+    expect(sent[0]).toEqual({ op: 'cite', id: 'list1', item: 'aaa', fact: 'description' })
   })
 })

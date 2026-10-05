@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { projectPickResult, type FilterGroup } from 'roadmap-module-protocol'
+import {
+  LIMITS,
+  dispositionSchema,
+  projectPickResult,
+  trackerReadingResult,
+  type Disposition,
+  type FilterGroup,
+  type TrackerReading,
+} from 'roadmap-module-protocol'
 import {
   PERSON_ANSWERS_WITHIN_MS,
   connect,
@@ -43,6 +51,10 @@ import { wearTheme } from './theme.ts'
  * six different remedies. Nothing is derived any more. There is no `live.get`
  * here, no reading, no epic-change refetch, and no correlation guard on an
  * answer arriving after the epic moved, because no answer is being waited for.
+ * What came back since is narrower and is not a derivation: `readTracker`
+ * asks the host's shared reading what the trackers say about the refs the
+ * lists are held against, to be drawn beside them and kept on a tick as
+ * evidence — never to tick anything (Jalez/kehikko-checklist#1).
  *
  * What is left is what a context actually carries: which epic is open, which
  * project, where in a document the reader is, what the canvas has picked out,
@@ -221,6 +233,52 @@ export interface Roadmap {
    * hangs.
    */
   pickProject: () => Promise<{ path: string; name: string } | null>
+  /**
+   * When the host's shared tracker reading last changed, as the context says,
+   * or `''` when it has never been read or the host does not say.
+   *
+   * A string, for the reason `passage` is one: it is a dependency of the read
+   * below, and a context arrives after every change anywhere on the canvas.
+   * This is the whole of `reacts: ['tracker']` — when it moves, the page asks
+   * `tracker.get` again, and a ref that came back `pending` is found.
+   */
+  trackerAt: string
+  /** Whether the host is reading the trackers right now. Said on the page, never waited on. */
+  trackerReading: boolean
+  /**
+   * The marks people put on why a ref closed, `context.dispositions`, as one
+   * string for the reason everything above is one. `marksOf` reads it back.
+   * A person's mark beats the tracker's reason; see `dispositionOf` in the
+   * protocol's facets.
+   */
+  marks: string
+  /**
+   * Ask the host what the trackers last said about these refs, with the
+   * detail a checklist is checked against — description, files, head commit,
+   * approvals. Null for every no: no host, a host too old to know the method,
+   * a person who did not grant `trackers:read`, an answer that does not parse.
+   * The page draws nothing from the tracker then, which is what it drew before.
+   *
+   * Answered at once by the host, from what it holds. A ref it has not read
+   * yet comes back in `missing` as `pending`, and `trackerAt` moves when the
+   * read lands.
+   */
+  readTracker: (refs: readonly string[]) => Promise<TrackerReading | null>
+}
+
+/** The marks back out of `Roadmap.marks`, each parsed; a row that does not parse is left out. */
+export function marksOf(marks: string): Disposition[] {
+  if (!marks) return []
+  try {
+    const parsed: unknown = JSON.parse(marks)
+    if (!Array.isArray(parsed)) return []
+    return parsed.flatMap((one) => {
+      const read = dispositionSchema.safeParse(one)
+      return read.success ? [read.data] : []
+    })
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -243,6 +301,9 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [projectPath, setProjectPath] = useState<string | null>(null)
   const [projectName, setProjectName] = useState<string | null>(null)
   const [kehikko, setKehikko] = useState<Kehikko | null>(null)
+  const [trackerAt, setTrackerAt] = useState('')
+  const [trackerReading, setTrackerReading] = useState(false)
+  const [marks, setMarks] = useState('')
   const host = useRef<Connection | null>(null)
 
   /**
@@ -286,6 +347,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       kehikko: Kehikko | null
       containers?: unknown
       filters?: unknown
+      tracker?: unknown
+      dispositions?: unknown
     }) => {
       wearTheme(document.documentElement, context.theme)
 
@@ -318,6 +381,18 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
        */
       setContainers(flattenContainers(context.containers))
       setChosen(flattenChoice(context.filters))
+      /*
+       * The tracker signal, read structurally for the reason `containers` is:
+       * a host from before shared readings sends none, and that is "nothing
+       * has been read", which is what `''` says.
+       */
+      const signal = (typeof context.tracker === 'object' && context.tracker !== null ? context.tracker : {}) as {
+        at?: unknown
+        refreshing?: unknown
+      }
+      setTrackerAt(typeof signal.at === 'string' ? signal.at : '')
+      setTrackerReading(signal.refreshing === true)
+      setMarks(Array.isArray(context.dispositions) && context.dispositions.length ? JSON.stringify(context.dispositions) : '')
       setEpic(context.epic)
       /*
        * Normalised to null the moment it arrives, rather than at each call site.
@@ -391,6 +466,8 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       kehikko: Kehikko | null
       containers?: unknown
       filters?: unknown
+      tracker?: unknown
+      dispositions?: unknown
     }
     /* The greeting's kept `state` is deliberately not read. A string an older
        version of this module asked the host to keep — which checklist was
@@ -474,6 +551,23 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
      exists to end. */
   const filters = useCallback((groups: FilterGroup[]) => host.current?.filters(groups), [])
 
+  /* See `readTracker` above. Bounded to what one ask may name; the page asks
+     for the refs its lists are held against, which is rarely more than a few. */
+  const readTracker = useCallback(async (refs: readonly string[]): Promise<TrackerReading | null> => {
+    const live = host.current
+    if (!live || !refs.length) return null
+    try {
+      const answered = await live.request('tracker.get', {
+        refs: refs.slice(0, LIMITS.TRACKER_ASK),
+        detail: 'detail',
+      })
+      const read = trackerReadingResult.safeParse(answered)
+      return read.success ? read.data : null
+    } catch {
+      return null
+    }
+  }, [])
+
   return useMemo(
     () => ({
       where,
@@ -488,6 +582,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       resize,
       filters,
       pickProject,
+      trackerAt,
+      trackerReading,
+      marks,
+      readTracker,
     }),
     [
       where,
@@ -502,6 +600,10 @@ export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void)
       resize,
       filters,
       pickProject,
+      trackerAt,
+      trackerReading,
+      marks,
+      readTracker,
     ],
   )
 }

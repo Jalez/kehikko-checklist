@@ -559,3 +559,38 @@ describe('the agent’s door', () => {
     expect(since(0).announcements).toHaveLength(1)
   })
 })
+
+describe('the page’s door, for a tracker fact (Jalez/kehikko-checklist#1)', () => {
+  test('cite names one of the facts, or none, and refuses a word that is not one', async () => {
+    const { TICKET, answer } = await import('../doors.ts')
+    const { list, item } = await aList()
+    const bad = answer('POST', '/api/checklist', query, { op: 'cite', id: list, item, fact: 'vibes', project: dir }, TICKET)
+    expect(bad?.status).toBe(400)
+    const good = answer('POST', '/api/checklist', query, { op: 'cite', id: list, item, fact: 'pipeline', project: dir }, TICKET)
+    expect((good?.body as { ok: boolean }).ok).toBe(true)
+    const cleared = answer('POST', '/api/checklist', query, { op: 'cite', id: list, item, fact: null, project: dir }, TICKET)
+    expect((cleared?.body as { said: string }).said).toContain('names no tracker fact')
+  })
+
+  test('a tick keeps well-formed evidence and is not refused for a malformed one', async () => {
+    const { TICKET, answer } = await import('../doors.ts')
+    const { held } = await import('../list/checklists.ts')
+    const { list, item } = await aList()
+    answer('POST', '/api/checklist', query, { op: 'cite', id: list, item, fact: 'labels', project: dir }, TICKET)
+    const evidence = { fact: 'labels' as const, said: 'labels: tested', print: 'labels: tested', read: '2026-10-05T10:00:00Z' }
+    answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, ref: 'gh#41', evidence, project: dir }, TICKET)
+    expect(held(list, { kind: 'ref', ref: 'gh#41' }, dir).held!.rows[0]!.done!.evidence).toEqual({ ...evidence, sha: null })
+
+    const odd = answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, ref: 'gh#42', evidence: { fact: 'vibes' }, project: dir }, TICKET)
+    expect((odd?.body as { ok: boolean }).ok).toBe(true)
+    expect(held(list, { kind: 'ref', ref: 'gh#42' }, dir).held!.rows[0]!.done!.evidence).toBeUndefined()
+  })
+
+  test('an agent reading the list is told which fact an item is checked against', async () => {
+    const { list, item } = await aList()
+    const { change } = await import('../list/checklists.ts')
+    change({ op: 'cite', id: list, item, fact: 'pipeline', by: 'a test' }, dir)
+    const out = await tool('checklists', { checklist: list, ref: '!7' })
+    expect(out.text).toContain('[evidence: the tracker\'s pipeline]')
+  })
+})

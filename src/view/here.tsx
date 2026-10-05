@@ -3,8 +3,11 @@ import { useState } from 'react'
 import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
+import { evidenceOf } from '../../list/evidence.ts'
+import type { TrackerRow } from 'roadmap-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
+import { FactLine, RefFacts, type Facts } from '@/view/facts.tsx'
 import type { Room } from '@/view/room.ts'
 import { cn } from '@/lib/utils.ts'
 
@@ -87,6 +90,7 @@ export function HereView({
   trouble,
   busy,
   room,
+  facts = null,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
@@ -104,6 +108,8 @@ export function HereView({
   trouble: string | null
   busy: boolean
   room: Room
+  /** What the host's tracker reading says about the refs in front, or null when there is none. See `facts.tsx`. */
+  facts?: Facts | null
 }) {
   /* Which instances are folded, keyed by list and target, so the same list
      against two targets folds separately. Departures from "open", so a new
@@ -150,6 +156,7 @@ export function HereView({
                 onOpen={onOpen}
                 busy={busy}
                 room={room}
+                facts={facts}
               />
             )
           })}
@@ -197,6 +204,7 @@ function Instance({
   onOpen,
   busy,
   room,
+  facts,
 }: {
   held: Held
   target: Target
@@ -208,7 +216,10 @@ function Instance({
   onOpen: (id: string) => void
   busy: boolean
   room: Room
+  facts: Facts | null
 }) {
+  const ref = target.kind === 'ref' ? target.ref : null
+  const refRow = ref ? (facts?.rows[ref] ?? null) : null
   return (
     <section
       className="border-t first:border-t-0"
@@ -273,11 +284,24 @@ function Instance({
         </Button>
       </div>
 
+      {/* What the tracker says about the ref, beside the list and under its
+          name — only open, so a folded instance is one line again. */}
+      {open && ref ? <RefFacts refName={ref} facts={facts} /> : null}
+
       {open ? (
         held.rows.length ? (
           <ul className="border-t">
             {held.rows.map((row) => (
-              <ItemRow key={row.item.id} list={held.checklist.id} row={row} target={target} onEdit={onEdit} busy={busy} room={room} />
+              <ItemRow
+                key={row.item.id}
+                list={held.checklist.id}
+                row={row}
+                target={target}
+                onEdit={onEdit}
+                busy={busy}
+                room={room}
+                read={row.item.fact && ref ? { row: refRow, refName: ref, facts } : null}
+              />
             ))}
           </ul>
         ) : (
@@ -321,6 +345,7 @@ function ItemRow({
   onEdit,
   busy,
   room,
+  read,
 }: {
   list: string
   row: Held['rows'][number]
@@ -328,9 +353,16 @@ function ItemRow({
   onEdit: (edit: Edit) => void
   busy: boolean
   room: Room
+  /**
+   * The tracker's reading of this row's ref, when the item names a fact and
+   * the target is a ref; null otherwise. A tick made with a row in hand
+   * carries what the item's fact said as the reader pressed.
+   */
+  read: { row: TrackerRow | null; refName: string; facts: Facts | null } | null
 }) {
   const done = row.done
   const item = row.item
+  const evidence = !done && item.fact && read?.row ? evidenceOf(read.row, item.fact) : null
 
   return (
     <li
@@ -343,7 +375,9 @@ function ItemRow({
         disabled={busy}
         aria-pressed={Boolean(done)}
         title={done ? 'Ticked for this target. Press to take it back.' : 'Press when this is actually done here.'}
-        onClick={() => onEdit({ op: 'tick', id: list, item: item.id, target, done: !done })}
+        onClick={() =>
+          onEdit({ op: 'tick', id: list, item: item.id, target, done: !done, ...(evidence ? { evidence } : {}) })
+        }
         className="flex w-full min-w-0 items-start gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
       >
         <span
@@ -368,6 +402,12 @@ function ItemRow({
         </span>
         <span className="sr-only">{done ? 'ticked' : 'not ticked'}</span>
       </button>
+
+      {/* The fact this line is checked against, as the tracker says it — read
+          beside the press, never pressed by it. */}
+      {item.fact && read ? (
+        <FactLine fact={item.fact} done={done} row={read.row} refName={read.refName} facts={read.facts} />
+      ) : null}
 
       {/* The note an agent left saying HOW it knows, which is content rather
           than provenance: a sentence somebody wrote about the work. */}

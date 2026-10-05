@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { z } from 'zod'
 
 import { dataFile, makeDir, oldPapersFile } from '../store.ts'
+import { evidenceSchema, FACT_NAMES, type Evidence, type Fact, FACTS } from './evidence.ts'
 import { showing } from './holding.ts'
 import { readKey, targetKey, targetName, type Target } from './targets.ts'
 
@@ -153,6 +154,15 @@ const tickSchema = z.object({
   viaMcp: z.boolean().default(false),
   /** How they know. */
   note: z.string().optional(),
+  /**
+   * What the tracker said about the target's fact when this was ticked — the
+   * fact the item names as its evidence, as the page was showing it. Written
+   * only by the page, only on a ref target, and only when the host had
+   * handed over a reading; an agent's tick through the MCP door has none,
+   * because this app's server never reads a tracker. See `list/evidence.ts`,
+   * and why a fact informs a tick and never makes one.
+   */
+  evidence: evidenceSchema.optional(),
 })
 export type Tick = z.infer<typeof tickSchema>
 
@@ -171,6 +181,17 @@ const itemSchema = z.object({
   text: z.string(),
   at: z.string(),
   by: z.string(),
+  /**
+   * Which of the tracker's facts about a ref target is this item's evidence —
+   * `pipeline` for "pipeline is green", `description` for "the description
+   * explains the why". Absent for an item no tracker fact speaks to, which is
+   * most of them, and for every item written before this field existed.
+   *
+   * A property of the ITEM rather than of a tick, because it is a statement
+   * about what the line means, said once on the edit page, and the same for
+   * every target the list is held against.
+   */
+  fact: z.enum(FACTS).optional(),
 })
 export type Item = z.infer<typeof itemSchema>
 
@@ -857,6 +878,8 @@ export type Op =
   | { op: 'reword'; id: string; item: string; text: string; by: string; viaMcp?: boolean }
   | { op: 'move'; id: string; item: string; to: number; by: string; viaMcp?: boolean }
   | { op: 'drop'; id: string; item: string; by: string; viaMcp?: boolean }
+  /** Say which tracker fact is this item's evidence, or (with null) that none is. */
+  | { op: 'cite'; id: string; item: string; fact: Fact | null; by: string; viaMcp?: boolean }
   /**
    * Hold this list against one more target, or stop holding it against one.
    *
@@ -870,7 +893,17 @@ export type Op =
    */
   | { op: 'hold'; id: string; target: Target; by: string; viaMcp?: boolean }
   | { op: 'release'; id: string; target: Target; by: string; viaMcp?: boolean }
-  | { op: 'tick'; id: string; item: string; target: Target; done: boolean; by: string; viaMcp?: boolean; note?: string }
+  | {
+      op: 'tick'
+      id: string
+      item: string
+      target: Target
+      done: boolean
+      by: string
+      viaMcp?: boolean
+      note?: string
+      evidence?: Evidence
+    }
 
 export type Result =
   | { ok: true; said: string; lists: Summary[]; held: Held | null; id: string }
@@ -1065,7 +1098,13 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
        * for a person to read, and not a pointer.
        */
       origin: `import:${named(input.from)}#${source.id}`,
-      items: source.items.map((item) => ({ id: newId(), text: item.text, at: item.at, by: item.by })),
+      items: source.items.map((item) => ({
+        id: newId(),
+        text: item.text,
+        at: item.at,
+        by: item.by,
+        ...(item.fact ? { fact: item.fact } : {}),
+      })),
       /* And held against nothing, for the reason it carries no ticks: what a
          list is about is a fact about the project it is in, and the chapters of
          somebody else's paper are not in this one. */
@@ -1199,6 +1238,24 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     return answer(list.id, `${input.item} on "${list.name}" now reads "${text}"`, null)
   }
 
+  if (input.op === 'cite') {
+    const next = [...list.items]
+    const { fact: _was, ...rest } = list.items[where]!
+    next[where] = input.fact ? { ...rest, fact: input.fact } : rest
+    list.items = next
+    /* The ticks are untouched, and so is the evidence they carry: a tick made
+       on the pipeline is still a tick made on the pipeline after somebody
+       decides the line is really about the review. The page compares a tick's
+       evidence with the fact IT names, never with the item's new one. */
+    return answer(
+      list.id,
+      input.fact
+        ? `${input.item} on "${list.name}" is checked against the tracker's ${FACT_NAMES[input.fact]}`
+        : `${input.item} on "${list.name}" names no tracker fact`,
+      null,
+    )
+  }
+
   if (input.op === 'move') {
     /* Clamped rather than refused. "Move it to the top" said as `to: 0` and
        "move it to the end" said as a number past the end are both perfectly
@@ -1264,6 +1321,13 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
       by,
       viaMcp: input.viaMcp === true,
       ...(input.note?.trim() ? { note: input.note.trim().slice(0, MAX_NOTE) } : {}),
+      /* Kept only on a ref, which is the only target a tracker has anything
+         to say about, and only when it is about the fact the item names now —
+         evidence for a different fact than the line is checked against would
+         be a record of something nobody was looking at. */
+      ...(input.evidence && input.target.kind === 'ref' && input.evidence.fact === list.items[where]!.fact
+        ? { evidence: input.evidence }
+        : {}),
     }
   } else {
     delete forTarget[input.item]
