@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
 
@@ -28,7 +28,7 @@ import { ID } from './manifest.ts'
  *
  * So: `<projectPath>/.kehikot/checklist/checklists.json`, with this app's other
  * file — the `papers.json` it migrates from — beside it in the same folder. The
- * folder names and the joins belong to `roadmap-module-protocol` rather than to
+ * folder names and the joins belong to `kehikot-module-protocol` rather than to
  * this file, deliberately, because four modules answering "where does my data
  * live" separately is four answers and the disagreement has no symptom worth the
  * name — every module starts, every module saves, every screen looks right, and
@@ -45,13 +45,13 @@ import { ID } from './manifest.ts'
  *
  * ## The folder is named after this module, and the name is not typed here
  *
- * `moduleDir(project, ID)` is `<project>/.kehikot/checklist` — the `roadmap.`
- * prefix comes off the id, because a folder called `roadmap.checklist` inside a
+ * `moduleDir(project, ID)` is `<project>/.kehikot/checklist` — the `kehikot.`
+ * prefix comes off the id, because a folder called `kehikot.checklist` inside a
  * folder already named after the program is the program saying its own name
  * twice in somebody else's repository.
  *
  * `ID` is imported from `manifest.ts` rather than spelled again. One id, one
- * source: a module whose manifest said `roadmap.checklist` and whose store wrote
+ * source: a module whose manifest said `kehikot.checklist` and whose store wrote
  * to a folder called something else would be a module that works perfectly and
  * puts its data where nobody looking for it would look.
  *

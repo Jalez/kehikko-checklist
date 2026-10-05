@@ -21,7 +21,7 @@ import { room, type Room } from './room.ts'
  * Both start at zero and the first reading lands in the same frame the observer
  * is attached, so nothing is drawn against a made-up size for longer than one
  * paint. Zero is deliberately the SMALL end of every threshold: a page that
- * guessed "roomy" and then collapsed would be the flicker `use-roadmap.ts`
+ * guessed "roomy" and then collapsed would be the flicker `use-kehikot.ts`
  * spends a paragraph avoiding, and collapsing to the small layout is the one
  * that is never wrong about what fits.
  */

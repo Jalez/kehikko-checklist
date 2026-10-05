@@ -45,7 +45,7 @@
  * picked out and has said nothing about what it shows" is a different sentence
  * from "no checklist is held against what Journeys shows", and sends a person
  * to a different place. The control that turns the narrowing off lives in the
- * container header, offered to the host over `roadmap.filters`, so the way out
+ * container header, offered to the host over `kehikot.filters`, so the way out
  * is one press in the place every module in this family keeps its filters.
  *
  * ## An older host
@@ -202,7 +202,7 @@ export function whyEmpty(front: InFront): string | null {
   return `${who} ${names.length === 1 ? 'is' : 'are'} picked out; no checklist is held against what ${names.length === 1 ? 'it shows' : 'they show'}.${tail}`
 }
 
-/** The last word of a module id, which is what the ids look like: `roadmap.journeys` is `journeys`. */
+/** The last word of a module id, which is what the ids look like: `kehikot.journeys` is `journeys`. */
 export function nameOf(module: string): string {
   const cut = module.lastIndexOf('.')
   return cut === -1 ? module : module.slice(cut + 1)

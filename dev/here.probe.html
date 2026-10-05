@@ -4,7 +4,7 @@
   nothing else — in a real browser, against a copy of a real thesis?
 
       PROJECT=/private/tmp/ck-probe-project   (a copy of the owner's thesis project)
-      ROADMAP_MODULES_DIR=/tmp/ck-probe-registry PORT=7899 bunx vite
+      KEHIKOT_MODULES_DIR=/tmp/ck-probe-registry PORT=7899 bunx vite
       chrome-headless-shell --headless --disable-gpu --no-sandbox \
         --virtual-time-budget=40000 --dump-dom --enable-logging=stderr --v=1 \
         'http://127.0.0.1:7899/dev/here.probe.html?project=/private/tmp/ck-probe-project' \
@@ -18,8 +18,8 @@
   own origin — `frame-ancestors 'self'` lets it frame `/app`, and same-origin
   lets it read the frame's DOM and copy what it finds into the `<pre>` below,
   which is what the dump prints. The host it fakes is two messages:
-  `roadmap.hello` with the context nested under `context`, then a
-  `roadmap.context` per move with the context's fields at the TOP level of the
+  `kehikot.hello` with the context nested under `context`, then a
+  `kehikot.context` per move with the context's fields at the TOP level of the
   message — which is the shape the client unwraps, and not the nested one the
   older Playwright probes in this directory still send.
 
@@ -72,7 +72,7 @@ const doc = () => f.contentDocument
 const send = (type, extra) => f.contentWindow.postMessage({ type, ...extra }, '*')
 
 window.addEventListener('message', (e) => {
-  if (e.data && typeof e.data.type === 'string' && e.data.type !== 'roadmap.context') log(`from module: ${e.data.type}${e.data.type === 'roadmap.filters' ? ' ' + JSON.stringify(e.data.groups ?? e.data) : ''}`)
+  if (e.data && typeof e.data.type === 'string' && e.data.type !== 'kehikot.context') log(`from module: ${e.data.type}${e.data.type === 'kehikot.filters' ? ' ' + JSON.stringify(e.data.groups ?? e.data) : ''}`)
 })
 
 function instances() {
@@ -97,7 +97,7 @@ function old() {
 f.contentWindow.addEventListener('error', (e) => log(`frame error: ${e.message}`))
 f.addEventListener('load', async () => {
   f.contentWindow.addEventListener('error', (e) => log(`frame error: ${e.message}`))
-  send('roadmap.hello', { protocol: 2, session: 'probe', context: context(MOVES[0][1], []), state: null })
+  send('kehikot.hello', { protocol: 2, session: 'probe', context: context(MOVES[0][1], []), state: null })
   await sleep(1200)
 
   /* Seed through the app's own door, with the ticket the page carries. */
@@ -116,26 +116,26 @@ f.addEventListener('load', async () => {
      move. The holds above were made outside the page, and a context identical
      to the last one is — correctly — not re-asked about; on the real canvas a
      hold is made on the page or through the MCP door, and both re-ask. */
-  send('roadmap.context', { protocol: 2, ...context(null, []) })
+  send('kehikot.context', { protocol: 2, ...context(null, []) })
   await sleep(900)
   log('--- 220x300, walking ---')
   for (const [label, p, selection] of MOVES) {
-    send('roadmap.context', { protocol: 2, ...context(p, selection) })
+    send('kehikot.context', { protocol: 2, ...context(p, selection) })
     await sleep(900)
     log(`${label.padEnd(44)} -> ${instances()}   [${old()}]`)
   }
 
   /* Tick one item in chapter 3, walk away, come back. */
-  send('roadmap.context', { protocol: 2, ...context(MOVES[2][1], []) })
+  send('kehikot.context', { protocol: 2, ...context(MOVES[2][1], []) })
   await sleep(900)
   const row = doc().querySelector(`[data-instance="${ch3}"] li[data-item] button`)
   row?.click()
   await sleep(900)
   log(`after ticking one line in chapter 3            -> ${instances()}`)
-  send('roadmap.context', { protocol: 2, ...context(MOVES[1][1], []) })
+  send('kehikot.context', { protocol: 2, ...context(MOVES[1][1], []) })
   await sleep(900)
   log(`walked to chapter 1                            -> ${instances()}`)
-  send('roadmap.context', { protocol: 2, ...context(MOVES[2][1], []) })
+  send('kehikot.context', { protocol: 2, ...context(MOVES[2][1], []) })
   await sleep(900)
   log(`and back to chapter 3                          -> ${instances()}`)
 

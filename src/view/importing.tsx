@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils.ts'
  * reusing one is inherently cross-project, and this module is told exactly one
  * `projectPath` and may read what it was told. A picker of projects drawn here
  * would need a list of them, and a module that can ask what projects exist has
- * been handed the disk. See `pickProject` in `src/wire/use-roadmap.ts` and the
+ * been handed the disk. See `pickProject` in `src/wire/use-kehikot.ts` and the
  * protocol's `projects:pick`.
  *
  * So by the time this screen exists, a person has already answered the only

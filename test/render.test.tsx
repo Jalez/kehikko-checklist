@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react'
 
 import type { Held } from '../list/checklists.ts'
 import { FACTS } from '../list/evidence.ts'
-import { trackerReadingResult, trackerRowSchema } from 'roadmap-module-protocol'
+import { trackerReadingResult, trackerRowSchema } from 'kehikot-module-protocol'
 import { factsOf } from '../src/view/facts.tsx'
 import type { Outline } from '../file/outline.ts'
 import type { Placed } from '../list/scope.ts'

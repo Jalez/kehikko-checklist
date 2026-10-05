@@ -19,11 +19,11 @@ const INTRO = { path: '/thesis/chapters/1_introduction.tex', from: null, to: nul
 function canvas(picked: string[] = []): Shown[] {
   const is = (id: string) => picked.includes(id)
   return [
-    { module: 'roadmap.paper', selected: is('roadmap.paper'), refs: [], documents: [PARAGRAPH, CHAPTER] },
-    { module: 'roadmap.journeys', selected: is('roadmap.journeys'), refs: ['gh#10', 'gh#11'], documents: [] },
-    { module: 'roadmap.references', selected: is('roadmap.references'), refs: ['gh#7'], documents: [INTRO] },
-    { module: 'roadmap.checklist', selected: is('roadmap.checklist'), refs: [], documents: [] },
-    { module: 'roadmap.notes', selected: is('roadmap.notes'), refs: [], documents: [] },
+    { module: 'kehikot.paper', selected: is('kehikot.paper'), refs: [], documents: [PARAGRAPH, CHAPTER] },
+    { module: 'kehikot.journeys', selected: is('kehikot.journeys'), refs: ['gh#10', 'gh#11'], documents: [] },
+    { module: 'kehikot.references', selected: is('kehikot.references'), refs: ['gh#7'], documents: [INTRO] },
+    { module: 'kehikot.checklist', selected: is('kehikot.checklist'), refs: [], documents: [] },
+    { module: 'kehikot.notes', selected: is('kehikot.notes'), refs: [], documents: [] },
   ]
 }
 
@@ -53,11 +53,11 @@ describe('some picked out means only what those show', () => {
     const front = inFrontOf({
       passage: PARAGRAPH,
       selection: ['gh#7'],
-      containers: canvas(['roadmap.paper', 'roadmap.journeys']),
+      containers: canvas(['kehikot.paper', 'kehikot.journeys']),
       aim: 'follow',
     })
     expect(front.narrowed).toBe(true)
-    expect(front.picked).toEqual(['roadmap.paper', 'roadmap.journeys'])
+    expect(front.picked).toEqual(['kehikot.paper', 'kehikot.journeys'])
     expect(front.refs).toEqual(['gh#10', 'gh#11'])
     expect(front.documents).toEqual([PARAGRAPH, CHAPTER])
     expect(front.paper).toBe(true)
@@ -68,7 +68,7 @@ describe('some picked out means only what those show', () => {
   test('the selection is put aside when its setter is not picked', () => {
     /* `gh#7` is the canvas's selection and References' showing; with Journeys
        alone picked out, neither reaches the page. That is the narrowing. */
-    const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(['roadmap.journeys']), aim: 'follow' })
+    const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(['kehikot.journeys']), aim: 'follow' })
     expect(front.refs).toEqual(['gh#10', 'gh#11'])
     expect(front.documents).toEqual([])
     /* And the whole paper is not in front of a journeys pane. */
@@ -77,15 +77,15 @@ describe('some picked out means only what those show', () => {
   })
 
   test('a picked container that shows nothing is named as showing nothing', () => {
-    const front = inFrontOf({ passage: PARAGRAPH, selection: [], containers: canvas(['roadmap.notes']), aim: 'follow' })
+    const front = inFrontOf({ passage: PARAGRAPH, selection: [], containers: canvas(['kehikot.notes']), aim: 'follow' })
     expect(front.refs).toEqual([])
     expect(front.documents).toEqual([])
-    expect(front.quiet).toEqual(['roadmap.notes'])
+    expect(front.quiet).toEqual(['kehikot.notes'])
     expect(whyEmpty(front)).toBe('notes is picked out and shows nothing a checklist can be held against.')
   })
 
   test('one of two picked shows nothing, and the sentence says which', () => {
-    const front = inFrontOf({ passage: null, selection: [], containers: canvas(['roadmap.paper', 'roadmap.checklist']), aim: 'follow' })
+    const front = inFrontOf({ passage: null, selection: [], containers: canvas(['kehikot.paper', 'kehikot.checklist']), aim: 'follow' })
     expect(front.documents).toEqual([PARAGRAPH, CHAPTER])
     expect(whyEmpty(front)).toBe(
       'paper and checklist are picked out; no checklist is held against what they show. checklist shows nothing.',
@@ -93,9 +93,9 @@ describe('some picked out means only what those show', () => {
   })
 
   test('the way out: "everything on this kehikko" ignores the picks and says nothing about them', () => {
-    const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(['roadmap.journeys']), aim: 'all' })
+    const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(['kehikot.journeys']), aim: 'all' })
     expect(front.narrowed).toBe(false)
-    expect(front.picked).toEqual(['roadmap.journeys'])
+    expect(front.picked).toEqual(['kehikot.journeys'])
     expect(front.refs).toEqual(['gh#7', 'gh#10', 'gh#11'])
     expect(whyEmpty(front)).toBeNull()
   })
@@ -103,7 +103,7 @@ describe('some picked out means only what those show', () => {
 
 describe('the control in the header', () => {
   test('one group, following by default, with the count in the label', () => {
-    const [group] = aimOffer(canvas(['roadmap.paper', 'roadmap.journeys']))
+    const [group] = aimOffer(canvas(['kehikot.paper', 'kehikot.journeys']))
     expect(group?.id).toBe(AIM)
     expect(group?.fallback).toBe('follow')
     expect(group?.options.map((o) => o.id)).toEqual(['follow', 'all'])
@@ -122,7 +122,7 @@ describe('the control in the header', () => {
   })
 
   test('a module is named by the last word of its id, and an id with no dot by itself', () => {
-    expect(nameOf('roadmap.journeys')).toBe('journeys')
+    expect(nameOf('kehikot.journeys')).toBe('journeys')
     expect(nameOf('journeys')).toBe('journeys')
   })
 })

@@ -1,5 +1,5 @@
-import { FACETS, dispositionOf } from 'roadmap-module-protocol/facets'
-import type { Disposition, MissingReason, TrackerReading, TrackerRow } from 'roadmap-module-protocol'
+import { FACETS, dispositionOf } from 'kehikot-module-protocol/facets'
+import type { Disposition, MissingReason, TrackerReading, TrackerRow } from 'kehikot-module-protocol'
 
 import type { Tick } from '../../list/checklists.ts'
 import { FACT_NAMES, factOf, short, staleness, type Fact } from '../../list/evidence.ts'

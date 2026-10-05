@@ -168,13 +168,13 @@ page, because the next thing to do with it is say what it is held against.
   `<projectPath>/.kehikot/checklist/checklists.json` holds every list, every item
   and every tick for that project, with the `papers.json` it migrates from beside
   it. The folder names, the joins and the `.gitignore` text are
-  `roadmap-module-protocol`'s, so four modules cannot spell them four ways.
+  `kehikot-module-protocol`'s, so four modules cannot spell them four ways.
 
   `.kehikot` is the app; a *kehikko* is one canvas. Both words appear in this
   repository and they do not mean the same thing — the folder takes the app's
   name because what is in it belongs to every canvas a person has rather than to
   one of them. Each module gets a folder of its own inside it, named after its id
-  with `roadmap.` taken off, which is what lets this app keep two files without
+  with `kehikot.` taken off, which is what lets this app keep two files without
   either needing a name that says whose it is, and what makes
   `rm -r .kehikot/checklist` a sentence somebody can say.
 
@@ -423,9 +423,9 @@ PLAYWRIGHT=/path/to/playwright CHROME=/path/to/chrome-headless-shell \
                               #  are the reading `src/view/room.ts` was written on)
   node dev/theme.probe.mjs    # the host's theme, both ways, at both machine settings
 
-# A copy of a real thesis project, a scratch server kept out of ~/.roadmap, and
+# A copy of a real thesis project, a scratch server kept out of the real module registry, and
 # the headless shell alone — see the header of dev/here.probe.html.
-ROADMAP_MODULES_DIR=/tmp/ck-probe-registry PORT=7899 bunx vite
+KEHIKOT_MODULES_DIR=/tmp/ck-probe-registry PORT=7899 bunx vite
 chrome-headless-shell --headless --disable-gpu --no-sandbox --virtual-time-budget=40000 \
   --dump-dom 'http://127.0.0.1:7899/dev/here.probe.html?project=/private/tmp/ck-probe-project' \
   | grep -o 'PROBE:[^<]*'
@@ -468,7 +468,7 @@ following a reader, which is the thing the owner asked to stop), `filters.probe.
 page). One finding from the last of them survives in `file/outline.ts`: the file
 declaring `\documentclass` leads the list, because alphabetically `main.tex` came
 third under two files that sort ahead of it. And one from the filters probe
-survives as a rule in `src/app.tsx`: an empty `roadmap.filters` offer is a CLAIM
+survives as a rule in `src/app.tsx`: an empty `kehikot.filters` offer is a CLAIM
 the host acts on by pruning the container's stored choice, which is why it is
 sent now — once, when it is true at every moment — and was withheld before.
 

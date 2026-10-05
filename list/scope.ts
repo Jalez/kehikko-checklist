@@ -74,7 +74,7 @@ import { MAX_TARGET_PART, part, type Target } from './targets.ts'
  * is re-derived on every context and compared against that.
  *
  * There used to be a grain here — `section` / `file` / `paper`, offered to the
- * host over `roadmap.filters` and remembered per container — which trimmed the
+ * host over `kehikot.filters` and remembered per container — which trimmed the
  * ladder from below so a reader working file by file was not shown one
  * section's ticks. It went with the model it served. Under assignment the
  * ladder is not trimmed: every list held against any rung the reader is

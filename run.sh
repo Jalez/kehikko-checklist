@@ -9,7 +9,7 @@
 #   - No port on this command line, and no `--strictPort`. Both used to be here,
 #     and 7860 was written twice — once at the bottom of this file and once in
 #     `register.ts` — so moving this app meant two edits and then remembering
-#     that the file in `~/.roadmap/modules` still named the old address. It is
+#     that the file in the module registry still named the old address. It is
 #     said once now, beside the id, as `PREFERRED_PORT` in `manifest.ts`, and
 #     `serves()` in `vite.config.ts` acts on it.
 #
@@ -42,7 +42,7 @@
 # The paragraph was right and the variable is gone, because the store is no
 # longer beside this program at all: it is
 # `<projectPath>/.kehikot/checklist/checklists.json`,
-# and `projectPath` arrives in `roadmap.context` from whichever host framed the
+# and `projectPath` arrives in `kehikot.context` from whichever host framed the
 # page. There is therefore nothing here for a launcher to configure and nothing
 # for a bundler to get wrong — a checklist belongs to the project it is about,
 # this script cannot know which project that will be, and a script that exported
@@ -77,9 +77,25 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [ ! -d node_modules ]; then
+# Install when nothing is installed, AND whenever bun.lock or package.json is
+# newer than the last install here — the same rule as the host's own run.sh. A
+# pull that moves the protocol pin leaves the old package in node_modules, and
+# a page that imports a name the old package does not have draws nothing.
+# `--frozen-lockfile`, so a start installs exactly what bun.lock says and never
+# rewrites it behind somebody's back. The stamp is written only after an
+# install that succeeded.
+INSTALLED=node_modules/.kehikot-installed
+VITE_FORCE=
+if [ ! -d node_modules ] || [ ! -f "$INSTALLED" ] || [ bun.lock -nt "$INSTALLED" ] || [ package.json -nt "$INSTALLED" ]; then
   echo "installing…" >&2
-  bun install >&2
+  if [ -f bun.lock ]; then
+    bun install --frozen-lockfile >&2 || { echo "bun install --frozen-lockfile failed: bun.lock does not match package.json. Run \`bun install\` and commit bun.lock." >&2; exit 1; }
+  else
+    bun install >&2
+  fi
+  touch "$INSTALLED"
+  # Rebuild Vite's pre-bundle rather than trust one made from the old packages.
+  VITE_FORCE=--force
 fi
 
-exec bunx vite
+exec bunx vite $VITE_FORCE

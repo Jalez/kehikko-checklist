@@ -8,20 +8,20 @@ import {
   type Disposition,
   type FilterGroup,
   type TrackerReading,
-} from 'roadmap-module-protocol'
+} from 'kehikot-module-protocol'
 import {
   PERSON_ANSWERS_WITHIN_MS,
   connect,
   type Connection,
   type HostEvents,
-} from 'roadmap-module-protocol/client'
+} from 'kehikot-module-protocol/client'
 import { pump } from './emit.ts'
 import { wearTheme } from './theme.ts'
 
 /**
  * The bridge, as one React value.
  *
- * The wire itself is `roadmap-module-protocol/client` and knows no React; this
+ * The wire itself is `kehikot-module-protocol/client` and knows no React; this
  * is the only file that turns messages into state, and it is deliberately the
  * only one. Two places driving "what can this page see" would eventually
  * disagree.
@@ -94,7 +94,7 @@ export interface Kehikko {
   name: string
 }
 
-export interface Roadmap {
+export interface Kehikot {
   where: Where
   /** The epic the canvas is on, or null. What makes a paper target offerable without typing a slug. */
   epic: string | null
@@ -108,7 +108,7 @@ export interface Roadmap {
    *
    * Null is a REAL state and not a missing one, twice over: nothing is framing
    * this page, or a host knows the project's NAME and has no folder to point at
-   * — a hosted roadmap, a demo, a test harness. Both get a screen saying so
+   * — a Kehikot host, a demo, a test harness. Both get a screen saying so
    * rather than a guess, because a guess here means writing somebody's checklist
    * into a repository they will never open. See `src/view/nowhere.tsx`.
    */
@@ -266,7 +266,7 @@ export interface Roadmap {
   readTracker: (refs: readonly string[]) => Promise<TrackerReading | null>
 }
 
-/** The marks back out of `Roadmap.marks`, each parsed; a row that does not parse is left out. */
+/** The marks back out of `Kehikot.marks`, each parsed; a row that does not parse is left out. */
 export function marksOf(marks: string): Disposition[] {
   if (!marks) return []
   try {
@@ -291,7 +291,7 @@ export function marksOf(marks: string): Disposition[] {
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
-export function useRoadmap(id: string, onGoto: GotoHandler, onDoor?: () => void): Roadmap {
+export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void): Kehikot {
   const [where, setWhere] = useState<Where>('listening')
   const [selection, setSelection] = useState<string[]>([])
   const [passage, setPassage] = useState('')
