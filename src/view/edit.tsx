@@ -3,6 +3,7 @@ import { useState } from 'react'
 import type { Edit, Held, Outline, Placed, Target } from '@/store/ask.ts'
 import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun } from '../../list/targets.ts'
+import { FACT_NAMES, FACTS, type Fact } from '../../list/evidence.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Sheet } from '@/view/sheet.tsx'
@@ -777,6 +778,30 @@ function EditRow({
         )}
         {controls}
       </div>
+
+      {/* Which tracker fact is this line's evidence, where the list is held
+          against an issue or a change. Said once here, for every target; the
+          reading page shows the fact beside the line and keeps what it said
+          on a tick. Choosing one ticks nothing. */}
+      <label className="mt-1 flex items-center gap-1 text-[0.65rem] leading-4 text-muted-foreground">
+        <span>Tracker evidence</span>
+        <select
+          data-cite={item.id}
+          disabled={busy}
+          value={item.fact ?? ''}
+          onChange={(e) =>
+            onEdit({ op: 'cite', id: list, item: item.id, fact: e.target.value ? (e.target.value as Fact) : null })
+          }
+          className="min-w-0 rounded border bg-background px-1 py-px text-[0.65rem] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+        >
+          <option value="">none</option>
+          {FACTS.map((fact) => (
+            <option key={fact} value={fact}>
+              {FACT_NAMES[fact]}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {arming ? (
         <p className="mt-1 text-[0.7rem] leading-4 text-pending">

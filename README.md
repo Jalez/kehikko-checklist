@@ -222,6 +222,32 @@ reordered somebody's list would be worse than one that failed. There is no
 `forget_checklist`: removing a list takes every tick anybody ever made on it and
 is the one irreversible act here, so it lives on the page behind a two-press arm.
 
+## What the tracker says, beside a ref's lists
+
+Checking "pipeline green" or "the description explains the why" used to mean
+leaving the page to read the issue or change somewhere else
+(Jalez/kehikko-checklist#1). The host now reads GitHub and GitLab once for every
+module, and the reading page asks it — `tracker.get`, capability `trackers:read`,
+with the refs its lists are held against and `detail: 'detail'`. Under the name
+of every instance held against a ref: its title (the link out), its state — with
+why it closed, a person's mark from `context.dispositions` beating the tracker's
+reason — draft, pipeline, review and labels, and one press down the description,
+the files, who approved and the head commit. A ref not read yet says the tracker
+is being asked; the page asks again when `context.tracker.at` moves
+(`reacts: ['tracker']`), so a refresh pressed anywhere lands here.
+
+On the edit page every line can name one fact as its **evidence** — state,
+draft, pipeline, review, approved by, labels, files, description or links. The
+reading page then shows that fact under the line, and a tick made there keeps
+what it said ("pipeline: success at 4f6d7bb"). When the ref moves on — new
+commits under a fact about one commit, or the fact reading differently — the
+tick says it is **stale**, and stays ticked. Nothing ticks itself: a fact is a
+reason to press, never a press. The rule is `list/evidence.ts`; the drawing is
+`src/view/facts.tsx`. An agent reading a list is told which fact a line is
+checked against, and finds out what it says itself — this app's server still
+reads no tracker and holds no token. A host that does not grant `trackers:read`
+gets the page as it was before, with nothing drawn from a tracker.
+
 ## An agent may tick, and may never do it anonymously
 
 An earlier version of this module had a hardcoded `agreed` item that an agent was

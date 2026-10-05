@@ -11,6 +11,7 @@ import {
   targetsOf,
   type Op,
 } from './list/checklists.ts'
+import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
 import { ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
@@ -536,8 +537,15 @@ function listText(id: string, target: Target | null, where: string): string {
   }
   const lines = on.rows.map((row, at) => {
     const done = row.done
-    const who = done ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''})` : ''
-    return `${at + 1}. [${done ? 'x' : ' '}] ${row.item.id} — ${row.item.text}${who}`
+    const who = done
+      ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''}`
+        + `${done.evidence ? `; ticked on "${done.evidence.said}"` : ''})`
+      : ''
+    /* The fact an item is checked against, so an agent knows which part of the
+       issue or change to read before ticking it. This door reads no tracker,
+       so what the fact SAYS is the agent's to find out. */
+    const fact = row.item.fact ? `  [evidence: the tracker's ${FACT_NAMES[row.item.fact]}]` : ''
+    return `${at + 1}. [${done ? 'x' : ' '}] ${row.item.id} — ${row.item.text}${fact}${who}`
   })
   /*
    * Where else this list is held, with what is ticked there. Every target the
@@ -1115,6 +1123,16 @@ export function answer(
       if (op === 'add') return ok(change({ op: 'add', id, text, by }, where))
       if (op === 'reword') return ok(change({ op: 'reword', id, item, text, by }, where))
       if (op === 'drop') return ok(change({ op: 'drop', id, item, by }, where))
+      if (op === 'cite') {
+        /* `null` says the line names no fact any more; anything else has to be
+           one of the facts the page offers, and a word that is not one is
+           refused rather than dropped, so a typo cannot quietly clear one. */
+        const fact = body.fact === null ? null : (FACTS as readonly unknown[]).includes(body.fact) ? (body.fact as Fact) : undefined
+        if (fact === undefined) {
+          return bad(`that did not name a tracker fact. It is one of ${FACTS.join(', ')}, or nothing.`)
+        }
+        return ok(change({ op: 'cite', id, item, fact, by }, where))
+      }
       if (op === 'move') {
         const to = typeof body.to === 'number' && Number.isFinite(body.to) ? body.to : null
         if (to === null) return bad('a move needs a position to move to, and nothing was moved.')
@@ -1148,6 +1166,10 @@ export function answer(
               done: body.done !== false,
               by,
               note: str(body.note, MAX_NOTE) || undefined,
+              /* Parsed, and dropped when it does not parse: evidence is a record
+                 the page offers beside a tick, and a tick is not refused for
+                 a malformed record of what the tracker said. */
+              evidence: evidenceSchema.safeParse(body.evidence).data,
             },
             where,
           ),
@@ -1157,7 +1179,7 @@ export function answer(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, hold, release, add, reword, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, hold, release, add, reword, cite, move, drop or tick.`,
       )
     }
   }

@@ -2,6 +2,7 @@ import type { Held, Summary } from '../../list/checklists.ts'
 import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
 import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
+import type { Evidence, Fact } from '../../list/evidence.ts'
 import type { Shown } from '../../list/aim.ts'
 
 /**
@@ -307,7 +308,10 @@ export type Edit =
   | { op: 'reword'; id: string; item: string; text: string }
   | { op: 'move'; id: string; item: string; to: number }
   | { op: 'drop'; id: string; item: string }
-  | { op: 'tick'; id: string; item: string; target: Target; done: boolean }
+  | { op: 'cite'; id: string; item: string; fact: Fact | null }
+  /* `evidence` is what the tracker's fact said as the reader pressed — see
+     `list/evidence.ts`. Sent as it is; the server parses it or drops it. */
+  | { op: 'tick'; id: string; item: string; target: Target; done: boolean; evidence?: Evidence }
 
 export type Answer = { ok: true; said: string; id: string; lists: Summary[]; held: Held | null } | { ok: false; error: string }
 

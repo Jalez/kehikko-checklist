@@ -53,8 +53,15 @@ describe('the manifest', () => {
        hardcoded, tracker-derived items from a reading a host handed over. There
        are no hardcoded items now. A capability asked for and never used is the
        fastest way to teach somebody to press yes without reading, so it is gone
-       and this test is what stops it drifting back. */
-    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'projects:pick'])
+       and this test is what stops it drifting back.
+
+       `trackers:read` IS here, and it is not `live:read` under a new name:
+       nothing is derived from the reading. It is drawn beside a ref's lists
+       and kept on a tick as evidence, and every tick is still a press
+       (Jalez/kehikko-checklist#1). `trackers:refresh` is not here — spending
+       the person's rate limit was not asked for. */
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'projects:pick', 'trackers:read'])
+    expect(MANIFEST.declares.uses).not.toContain('trackers:refresh')
     expect(MANIFEST.declares.uses).not.toContain('state:keep')
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('projects:read')
@@ -112,7 +119,7 @@ describe('the manifest', () => {
        files of a real thesis. A `reacts` entry with nothing behind it would be a
        name in somebody's registry that is not true of this program, which is
        exactly what the essay this replaced refused to write. */
-    expect(MANIFEST.reacts).toEqual(['selection', 'passage', 'containers'])
+    expect(MANIFEST.reacts).toEqual(['selection', 'passage', 'containers', 'tracker', 'dispositions'])
   })
 
   test('still does not ask to SET a passage, so there is no echo to guard against', () => {

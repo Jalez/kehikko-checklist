@@ -17,7 +17,9 @@ import {
   type Outline,
   type Summary,
 } from '@/store/ask.ts'
-import { useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
+import type { TrackerReading } from 'roadmap-module-protocol'
+import { marksOf, useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
+import { factsOf } from '@/view/facts.tsx'
 import { AllView } from '@/view/all.tsx'
 import { EditView } from '@/view/edit.tsx'
 import { HereView } from '@/view/here.tsx'
@@ -171,8 +173,23 @@ export function App() {
     )
   }, [])
 
-  const { where, epic, projectPath, project, selection, passage, containers, chosen, resize, filters, pickProject } =
-    useRoadmap(ID, onGoto, bump)
+  const {
+    where,
+    epic,
+    projectPath,
+    project,
+    selection,
+    passage,
+    containers,
+    chosen,
+    resize,
+    filters,
+    pickProject,
+    trackerAt,
+    trackerReading,
+    marks,
+    readTracker,
+  } = useRoadmap(ID, onGoto, bump)
 
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.
@@ -266,6 +283,40 @@ export function App() {
   }, [projectPath, epic, frontKey, stamp])
 
   /** Which list the edit page is on, or null. A string, so the fetch keys on it by value. */
+  /*
+   * What the tracker says about the refs the lists in front are held against.
+   *
+   * Asked of the host — `tracker.get` with `detail: 'detail'` — whenever the
+   * set of refs changes, and again whenever `context.tracker.at` moves, which
+   * is `reacts: ['tracker']` doing what it says: a refresh pressed in any
+   * container, or a background read of a ref that came back `pending`, lands
+   * here as a new `at`. Keyed by the refs as one string, so a context that
+   * changed nothing asks nothing.
+   *
+   * The last reading is kept while the next is asked for, and looked up by
+   * ref, so a list arriving after a scroll does not blank the facts of the
+   * lists already on screen.
+   */
+  const refsKey = useMemo(
+    () =>
+      [...new Set((here?.instances ?? []).flatMap((one) => (one.target?.kind === 'ref' ? [one.target.ref] : [])))]
+        .sort()
+        .join(' '),
+    [here],
+  )
+  const [tracker, setTracker] = useState<TrackerReading | null>(null)
+  useEffect(() => {
+    if (where !== 'hosted' || !refsKey) return
+    let alive = true
+    void readTracker(refsKey.split(' ')).then((got) => {
+      if (alive) setTracker(got)
+    })
+    return () => {
+      alive = false
+    }
+  }, [where, refsKey, trackerAt, readTracker])
+  const facts = useMemo(() => factsOf(tracker, marksOf(marks), trackerReading), [tracker, marks, trackerReading])
+
   const editing = view.kind === 'edit' ? view.id : null
 
   /**
@@ -528,6 +579,7 @@ export function App() {
       trouble={trouble}
       busy={busy}
       room={room}
+      facts={facts}
     />
   )
 
