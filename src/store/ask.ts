@@ -80,7 +80,7 @@ export type { Held, Outline, OutlineFile, OutlineSection, Placed, Shown, Summary
  *
  * Because the server cannot know it. This app's store moved into the project —
  * `<projectPath>/.kehikot/checklist/checklists.json` — and the only thing that says which
- * project a container is showing is `roadmap.context.projectPath`, which arrives at
+ * project a container is showing is `kehikot.context.projectPath`, which arrives at
  * THIS page over the frame. The server has no host, no canvas and no way to ask;
  * a server that guessed would be answering about some other folder.
  *
@@ -122,7 +122,7 @@ export async function everyChecklist(projectPath: string | null): Promise<Everyt
  * Where the reader is pointing, as this page holds it: the wire's flattened
  * string, parsed once.
  *
- * The parse lives here rather than in `use-roadmap.ts` because this is the file
+ * The parse lives here rather than in `use-kehikot.ts` because this is the file
  * that spells it back onto a request, and a value that is flattened in one file
  * and re-inflated in another is a format with two owners. See the essay on
  * `passage` in the hook for why it travels flat at all.

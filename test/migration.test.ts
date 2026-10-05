@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
 import { ID } from '../manifest.ts'
 

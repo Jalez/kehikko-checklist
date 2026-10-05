@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CAPABILITY_NAMES, EXTENSION_NAMES, METHOD_NAMES, PROTOCOL, manifestSchema, speaks } from 'roadmap-module-protocol'
+import { CAPABILITY_NAMES, EXTENSION_NAMES, METHOD_NAMES, PROTOCOL, manifestSchema, speaks } from 'kehikot-module-protocol'
 
 import { FORMAT, ID, MANIFEST } from '../manifest.ts'
 
@@ -134,6 +134,6 @@ describe('the manifest', () => {
   })
 
   test('keeps its id, so ticks already filed under it are still this module’s', () => {
-    expect(ID).toBe('roadmap.checklist')
+    expect(ID).toBe('kehikot.checklist')
   })
 })

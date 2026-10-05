@@ -14,7 +14,7 @@
  * container, and the theme travels in the context. It is fixed there.
  *
  * What this does is frame the app with a host that says `dark`, then send a
- * fresh `roadmap.context` saying `light` with no reload, and read the computed
+ * fresh `kehikot.context` saying `light` with no reload, and read the computed
  * colours back out of the frame. It runs
  * the whole thing twice, with the MACHINE set light and then dark, because the
  * only interesting case is the one where the two disagree: a machine set to dark
@@ -50,9 +50,9 @@ const harness = (w, h, theme) => `<!doctype html><body style="margin:0">
 window.theme = ${JSON.stringify(theme)}
 const ctx = () => ({ epic: null, project: 'Probe', projectPath: ${JSON.stringify(PROJECT)}, theme: window.theme, selection: ['gh#105'], kehikko: { id: 1, name: 'Probe' } })
 const f = document.getElementById('f')
-window.addEventListener('message', (e) => { if (e.data && e.data.type === 'roadmap.ready') window.greeted = true })
+window.addEventListener('message', (e) => { if (e.data && e.data.type === 'kehikot.ready') window.greeted = true })
 f.addEventListener('load', () => {
-  const hello = () => f.contentWindow.postMessage({ type:'roadmap.hello', protocol:2, session:'probe', context: ctx(), state: null }, '*')
+  const hello = () => f.contentWindow.postMessage({ type:'kehikot.hello', protocol:2, session:'probe', context: ctx(), state: null }, '*')
   /* Repeated, because the greeting has to win a race with React mounting and a
      probe that greeted once would be measuring its own flakiness. */
   window.keepGreeting = setInterval(hello, 300)
@@ -61,7 +61,7 @@ f.addEventListener('load', () => {
   window.change = (t) => {
     window.theme = t
     clearInterval(window.keepGreeting)
-    f.contentWindow.postMessage({ type:'roadmap.context', protocol:2, ...ctx() }, '*')
+    f.contentWindow.postMessage({ type:'kehikot.context', protocol:2, ...ctx() }, '*')
   }
 })
 </script></body>`

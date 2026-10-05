@@ -17,8 +17,8 @@ import {
   type Outline,
   type Summary,
 } from '@/store/ask.ts'
-import type { TrackerReading } from 'roadmap-module-protocol'
-import { marksOf, useRoadmap, type GotoHandler } from '@/wire/use-roadmap.ts'
+import type { TrackerReading } from 'kehikot-module-protocol'
+import { marksOf, useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { factsOf } from '@/view/facts.tsx'
 import { AllView } from '@/view/all.tsx'
 import { EditView } from '@/view/edit.tsx'
@@ -71,7 +71,7 @@ import { cn } from '@/lib/utils.ts'
  * ## The filter offer, which was empty and is one group again
  *
  * This page used to offer the host a grain — `section` / `file` / `paper` —
- * over `roadmap.filters`, and there is an essay's worth of care in the history
+ * over `kehikot.filters`, and there is an essay's worth of care in the history
  * about WHEN to send `[]`: an empty offer is a claim the host acts on by
  * pruning the container's stored choice, and sending it before the canvas had
  * spoken erased the reader's remembered grain on every reload. The grain went
@@ -100,7 +100,7 @@ import { cn } from '@/lib/utils.ts'
  * ## Switching project repaints, without a reload
  *
  * `projectPath` is a dependency of every fetch below. A host that moves a
- * person to another project sends one `roadmap.context`, this hook sets one
+ * person to another project sends one `kehikot.context`, this hook sets one
  * piece of state, and everything is re-read from the new project's folder.
  * The path IS the partition, so a different project is a different file
  * rather than a different subset of one.
@@ -189,7 +189,7 @@ export function App() {
     trackerReading,
     marks,
     readTracker,
-  } = useRoadmap(ID, onGoto, bump)
+  } = useKehikot(ID, onGoto, bump)
 
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.

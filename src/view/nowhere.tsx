@@ -5,7 +5,7 @@
  *
  * This app's store moved into the project — `<projectPath>/.kehikot/checklist/checklists.json`
  * — so a checklist has nowhere to live until something says which project is
- * open. `roadmap.context.projectPath` is nullable and is null in two perfectly
+ * open. `kehikot.context.projectPath` is nullable and is null in two perfectly
  * ordinary situations: nothing is framing this page, or a host knows the
  * project's NAME and has no folder on this machine to point at.
  *

@@ -69,7 +69,7 @@ export function AllView({
    *
    * A press rather than a menu, because this page has nothing to put in a menu.
    * It cannot list the projects on this machine and must never be able to — see
-   * `pickProject` in `src/wire/use-roadmap.ts`.
+   * `pickProject` in `src/wire/use-kehikot.ts`.
    */
   onImport: () => void
   /** Back to the reading page. */

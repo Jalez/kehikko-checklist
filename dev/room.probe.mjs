@@ -21,7 +21,7 @@
  * project is open" screen, so there is nothing to measure. So this stands up a
  * page that frames it and speaks the greeting, and it must be served over HTTP
  * from an origin the module's own `frame-ancestors` allows — hence `PORT` and
- * `ROADMAP_ORIGIN` below. A `page.setContent` harness is blocked by CSP before
+ * `KEHIKOT_ORIGIN` (or the older `ROADMAP_ORIGIN`) below. A `page.setContent` harness is blocked by CSP before
  * the frame loads, silently, which costs twenty minutes if you have not seen it.
  *
  * It seeds through the app's own API using the ticket the served page carries,
@@ -74,7 +74,7 @@
  * (the owner's judgement) and the controls are on the edit page.
  *
  * It also found a real bug in this probe: `window.asked` is the LAST
- * `roadmap.resize` the harness heard, and the edit page is measured by clicking
+ * `kehikot.resize` the harness heard, and the edit page is measured by clicking
  * into it — so reading `asked` at the bottom of the loop reported the height the
  * other page wanted under a heading that said this one. 838 against a state page
  * asking for 545. It is read before the switch now.
@@ -128,11 +128,11 @@ const harness = (w, h) => `<!doctype html><body style="margin:0">
 const ctx = { epic: null, project: 'Probe', projectPath: ${JSON.stringify(PROJECT)}, theme: 'light', selection: ['gh#105'], kehikko: { id: 1, name: 'Probe' } }
 const f = document.getElementById('f')
 window.addEventListener('message', (e) => {
-  if (e.data && e.data.type === 'roadmap.ready') window.greeted = true
-  if (e.data && e.data.type === 'roadmap.resize') window.asked = e.data.height
+  if (e.data && e.data.type === 'kehikot.ready') window.greeted = true
+  if (e.data && e.data.type === 'kehikot.resize') window.asked = e.data.height
 })
 f.addEventListener('load', () => {
-  setInterval(() => f.contentWindow.postMessage({ type:'roadmap.hello', protocol:2, session:'probe', context: ctx, state: null }, '*'), 200)
+  setInterval(() => f.contentWindow.postMessage({ type:'kehikot.hello', protocol:2, session:'probe', context: ctx, state: null }, '*'), 200)
 })
 </script></body>`
 
@@ -229,7 +229,7 @@ for (const [w, h] of SIZES) {
   frame = await open(w, h)
   const at_rest = await measure()
   /* Read HERE and not at the bottom of the loop. `window.asked` is the last
-     `roadmap.resize` the harness heard, and the edit page is measured further
+     `kehikot.resize` the harness heard, and the edit page is measured further
      down by clicking into it — so a read after that reports the height the OTHER
      page asked for, under a heading that says this one. It did, for one run, and
      the number was 838 against a state page that wanted 536. */

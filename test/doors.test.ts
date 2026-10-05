@@ -67,7 +67,7 @@ describe('reads', () => {
     const { answer } = await import('../doors.ts')
     const reply = answer('GET', '/healthz', query, null, null)
     expect(reply?.status).toBe(200)
-    expect((reply?.body as { id: string }).id).toBe('roadmap.checklist')
+    expect((reply?.body as { id: string }).id).toBe('kehikot.checklist')
   })
 
   test('a fresh store holds no checklists, because nothing here ships one', async () => {

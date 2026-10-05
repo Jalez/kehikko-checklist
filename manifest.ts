@@ -1,6 +1,6 @@
-import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'roadmap-module-protocol'
+import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
-export const ID = 'roadmap.checklist'
+export const ID = 'kehikot.checklist'
 export const VERSION = '2.0.0'
 
 /**
@@ -11,7 +11,7 @@ export const VERSION = '2.0.0'
  * same failure: 7860 used to be a literal in two places — `--port "${PORT:-7860}"`
  * at the bottom of `run.sh` and `Number(process.env.PORT ?? 7860)` in
  * `register.ts` — with nothing keeping them in step, and a third copy sitting in
- * `~/.roadmap/modules` from whenever somebody last ran the second. Moving this
+ * the module registry from whenever somebody last ran the second. Moving this
  * app was two edits and a thing to remember, and getting it wrong produced the
  * quiet failure again: a host talking to an address where nobody is.
  *
@@ -23,7 +23,7 @@ export const VERSION = '2.0.0'
  * It is a PREFERENCE and not a promise. 7820 through 7960 belong to the other
  * modules on this machine, and if something else holds 7860 when this starts,
  * `serves()` moves to the next free port and rewrites the registration to match
- * — see `roadmap-module-protocol/serve`. A host reads the registry, so the
+ * — see `kehikot-module-protocol/serve`. A host reads the registry, so the
  * registry is what has to be true; this number is only where to start looking.
  */
 export const PREFERRED_PORT = 7860
@@ -38,7 +38,7 @@ export const PREFERRED_PORT = 7860
  * payload, finds nobody who consumes what was named, and answers `delivered:
  * 0`. Nothing errors and nothing appears.
  */
-export const FORMAT = 'roadmap.notifications@1'
+export const FORMAT = 'kehikot.notifications@1'
 
 /**
  * What this app says about itself when a host asks.
@@ -61,7 +61,7 @@ export const FORMAT = 'roadmap.notifications@1'
  *   file. A remembered pick beside that would be a second answer to "which
  *   list is in front of me", and the two would disagree the first time the
  *   reader scrolled. The kept string a host may still hold for this module is
- *   ignored on the greeting; see `src/wire/use-roadmap.ts`.
+ *   ignored on the greeting; see `src/wire/use-kehikot.ts`.
  * - **`projects:pick` — declared, and it is the newest one.** A checklist lives
  *   in the project it is about, so reusing one somebody wrote in another
  *   project is inherently cross-project — and this app is told exactly one
@@ -102,7 +102,7 @@ export const FORMAT = 'roadmap.notifications@1'
  *   on the canvas is looking at, in a module whose whole job is to answer a
  *   question about what is already picked.
  * - **`view:navigate` — not declared.** The checklist is a place a reader is
- *   already standing; what it wants is to be walked to, which is `roadmap.goto`
+ *   already standing; what it wants is to be walked to, which is `kehikot.goto`
  *   arriving and needs no declaration.
  * - **`stage:report` — not declared.** Saying where work is belongs to whoever
  *   is doing it. A checklist has no opinion about that.
@@ -170,14 +170,14 @@ export const FORMAT = 'roadmap.notifications@1'
  *
  * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
  * every other module's. `scope: 'epic'` matters because an epic-scoped mode is
- * told which epic is open by `roadmap.context`, on load and on every switch —
+ * told which epic is open by `kehikot.context`, on load and on every switch —
  * which is what makes "the paper this epic is aimed at", its files and its
  * headings, things a checklist can be held against without anybody typing a
  * slug.
  *
  * ## No control in the container header, and an empty offer that says so
  *
- * `roadmap.filters` is not a capability — a module says what it can be
+ * `kehikot.filters` is not a capability — a module says what it can be
  * narrowed by and the host draws the control, or draws nothing. This module
  * used to offer the grain of the paper it was following (`section`, `file`,
  * `paper`), and the host remembered it per container. It offers nothing now,
@@ -295,7 +295,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * half, written down.
    *
    * It changes nothing about what this app is given. The selection arrives in
-   * `roadmap.context` whether or not this line exists, and if a host ever
+   * `kehikot.context` whether or not this line exists, and if a host ever
    * started withholding the context from modules that had not declared an
    * interest, that host would have turned a line of documentation into a
    * permission over something it was already broadcasting. Nothing here is

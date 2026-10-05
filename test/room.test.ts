@@ -81,7 +81,7 @@ describe('what a container of each size gets', () => {
 
   test('a container that has not been measured yet is treated as the small one', () => {
     /* Zero is the first render, before the observer has said anything. Guessing
-       roomy and collapsing a frame later is the flicker `use-roadmap.ts` spends
+       roomy and collapsing a frame later is the flicker `use-kehikot.ts` spends
        a paragraph avoiding; collapsing to the layout that always fits is the
        guess that is never wrong about what fits. */
     const it = room(0, 0)

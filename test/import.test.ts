@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { KEHIKOT_DIR, moduleFolder } from 'roadmap-module-protocol'
+import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
 import { ID } from '../manifest.ts'
 import { MAX_NAME, change, checklists } from '../list/checklists.ts'

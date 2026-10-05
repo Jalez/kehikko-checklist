@@ -4,7 +4,7 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
-import type { TrackerRow } from 'roadmap-module-protocol'
+import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { FactLine, RefFacts, type Facts } from '@/view/facts.tsx'

@@ -31,9 +31,9 @@ import { FORMAT } from '../../manifest.ts'
  *
  * ## Where the epic comes from, and why an announcement is sometimes dropped
  *
- * `roadmap.notifications@1` requires an `epic`, and requires it to be a slug.
+ * `kehikot.notifications@1` requires an `epic`, and requires it to be a slug.
  * The MCP door has no idea which epic anything is about — an agent calls it
- * with a ref, and a ref is not an epic. The page does know: `roadmap.context`
+ * with a ref, and a ref is not an epic. The page does know: `kehikot.context`
  * says which epic the canvas is on.
  *
  * So the epic is the CANVAS's, supplied here, and when the canvas is on no
@@ -194,7 +194,7 @@ export function pump(
       if (dropped) {
         console.info(
           `kehikko-checklist: ${dropped} MCP call(s) not announced — this canvas is on no epic, they named none ` +
-            'themselves, and roadmap.notifications@1 files a line under one. Nothing was invented.',
+            'themselves, and kehikot.notifications@1 files a line under one. Nothing was invented.',
         )
       }
     } catch {

@@ -51,7 +51,7 @@ export interface Announcement {
   /**
    * The epic the call itself named, or null when it named none.
    *
-   * `roadmap.notifications@1` files every line under an epic, and for a long
+   * `kehikot.notifications@1` files every line under an epic, and for a long
    * time the only epic this app could offer was the CANVAS's — supplied by the
    * page at the moment it emits, because the door has no context and a ref is
    * not an epic. That is still the right answer for the change tools.
@@ -66,7 +66,7 @@ export interface Announcement {
   epic: string | null
   /** The sentence, in this app's own words. */
   message: string
-  /** One of the four `roadmap.notifications@1` levels. */
+  /** One of the four `kehikot.notifications@1` levels. */
   level: 'info' | 'attention' | 'done' | 'blocked'
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { trackerReadingResult, trackerRowSchema, type TrackerRow } from 'roadmap-module-protocol'
+import { trackerReadingResult, trackerRowSchema, type TrackerRow } from 'kehikot-module-protocol'
 
 import { evidenceOf, evidenceSchema, factOf, staleness } from '../list/evidence.ts'
 import { factsOf } from '../src/view/facts.tsx'

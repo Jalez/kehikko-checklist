@@ -111,9 +111,9 @@ describe('what is emitted', () => {
       extension: string
       payload: { epic: string; refs: string[] }
     }
-    expect(extension).toBe('roadmap.notifications@1')
+    expect(extension).toBe('kehikot.notifications@1')
     /* The door has no idea which epic anything is about — an agent calls it with
-       a ref, and a ref is not an epic. The page does, from `roadmap.context`. */
+       a ref, and a ref is not an epic. The page does, from `kehikot.context`. */
     expect(payload.epic).toBe('modes-are-modules')
     expect(payload.refs).toEqual(['gh#41'])
   })
@@ -128,7 +128,7 @@ describe('what is emitted', () => {
     await settle()
     stop()
 
-    /* `roadmap.notifications@1` files a line under an epic. A placeholder slug
+    /* `kehikot.notifications@1` files a line under an epic. A placeholder slug
        would put lines on a shared panel under an epic nobody chose, which is
        worse than silence: wrong rather than missing. */
     expect(host.sent).toHaveLength(0)

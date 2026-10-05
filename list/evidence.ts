@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { TrackerRow } from 'roadmap-module-protocol'
+import type { TrackerRow } from 'kehikot-module-protocol'
 
 /**
  * What the tracker says about a ref, as the one fact an item is checked

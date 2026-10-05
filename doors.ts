@@ -89,7 +89,7 @@ function str(value: unknown, max: number): string {
  * This app's store moved into the project: `<projectPath>/.kehikot/checklist/checklists.json`.
  * So "which checklists" is not answerable without "whose", and the string that
  * answers it arrives on the request. The page reads it from
- * `roadmap.context.projectPath` and passes it on; an agent over MCP says it in
+ * `kehikot.context.projectPath` and passes it on; an agent over MCP says it in
  * the `project` argument and is refused without one.
  *
  * The refusal is the part worth defending, because a default was available and
@@ -162,7 +162,7 @@ export const TICKET = crypto.randomUUID()
 const OWNER = 'the owner, on this app’s own page'
 
 /** What an agent is called when it does not say. */
-const AGENT = process.env.CHECKLIST_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
+const AGENT = process.env.CHECKLIST_AGENT ?? process.env.KEHIKOT_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
 
 /* ------------------------------------------------------------------ *
  * The agent's door
@@ -747,7 +747,7 @@ function mcp(rpc: Rpc): Reply {
      * into a transport error the agent retries.
      *
      * The epic is the one the CALL named, where it named one.
-     * `roadmap.notifications@1` files every line under an epic, and a call about
+     * `kehikot.notifications@1` files every line under an epic, and a call about
      * a paper knows which one — a better answer than the canvas's, because an
      * agent working one paper while somebody reads another would otherwise file
      * a true sentence under the wrong heading. A call about a ref names no epic
