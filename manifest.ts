@@ -243,6 +243,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * A summary that still said "paper" would be describing the program this was
    * before the passage arrived.
    */
+  /* Where a host files this module in its list, most fitting first. */
+  tags: ['planning', 'review'],
   summary:
     'Checklists somebody wrote, held against the issues, changes, paper files and sections a person assigned them '
     + 'to, and shown where one of those is in front of you. Nothing here ships a list.',
