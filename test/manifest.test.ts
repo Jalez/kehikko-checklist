@@ -119,7 +119,16 @@ describe('the manifest', () => {
        files of a real thesis. A `reacts` entry with nothing behind it would be a
        name in somebody's registry that is not true of this program, which is
        exactly what the essay this replaced refused to write. */
-    expect(MANIFEST.reacts).toEqual(['selection', 'passage', 'containers', 'tracker', 'dispositions'])
+    expect(MANIFEST.reacts).toEqual(['selection', 'passage', 'containers', 'tracker', 'dispositions', 'parts'])
+  })
+
+  test('says it reacts to the picked parts of the epic, and asks for nothing to do it', () => {
+    /* The reading page puts aside the lists held against references outside
+       the picked parts and says how many — `test/focus.test.ts` is the
+       behaviour's half. Picking a part is the host's own control, so there is
+       no capability beside the word. */
+    expect(MANIFEST.reacts).toContain('parts')
+    expect(MANIFEST.declares.uses.some((use) => use.includes('part'))).toBe(false)
   })
 
   test('still does not ask to SET a passage, so there is no echo to guard against', () => {

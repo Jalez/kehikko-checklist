@@ -152,6 +152,50 @@ function nothingOld(container: HTMLElement) {
   expect(container.querySelector('[data-strip]')).toBeNull()
 }
 
+/**
+ * The line the reading page prints while parts of the epic are picked out.
+ *
+ * `test/focus.test.ts` holds the words. What is held here is that the page
+ * prints them — above the lists, wrapped rather than clipped, and at 220
+ * pixels too — and prints nothing at all at rest.
+ */
+describe('the reading page under a parts focus', () => {
+  const FOCUS = { picked: ['The posting seam'], of: 3, outside: 2, unnarrowed: 1 }
+
+  test('draws nothing about a focus when no part is picked out', () => {
+    const { container } = render(<Reading here={here([held()])} room={ROOMY} />)
+    expect(container.querySelector('[data-focus]')).toBeNull()
+    expect(container.textContent).not.toContain('outside')
+  })
+
+  test.each([ROOMY, TIGHT])('says how many lists are outside, which part, and what was left alone', (size) => {
+    const { container } = render(
+      <Reading here={here([held({ target: PAPER })])} focus={FOCUS} room={size} />,
+    )
+    const line = container.querySelector('[data-focus]')!
+    expect(line.textContent).toBe(
+      '2 checklists outside the picked part (The posting seam). 1 list held against the paper is shown as before: parts name references, not sections.',
+    )
+    expect(line.getAttribute('title')).toContain('host’s bar')
+    expect(line.className).not.toContain('truncate')
+    expect(line.className).not.toContain('hidden')
+    expect(container.querySelectorAll('[data-instance]')).toHaveLength(1)
+    nothingOld(container)
+  })
+
+  test('when the focus emptied the page, the line stays and the sentence under it says why', () => {
+    const why = 'All 2 checklists in front of you are held against references outside the picked part.'
+    const { container } = render(
+      <Reading here={here([])} why={why} focus={{ ...FOCUS, unnarrowed: 0 }} room={ROOMY} />,
+    )
+    expect(container.querySelector('[data-focus]')?.textContent).toBe(
+      '2 checklists outside the picked part (The posting seam).',
+    )
+    expect(container.querySelector('[data-none="narrowed"]')?.textContent).toBe(why)
+    expect(container.querySelector('[data-all]')).toBeTruthy()
+  })
+})
+
 describe('the reading page: what is in front of the reader', () => {
   test('waits without claiming anything before the server has answered', () => {
     const { container } = render(<Reading here={null} room={ROOMY} />)

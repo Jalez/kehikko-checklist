@@ -85,6 +85,37 @@ the reader is in, with `gh#105` selected, is in front of them twice, and is
 shown twice, each instance saying which target it is; collapsing that to one
 would be this program picking. Selected references lead, in the canvas's order.
 
+### Focused on parts of the epic
+
+An epic may be divided into parts, and a person may pick some of them out in the
+host's bar. `context.parts` (protocol 0.29.0) lists every part of the open epic
+with the references the host says belong to it, and flags the picked ones; this
+module says `reacts: ['parts']`. `list/focus.ts` is the rule:
+
+- **Nothing picked** — an epic with no parts, no epic, a host that has never
+  heard of parts — and the reading page is exactly what it was.
+- **A list held against a reference** is in front only while a picked part
+  lists that reference (`refInFocus`, the protocol's rule). A reference no part
+  lists is outside every focus. The lists put aside are counted, not dropped.
+- **A list held against the paper — a section, a file, the whole of it — is
+  not narrowed.** A part carries references and nothing else, so nothing the
+  host said puts chapter 3 inside or outside a part. Hiding those lists would
+  be this program deciding, on no evidence, that the paper belongs to no part,
+  and a reader would watch the checklist for the chapter they are writing
+  vanish because of a pick about issues. So they stay, and the page says so.
+- **The reading page says it**, in one wrapped line above the lists whenever
+  any part is picked: `2 checklists outside the picked part (The posting
+  seam).` — and, when a paper's list is on screen, `1 list held against the
+  paper is shown as before: parts name references, not sections.` The tooltip
+  says where the control is. If the focus leaves nothing, the line under it
+  reads `All 2 checklists in front of you are held against references outside
+  the picked part.`
+
+The server is still asked about everything in front; the lists are put aside
+after it answers, which is what lets the page count them. Only the reading page
+is narrowed: the list of every checklist and the edit page hide nothing, so
+they say nothing about a focus.
+
 **Nothing on the reading page changes what a list is held against.** The row
 that read `Reading <file>` with a `change` press, the screen that said "not held
 here" with a press to hold the list there, and the sentence about nothing having
@@ -393,7 +424,7 @@ $ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/chec
 
 ## Measured, not assumed
 
-`bun run test` covers the wire-independent half — 310 tests across the store,
+`bun run test` covers the wire-independent half — 370 tests across the store,
 where it lives and what it refuses (a null project, a relative path, and either
 level of the folder — `.kehikot/` or `checklist/` — resolving outside the project
 after `realpath`), the move out of `data/`, the migration of a real
