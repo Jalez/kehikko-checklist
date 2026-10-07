@@ -1,7 +1,7 @@
 import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 
 export const ID = 'kehikot.checklist'
-export const VERSION = '2.0.0'
+export const VERSION = '2.1.0'
 
 /**
  * The port this app would rather have, said once and beside the id it belongs
@@ -355,7 +355,17 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * first time. When somebody marks why a ref closed, the state drawn beside
    * it says the mark rather than the tracker's reason. See `src/view/facts.tsx`.
    */
-  reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions'],
+  /*
+   * `parts`, which arrived with protocol 0.29.0. An epic may be divided into
+   * parts and a person may pick some of them out in the host's bar; while any
+   * is picked, the reading page puts aside every list held against a reference
+   * no picked part lists, and a line at its top says how many and which parts.
+   * A list held against the paper stays, and the line says so, because a part
+   * names references and nothing about a section. The page is different
+   * afterwards, which is the field's test. `list/focus.ts` is the rule. The
+   * picking is the host's own control, so nothing is declared in `uses` for it.
+   */
+  reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions', 'parts'],
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     uses: ['events:emit', 'projects:pick', 'trackers:read'],

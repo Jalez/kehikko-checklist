@@ -4,6 +4,7 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
+import { focusLine, focusTold, type Focus } from '../../list/focus.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -72,6 +73,17 @@ import { cn } from '@/lib/utils.ts'
  * frame can put one away while ticking another. The fold is session state and
  * is written down nowhere.
  *
+ * ## The parts focus, which is the one line this page prints about itself
+ *
+ * When a person has picked parts of the epic out in the host's bar, the lists
+ * held against references outside those parts are put aside, and a line at
+ * the top says so: how many, which parts, and — when one is on screen — that
+ * the paper's lists were not narrowed. It is the same rule as the sentence
+ * for picked-out containers above, applied before the page is empty rather
+ * than only once it is, because this narrowing has no control in this
+ * container's header to explain it: the pick is the host's. Nothing is drawn
+ * with nothing picked. `list/focus.ts` writes it.
+ *
  * ## The way to everything
  *
  * `All checklists` is a strip at the bottom rather than a heading at the top,
@@ -91,6 +103,7 @@ export function HereView({
   busy,
   room,
   facts = null,
+  focus = null,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
@@ -110,6 +123,8 @@ export function HereView({
   room: Room
   /** What the host's tracker reading says about the refs in front, or null when there is none. See `facts.tsx`. */
   facts?: Facts | null
+  /** What the parts focus put aside, or null when no part of the epic is picked out. See `list/focus.ts`. */
+  focus?: Focus | null
 }) {
   /* Which instances are folded, keyed by list and target, so the same list
      against two targets folds separately. Departures from "open", so a new
@@ -135,6 +150,19 @@ export function HereView({
       data-here={here.instances.length}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
+      {/* Above the lists and outside the scroller, so it stays put while they
+          scroll: it is the reason the page is shorter than it was. Wrapped and
+          never truncated, like every line here. */}
+      {focus ? (
+        <p
+          className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
+          data-focus={focus.outside}
+          title={focusTold(focus)}
+        >
+          {focusLine(focus)}
+        </p>
+      ) : null}
+
       {here.instances.length ? (
         <div
           className={cn(room.pinned && 'min-h-0 flex-1 overflow-y-auto', room.snap && 'snap-y snap-proximity')}

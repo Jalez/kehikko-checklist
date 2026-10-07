@@ -16,6 +16,7 @@ import {
   type HostEvents,
 } from 'kehikot-module-protocol/client'
 import { pump } from './emit.ts'
+import { flattenParts } from '../../list/focus.ts'
 import { wearTheme } from './theme.ts'
 
 /**
@@ -253,6 +254,19 @@ export interface Kehikot {
    */
   marks: string
   /**
+   * `context.parts`: every part of the open epic, the picked ones flagged, as
+   * one string for the reason everything above is one. `partsOf` in
+   * `list/focus.ts` reads it back.
+   *
+   * `''` is no parts: nothing is framing this page, the epic is not divided,
+   * or the host has never heard of them — all three mean the whole epic is in
+   * front. This is the whole of `reacts: ['parts']`: when the picked parts
+   * change the string changes, and the reading page puts aside the lists held
+   * against references outside them and says how many. There is no setter;
+   * picking a part is the host's own control.
+   */
+  parts: string
+  /**
    * Ask the host what the trackers last said about these refs, with the
    * detail a checklist is checked against — description, files, head commit,
    * approvals. Null for every no: no host, a host too old to know the method,
@@ -304,6 +318,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
   const [trackerAt, setTrackerAt] = useState('')
   const [trackerReading, setTrackerReading] = useState(false)
   const [marks, setMarks] = useState('')
+  const [parts, setParts] = useState('')
   const host = useRef<Connection | null>(null)
 
   /**
@@ -349,6 +364,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       filters?: unknown
       tracker?: unknown
       dispositions?: unknown
+      parts?: unknown
     }) => {
       wearTheme(document.documentElement, context.theme)
 
@@ -393,6 +409,10 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       setTrackerAt(typeof signal.at === 'string' ? signal.at : '')
       setTrackerReading(signal.refreshing === true)
       setMarks(Array.isArray(context.dispositions) && context.dispositions.length ? JSON.stringify(context.dispositions) : '')
+      /* The parts of the epic, on every context: moving to another epic sends
+         that epic's parts with nothing picked in the same message, and a page
+         that kept the last epic's focus would go on hiding lists for it. */
+      setParts(flattenParts(context.parts))
       setEpic(context.epic)
       /*
        * Normalised to null the moment it arrives, rather than at each call site.
@@ -468,6 +488,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       filters?: unknown
       tracker?: unknown
       dispositions?: unknown
+      parts?: unknown
     }
     /* The greeting's kept `state` is deliberately not read. A string an older
        version of this module asked the host to keep — which checklist was
@@ -585,6 +606,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       trackerAt,
       trackerReading,
       marks,
+      parts,
       readTracker,
     }),
     [
@@ -603,6 +625,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       trackerAt,
       trackerReading,
       marks,
+      parts,
       readTracker,
     ],
   )

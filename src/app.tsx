@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ID } from '../manifest.ts'
 
 import { aimOf, aimOffer, inFrontOf, whyEmpty } from '../list/aim.ts'
+import { focusOn, partsOf, whyUnfocused } from '../list/focus.ts'
 import {
   edit,
   everyChecklist,
@@ -188,6 +189,7 @@ export function App() {
     trackerAt,
     trackerReading,
     marks,
+    parts,
     readTracker,
   } = useKehikot(ID, onGoto, bump)
 
@@ -291,6 +293,30 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectPath, epic, frontKey, stamp])
 
+  /**
+   * What is in front once the parts focus is taken into account.
+   *
+   * The server is asked about everything in front, as it always was, and the
+   * lists held against references outside the picked parts are put aside
+   * HERE, after the answer — not by asking about fewer refs. That order is
+   * what lets the page count what it hid: a ref left out of the question would
+   * come back as nothing, and "2 checklists outside the picked part" is a
+   * sentence that needs the two. Lists held against the paper are left as they
+   * are. `list/focus.ts` is the rule and the reason.
+   *
+   * With nothing picked `inFocus` is `here` itself, the same object, so no
+   * effect below re-runs and the page is the page it was.
+   *
+   * Only the reading page is narrowed. The list of every checklist is the way
+   * to find a list wherever it is held, and the edit page is one list; neither
+   * hides anything, so neither has anything to say about a focus.
+   */
+  const focused = useMemo(() => focusOn(here?.instances ?? [], partsOf(parts)), [here, parts])
+  const inFocus = useMemo(
+    () => (here && focused.focus ? { ...here, instances: [...focused.instances] } : here),
+    [here, focused],
+  )
+
   /** Which list the edit page is on, or null. A string, so the fetch keys on it by value. */
   /*
    * What the tracker says about the refs the lists in front are held against.
@@ -308,10 +334,10 @@ export function App() {
    */
   const refsKey = useMemo(
     () =>
-      [...new Set((here?.instances ?? []).flatMap((one) => (one.target?.kind === 'ref' ? [one.target.ref] : [])))]
+      [...new Set((inFocus?.instances ?? []).flatMap((one) => (one.target?.kind === 'ref' ? [one.target.ref] : [])))]
         .sort()
         .join(' '),
-    [here],
+    [inFocus],
   )
   const [tracker, setTracker] = useState<TrackerReading | null>(null)
   useEffect(() => {
@@ -578,9 +604,12 @@ export function App() {
     />
   ) : (
     <HereView
-      here={here}
+      here={inFocus}
       somewhere={Boolean(epic) || front.refs.length > 0 || front.documents.length > 0}
-      why={whyEmpty(front)}
+      /* The focus first: when it put lists aside and none is left, that is the
+         cause, whatever the picked-out containers were also doing. */
+      why={whyUnfocused(focused.focus, focused.instances.length) ?? whyEmpty(front)}
+      focus={focused.focus}
       listening={where === 'listening'}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
