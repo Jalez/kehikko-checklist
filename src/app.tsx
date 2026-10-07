@@ -245,13 +245,22 @@ export function App() {
   /* Every checklist that exists. This app's own material, read at load, after
      every change, and on the doorbell. */
   useEffect(() => {
+    /* `alive`, so a slow read for the project just left cannot land after the
+       new project's and paint its lists under it. */
+    let alive = true
     void everyChecklist(projectPath)
       .then(({ lists: got, trouble: bad, nowhere: none }) => {
+        if (!alive) return
         setLists(got)
         setStoreTrouble(bad)
         setNowhere(none)
       })
-      .catch(() => setLists([]))
+      .catch(() => {
+        if (alive) setLists([])
+      })
+    return () => {
+      alive = false
+    }
   }, [stamp, projectPath])
 
   /**
