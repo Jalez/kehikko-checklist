@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react'
 
 import type { Held } from '../list/checklists.ts'
 import { FACTS } from '../list/evidence.ts'
-import { trackerReadingResult, trackerRowSchema } from 'kehikot-module-protocol'
+import { FOCUS_WHERE, trackerReadingResult, trackerRowSchema } from 'kehikot-module-protocol'
 import { factsOf } from '../src/view/facts.tsx'
 import type { Outline } from '../file/outline.ts'
 import type { Placed } from '../list/scope.ts'
@@ -160,7 +160,7 @@ function nothingOld(container: HTMLElement) {
  * pixels too — and prints nothing at all at rest.
  */
 describe('the reading page under a parts focus', () => {
-  const FOCUS = { picked: ['The posting seam'], of: 3, outside: 2, unnarrowed: 1 }
+  const FOCUS = { picked: ['The posting seam'], outside: 2, unnarrowed: 1, sentence: '2 checklists outside the picked part (The posting seam).' }
 
   test('draws nothing about a focus when no part is picked out', () => {
     const { container } = render(<Reading here={here([held()])} room={ROOMY} />)
@@ -176,7 +176,7 @@ describe('the reading page under a parts focus', () => {
     expect(line.textContent).toBe(
       '2 checklists outside the picked part (The posting seam). 1 list held against the paper is shown as before: parts name references, not sections.',
     )
-    expect(line.getAttribute('title')).toContain('host’s bar')
+    expect(line.getAttribute('title')).toBe(FOCUS_WHERE)
     expect(line.className).not.toContain('truncate')
     expect(line.className).not.toContain('hidden')
     expect(container.querySelectorAll('[data-instance]')).toHaveLength(1)

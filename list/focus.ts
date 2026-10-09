@@ -1,4 +1,4 @@
-import { focusCount, isFocused, partsSchema, pickedParts, refInFocus, type EpicPart } from 'kehikot-module-protocol'
+import { anchorInFocus, focusSentence, isFocused, partsSchema, pickedParts, type EpicPart } from 'kehikot-module-protocol'
 
 import type { Target } from './targets.ts'
 
@@ -21,8 +21,8 @@ import type { Target } from './targets.ts'
  * speak about only one of them:
  *
  *   - **Against a reference** — an issue, a merge request, a pull request.
- *     The list IS about that ref, so the protocol's `refInFocus` is exactly the
- *     question: while parts are picked, the instance is in front only if a
+ *     The list IS about that ref, so its anchor is `{ ref }` and the
+ *     protocol's `anchorInFocus` is exactly the question: while parts are picked, the instance is in front only if a
  *     picked part lists its ref. A ref no part lists is outside every focus.
  *
  *   - **Against the paper** — a section, a file, or the whole of it. A part
@@ -41,8 +41,8 @@ import type { Target } from './targets.ts'
  * count of instances put aside comes back with the ones that are left, and so
  * does the count of the paper's lists that were not narrowed, so the page can
  * print one line that accounts for everything it is and is not showing. The
- * two numbers are the protocol's `focusCount`, so three modules do not count
- * three ways.
+ * first half of that line is the protocol's `focusSentence`, the one every
+ * module says; the paper's half is this module's own.
  *
  * With nothing picked `focus` is null, the instances come back as they went
  * in — the same array — and the page is the page it was.
@@ -54,18 +54,17 @@ import type { Target } from './targets.ts'
 export interface Focus {
   /** What a person calls each picked part — its heading, or its id where it has none — in the epic's order. */
   picked: string[]
-  /** How many parts the epic has, picked or not. */
-  of: number
   /** Instances held against a reference that no picked part lists: put aside, and counted. */
   outside: number
   /** Instances held against the paper that are still shown, because a part says nothing about a document. */
   unnarrowed: number
+  /** `2 checklists outside the picked part (The seam).` — the protocol's sentence. */
+  sentence: string
 }
 
 /** Whether one target is in front under these parts. A paper target always is; see the essay. */
 export function targetInFocus(parts: readonly EpicPart[], target: Target | null): boolean {
-  if (target?.kind !== 'ref') return true
-  return refInFocus(parts, target.ref)
+  return target?.kind !== 'ref' || anchorInFocus(parts, { ref: target.ref })
 }
 
 /**
@@ -79,15 +78,15 @@ export function focusOn<T extends { target: Target | null }>(
   parts: readonly EpicPart[],
 ): { instances: readonly T[]; focus: Focus | null } {
   if (!isFocused(parts)) return { instances, focus: null }
-  const inFocus = (one: T) => targetInFocus(parts, one.target)
-  const kept = instances.filter(inFocus)
+  const kept = instances.filter((one) => targetInFocus(parts, one.target))
+  const outside = instances.length - kept.length
   return {
     instances: kept,
     focus: {
       picked: pickedParts(parts).map((part) => part.heading || part.id),
-      of: parts.length,
-      outside: focusCount(parts, instances, inFocus).outside,
+      outside,
       unnarrowed: kept.filter((one) => one.target?.kind !== 'ref').length,
+      sentence: focusSentence(parts, outside, 'checklist'),
     },
   }
 }
@@ -102,18 +101,10 @@ export function focusOn<T extends { target: Target | null }>(
  * could wonder why it survived.
  */
 export function focusLine(focus: Focus): string {
-  const one = focus.picked.length === 1
-  const lists = focus.outside === 1 ? '1 checklist' : `${focus.outside} checklists`
-  const where = one ? 'the picked part' : `the ${focus.picked.length} picked parts`
   const paper = focus.unnarrowed
     ? ` ${focus.unnarrowed === 1 ? '1 list held against the paper is' : `${focus.unnarrowed} lists held against the paper are`} shown as before: parts name references, not sections.`
     : ''
-  return `${lists} outside ${where} (${focus.picked.join(', ')}).${paper}`
-}
-
-/** Where the control is, for the line's tooltip: it is not on this page. */
-export function focusTold(focus: Focus): string {
-  return `This epic has ${focus.of} ${focus.of === 1 ? 'part' : 'parts'}; ${focus.picked.length} ${focus.picked.length === 1 ? 'is' : 'are'} picked out in the host’s bar, beside the epic. Unpick ${focus.picked.length === 1 ? 'it' : 'them'} there to see every list again.`
+  return `${focus.sentence}${paper}`
 }
 
 /**

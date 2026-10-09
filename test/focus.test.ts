@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { flattenParts, focusLine, focusOn, focusTold, partsOf, targetInFocus, whyUnfocused } from '../list/focus.ts'
+import { flattenParts, focusLine, focusOn, partsOf, targetInFocus, whyUnfocused } from '../list/focus.ts'
 import type { Target } from '../list/targets.ts'
 
 /**
@@ -38,7 +38,12 @@ describe('a picked part narrows the lists held against references', () => {
   test('to the refs it lists, and counts the rest', () => {
     const { instances, focus } = focusOn(FRONT, [seam(true), tests(false)])
     expect(ids(instances)).toEqual(['gh#10', 'section', 'paper'])
-    expect(focus).toEqual({ picked: ['The seam'], of: 2, outside: 2, unnarrowed: 2 })
+    expect(focus).toEqual({
+      picked: ['The seam'],
+      outside: 2,
+      unnarrowed: 2,
+      sentence: '2 checklists outside the picked part (The seam).',
+    })
   })
 
   test('several picked parts are a union, and a ref in no part is outside every focus', () => {
@@ -73,25 +78,20 @@ describe('a list held against the paper is not narrowed', () => {
 
 describe('the words', () => {
   test('how many are outside, which parts, and that the paper’s lists were left alone', () => {
-    expect(focusLine({ picked: ['The seam'], of: 3, outside: 2, unnarrowed: 0 })).toBe(
+    const line = (front: typeof FRONT, ...parts: ReturnType<typeof part>[]) => focusLine(focusOn(front, parts).focus!)
+    expect(line([ref('gh#10'), ref('gh#7'), ref('gh#99')], seam(true))).toBe(
       '2 checklists outside the picked part (The seam).',
     )
-    expect(focusLine({ picked: ['The seam', 'The tests'], of: 3, outside: 1, unnarrowed: 1 })).toBe(
+    expect(line([ref('gh#10'), ref('gh#99'), PAPER], seam(true), tests(true))).toBe(
       '1 checklist outside the 2 picked parts (The seam, The tests). 1 list held against the paper is shown as before: parts name references, not sections.',
     )
-    expect(focusLine({ picked: ['The seam'], of: 3, outside: 0, unnarrowed: 2 })).toBe(
+    expect(line([ref('gh#10'), SECTION, PAPER], seam(true))).toBe(
       '0 checklists outside the picked part (The seam). 2 lists held against the paper are shown as before: parts name references, not sections.',
     )
   })
 
-  test('the tooltip says where the control is, because it is not on this page', () => {
-    const told = focusTold({ picked: ['The seam'], of: 3, outside: 2, unnarrowed: 0 })
-    expect(told).toContain('3 parts; 1 is picked out in the host’s bar')
-    expect(told).toContain('Unpick it there')
-  })
-
   test('an empty page says the focus emptied it only when it did', () => {
-    const focus = { picked: ['The seam'], of: 3, outside: 2, unnarrowed: 0 }
+    const focus = { picked: ['The seam'], outside: 2, unnarrowed: 0, sentence: '' }
     expect(whyUnfocused(focus, 0)).toBe(
       'All 2 checklists in front of you are held against references outside the picked part.',
     )

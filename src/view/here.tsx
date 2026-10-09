@@ -4,8 +4,8 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
-import { focusLine, focusTold, type Focus } from '../../list/focus.ts'
-import type { TrackerRow } from 'kehikot-module-protocol'
+import { focusLine, type Focus } from '../../list/focus.ts'
+import { FOCUS_WHERE, type TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { FactLine, RefFacts, type Facts } from '@/view/facts.tsx'
@@ -157,7 +157,7 @@ export function HereView({
         <p
           className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
           data-focus={focus.outside}
-          title={focusTold(focus)}
+          title={FOCUS_WHERE}
         >
           {focusLine(focus)}
         </p>
