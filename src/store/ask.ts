@@ -1,4 +1,4 @@
-import { AskFailed, ask, replied } from 'kehikot-module-protocol/client'
+import { AskFailed, PAGE_STALE, ask, replied } from 'kehikot-module-protocol/client'
 
 import type { Held, Summary } from '../../list/checklists.ts'
 import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
@@ -318,7 +318,9 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
   const asked = await ask<{ said?: unknown; id?: unknown; lists?: unknown; held?: unknown }>('/api/checklist', {
     body: { ...sent, ...target, project: projectPath },
   })
-  if (!asked.ok) return { ok: false, error: asked.error }
+  /* A stale refusal keeps the sentence this page has always drawn for it: protocol 1.0.0 shortened
+     `error` to `PAGE_OLD`, and the line under the lists would have changed its words with the pin. */
+  if (!asked.ok) return { ok: false, error: asked.kind === 'stale' ? PAGE_STALE : asked.error }
   const body = asked.body ?? {}
   return {
     ok: true,

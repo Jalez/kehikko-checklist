@@ -21,7 +21,7 @@
  * project is open" screen, so there is nothing to measure. So this stands up a
  * page that frames it and speaks the greeting, and it must be served over HTTP
  * from an origin the module's own `frame-ancestors` allows — hence `PORT` and
- * `KEHIKOT_ORIGIN` (or the older `ROADMAP_ORIGIN`) below. A `page.setContent` harness is blocked by CSP before
+ * `KEHIKOT_ORIGIN` below. A `page.setContent` harness is blocked by CSP before
  * the frame loads, silently, which costs twenty minutes if you have not seen it.
  *
  * It seeds through the app's own API using the ticket the served page carries,
