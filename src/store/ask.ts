@@ -1,4 +1,4 @@
-import { AskFailed, ask } from 'kehikot-module-protocol/client'
+import { AskFailed, ask, replied } from 'kehikot-module-protocol/client'
 
 import type { Held, Summary } from '../../list/checklists.ts'
 import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
@@ -41,24 +41,14 @@ import type { Shown } from '../../list/aim.ts'
  * asks about a target the server does not have.
  */
 
-/**
- * A read of this app's own server, through the protocol's `ask()`.
- *
- * These doors say what is wrong IN the body — `nowhere`, `trouble`, an `error` beside `ok: false`
- * — so a body the server sent is handed back whether or not the server called it a success, and
- * each reader below takes what it understands from it, as it always did.
- *
- * What is thrown, as the protocol's `AskFailed`, is the other thing entirely: nothing answered
- * (`down`), or this page is older than its server (`stale`). `ask()` has by then told
- * `useServerStanding`, which is what draws the cover in `App` — where a read used to fail in
- * silence and leave the page saying "Reading." for as long as it was open.
+/*
+ * Every read below is the protocol's `replied(await ask(…))`. These doors say what is wrong IN the
+ * body — `nowhere`, `trouble`, an `error` beside `ok: false` — so a body the server sent is handed
+ * back whether or not the server called it a success, and each reader takes what it understands
+ * from it. What is thrown, as the protocol's `AskFailed`, is the other thing entirely: nothing
+ * answered (`down`), or this page is older than its server (`stale`). `ask()` has by then told
+ * `useServerStanding`, which is what draws the cover in `App`.
  */
-async function read<T>(path: string): Promise<T> {
-  const asked = await ask<T>(path)
-  if (asked.ok) return asked.body ?? ({} as T)
-  if (asked.kind === 'refused' && asked.body && typeof asked.body === 'object') return asked.body as T
-  throw new AskFailed(asked)
-}
 
 /** Whether a failed read was the server not being there (or being a newer one), rather than an answer. */
 export function unanswered(caught: unknown): boolean {
@@ -78,13 +68,9 @@ export type { Held, Outline, OutlineFile, OutlineSection, Placed, Shown, Summary
  * THIS page over the frame. The server has no host, no canvas and no way to ask;
  * a server that guessed would be answering about some other folder.
  *
- * So it rides on every request, read and write alike, and a request without one
- * is answered with a sentence rather than with somebody else's lists.
+ * So it rides on every request, read and write alike — `project` in each query below — and a
+ * request without one is answered with a sentence rather than with somebody else's lists.
  */
-function withProject(path: string, projectPath: string | null): string {
-  if (!projectPath) return path
-  return `${path}${path.includes('?') ? '&' : '?'}project=${encodeURIComponent(projectPath)}`
-}
 
 /**
  * What comes back when there is no project to read from.
@@ -103,7 +89,9 @@ export interface Everything {
 
 /** Every checklist in the open project: the screen behind `All checklists`. */
 export async function everyChecklist(projectPath: string | null): Promise<Everything> {
-  const body = await read<{ lists?: unknown; trouble?: unknown; nowhere?: unknown }>(withProject('/api/checklists', projectPath))
+  const body = replied(
+    await ask<{ lists?: unknown; trouble?: unknown; nowhere?: unknown }>('/api/checklists', { query: { project: projectPath || null } }),
+  )
   return {
     lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
@@ -168,22 +156,16 @@ export async function whatIsHere(
   documents: readonly Pointing[],
   refs: readonly string[],
 ): Promise<Here> {
-  const parts: string[] = []
-  if (epic) parts.push(`epic=${encodeURIComponent(epic)}`)
-  if (epic) {
-    for (const at of documents) {
-      const range = at.from !== null && at.to !== null ? `\t${at.from}\t${at.to}` : ''
-      parts.push(`doc=${encodeURIComponent(`${at.path}${range}`)}`)
-    }
-  }
-  if (refs.length) parts.push(`refs=${encodeURIComponent(refs.join(' '))}`)
-  const body = await read<{
-    placed?: unknown
-    positions?: unknown
-    instances?: unknown
-    trouble?: unknown
-    nowhere?: unknown
-  }>(withProject(`/api/here${parts.length ? `?${parts.join('&')}` : ''}`, projectPath))
+  const body = replied(
+    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown }>('/api/here', {
+      query: {
+        epic: epic || null,
+        doc: epic ? documents.map((at) => (at.from !== null && at.to !== null ? `${at.path}\t${at.from}\t${at.to}` : at.path)) : [],
+        refs: refs.length ? refs.join(' ') : null,
+        project: projectPath || null,
+      },
+    }),
+  )
   return {
     placed: (body.placed as Placed | null) ?? null,
     positions: Array.isArray(body.positions) ? (body.positions as (Placed | null)[]) : [],
@@ -240,8 +222,10 @@ export interface Opened {
  * different answers with two different remedies.
  */
 export async function openChecklist(id: string, projectPath: string | null): Promise<Opened | { error: string }> {
-  const body = await read<{ ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }>(
-    withProject(`/api/checklist?id=${encodeURIComponent(id)}`, projectPath),
+  const body = replied(
+    await ask<{ ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }>('/api/checklist', {
+      query: { id, project: projectPath || null },
+    }),
   )
   if (body.ok === true && body.held) {
     return {
@@ -274,7 +258,7 @@ export async function openChecklist(id: string, projectPath: string | null): Pro
  * existence oracle `file/confine.ts` refuses, one question at a time.
  */
 export async function paperOutline(projectPath: string | null, path: string): Promise<Outline | null> {
-  const body = await read<{ outline?: unknown }>(withProject(`/api/outline?path=${encodeURIComponent(path)}`, projectPath))
+  const body = replied(await ask<{ outline?: unknown }>('/api/outline', { query: { path, project: projectPath || null } }))
   const outline = body.outline as Outline | null | undefined
   return outline && Array.isArray(outline.files) ? outline : null
 }
