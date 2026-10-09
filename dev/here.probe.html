@@ -102,7 +102,7 @@ f.addEventListener('load', async () => {
 
   /* Seed through the app's own door, with the ticket the page carries. */
   const ticket = JSON.parse(doc().getElementById('ticket').textContent)
-  const post = (b) => fetch('/api/checklist', { method: 'POST', headers: { 'content-type': 'application/json', 'x-checklist-ticket': ticket }, body: JSON.stringify({ ...b, project: PROJECT }) }).then((r) => r.json())
+  const post = (b) => fetch('/api/checklist', { method: 'POST', headers: { 'content-type': 'application/json', 'x-module-ticket': ticket }, body: JSON.stringify({ ...b, project: PROJECT }) }).then((r) => r.json())
   const lists = (await fetch(`/api/checklists?project=${encodeURIComponent(PROJECT)}`).then((r) => r.json())).lists
   const by = (part) => lists.find((l) => l.name.includes(part))?.id
   const ch1 = by('Chapter 1'), ch3 = by('Chapter 3'), whole = by('Thesis paper checklist')

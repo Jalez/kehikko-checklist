@@ -26,14 +26,13 @@ function door(rows: { seq: number; tool: string; refs: string[]; message: string
   globalThis.fetch = (async (url: string) => {
     const since = Number(new URL(url, 'http://x').searchParams.get('since') ?? '0')
     asked.push(since)
-    return {
-      json: async () => ({
-        ok: true,
-        announcements: rows.filter((r) => r.seq > since),
-        cursor: rows.length ? rows[rows.length - 1]!.seq : 0,
-        dropped: 0,
-      }),
-    }
+    /* A real `Response`: the pump asks through the protocol's `ask()`, which reads the status and the headers too. */
+    return Response.json({
+      ok: true,
+      announcements: rows.filter((r) => r.seq > since),
+      cursor: rows.length ? rows[rows.length - 1]!.seq : 0,
+      dropped: 0,
+    })
   }) as unknown as typeof fetch
   return asked
 }

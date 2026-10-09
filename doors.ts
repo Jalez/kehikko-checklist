@@ -1,3 +1,5 @@
+import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
+
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import {
   MAX_ID,
@@ -156,7 +158,14 @@ const NO_PROJECT =
  * essay on `tickSchema` in `list/checklists.ts` for what happened to the gate
  * that used to be the answer to this paragraph.
  */
-export const TICKET = crypto.randomUUID()
+export const TICKET = mintTicket()
+
+/**
+ * What this process is built from: this module's version, the checkout's commit, and when the
+ * process started. `doors()` says it in the manifest, at `/healthz`, in the page and on every
+ * answer, which is how a page notices that the server answering it is not the one that served it.
+ */
+export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname })
 
 /** The word a change is filed under when the page made it. */
 const OWNER = 'the owner, on this app’s own page'
@@ -685,12 +694,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
   return `${out.said}.\n\n${listText(id, target, where)}`
 }
 
-/** A status and a document. Nothing here writes bytes; the adapter does that. */
-export interface Reply {
-  status: number
-  /** `null` means "answer with no body", which is what a notification gets. */
-  body: unknown
-}
+/* A status and a document — the protocol's `Reply`. Nothing here writes bytes; `doors()` does that. */
+export type { Reply }
 
 const ok = (body: unknown): Reply => ({ status: 200, body })
 const bad = (why: string, status = 400): Reply => ({ status, body: { ok: false, error: why } })
@@ -1073,7 +1078,10 @@ export function answer(
        above this check: an MCP client is not a browser, has no page to have been
        handed a ticket, and requiring one there would mean the door could never be
        opened by the thing it exists for. */
-    if (ticket !== TICKET) return bad('that press did not come from this app’s own page', 403)
+    /* `refuseTicket` marks the refusal, so a page that is merely older than this process — the
+       server restarted under it — is told so by its own `ask()` instead of being called a stranger. */
+    const refused = refuseTicket(ticket, TICKET, 'that press did not come from this app’s own page')
+    if (refused) return refused
     if (!body) return bad('that was not a request')
 
     if (path === '/api/checklist') {

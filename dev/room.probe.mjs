@@ -166,7 +166,7 @@ await frame.evaluate(async ({ project, items }) => {
   const post = (b) =>
     fetch('/api/checklist', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-checklist-ticket': ticket },
+      headers: { 'content-type': 'application/json', 'x-module-ticket': ticket },
       body: JSON.stringify(b),
     }).then((r) => r.json())
   const read = (id) =>

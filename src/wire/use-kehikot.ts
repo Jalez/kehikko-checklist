@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import {
   LIMITS,
@@ -9,85 +9,44 @@ import {
   type FilterGroup,
   type TrackerReading,
 } from 'kehikot-module-protocol'
-import {
-  PERSON_ANSWERS_WITHIN_MS,
-  connect,
-  type Connection,
-  type HostEvents,
-} from 'kehikot-module-protocol/client'
+import { PERSON_ANSWERS_WITHIN_MS, type HostEvents } from 'kehikot-module-protocol/client'
+import { useHost, type Host } from 'kehikot-module-protocol/client/react'
+
 import { pump } from './emit.ts'
 import { flattenParts } from '../../list/focus.ts'
-import { wearTheme } from './theme.ts'
 
 /**
- * The bridge, as one React value.
+ * The bridge, as one React value: the protocol's `useHost`, and this module's own on top of it.
  *
- * The wire itself is `kehikot-module-protocol/client` and knows no React; this
- * is the only file that turns messages into state, and it is deliberately the
- * only one. Two places driving "what can this page see" would eventually
- * disagree.
+ * ## What is underneath now
  *
- * ## What used to be underneath this, and where it went
+ * The connection, the grace before deciding nobody is there, the theme on `<html>` (both classes
+ * spelled, which with `index.css` is also the `color-scheme` the browser's own chrome follows),
+ * and a stable `request` are `kehikot-module-protocol/client/react`. This file used to do all of
+ * that by hand; see the protocol's docs/module-plumbing.md.
  *
- * `wire/host.ts` and `wire/mailbox.ts` — 418 lines, byte-identical to the copy
- * in eleven sibling modules. They are now one import. Nothing this page says on
- * the wire changed; what changed is that the essays explaining WHY the orderings
- * are what they are live in one place, next to the code that depends on them,
- * instead of in twelve places free to drift apart. Two of those copies had
- * already grown the same two bugs independently.
+ * ## What stays here, and why
  *
- * The core client is used here rather than `…/client/react`, and the reason is
- * the state below: this hook flattens the passage to one string, compares a
- * kehikko by id before writing it, and normalises two spellings of "no
- * project" to one. A generic hook that handed back the whole context would make
- * every one of those a thing done downstream, on a fresh object identity every
- * two seconds. The client is a convenience and this is what it looks like to
- * take the half of it that helps.
+ * - **Every field of the context as a validated STRING.** A context arrives after every change
+ *   anywhere on the canvas, as fresh objects each time, and this page's reads depend on what it
+ *   says. A string is compared by value, so an effect that depends on one runs when the canvas
+ *   moved and not when it merely spoke: the passage, the containers, the filter choice, the
+ *   tracker's signal, the dispositions and the parts (`flattenParts` / `partsOf`) are each
+ *   flattened here, once, from the context `useHost` hands over.
+ * - **The announcements pump** (`wire/emit.ts`): what an agent did over this app's MCP door,
+ *   emitted to the host as events, through the hook's `request`.
+ * - **What this page asks the host**: `projects.pick` for an import, and `tracker.get` for what
+ *   the trackers say about the refs the lists are held against — to be drawn beside them and kept
+ *   on a tick as evidence, never to tick anything (Jalez/kehikko-checklist#1).
  *
- * ## What this hook stopped doing, and it is most of what it used to do
- *
- * It used to hold a six-way `Sight` — `listening`, `unhosted`, `no-epic`,
- * `asking`, `refused`, `unread`, `read` — because the page derived checklist
- * items from a tracker reading a host handed over, and those six absences had
- * six different remedies. Nothing is derived any more. There is no `live.get`
- * here, no reading, no epic-change refetch, and no correlation guard on an
- * answer arriving after the epic moved, because no answer is being waited for.
- * What came back since is narrower and is not a derivation: `readTracker`
- * asks the host's shared reading what the trackers say about the refs the
- * lists are held against, to be drawn beside them and kept on a tick as
- * evidence — never to tick anything (Jalez/kehikko-checklist#1).
- *
- * What is left is what a context actually carries: which epic is open, which
- * project, where in a document the reader is, what the canvas has picked out,
- * and the theme. Nothing is kept with the host any more: this hook used to read
- * a `state:keep` string carrying which checklist was picked per kehikko, and
- * that pick no longer exists — what is in front of a reader is decided by
- * where they are and what every list is held against (`list/holding.ts`), and
- * a remembered pick would have been a second answer to the same question.
- *
- * ## The grace, and why there is still one
- *
- * A page cannot know at load whether it is framed. It has to wait to find out,
- * because the greeting arrives when the host is ready rather than when we are,
- * and a page that concluded "nobody is there" in the first frame would say so
- * and then be greeted a moment later — the reader would see the standalone
- * paragraph flash past and be replaced, which teaches them that paragraph is
- * noise. So there is a `listening` state with its own words, it lasts under a
- * second, and only then does the page say the harder thing.
- *
- * It is not a spinner. It says what it is waiting for.
+ * Nothing is kept with the host: what is in front of a reader is decided by where they are and
+ * what every list is held against (`list/holding.ts`), and a remembered pick would be a second
+ * answer to the same question. So the greeting's kept `state` is deliberately not read.
  */
-const GREETING_GRACE_MS = 700
 
-/**
- * Whether anything is framing this page, in the three states that matter.
- *
- * Three rather than a boolean, because "we have not heard yet" is not "nobody is
- * there": one lasts under a second and the other is the standalone case this app
- * is built to work in. Drawing the second while in the first is the flicker the
- * grace above exists to prevent.
- */
-export type Where = 'listening' | 'unhosted' | 'hosted'
+/** Whether anything is framing this page: `listening` for under a second, then `unhosted`, or `hosted`. */
+export type Where = Host['where']
+
 
 /** Which canvas this container is standing on, as the host says it. */
 export interface Kehikko {
@@ -111,7 +70,7 @@ export interface Kehikot {
    * this page, or a host knows the project's NAME and has no folder to point at
    * — a Kehikot host, a demo, a test harness. Both get a screen saying so
    * rather than a guess, because a guess here means writing somebody's checklist
-   * into a repository they will never open. See `src/view/nowhere.tsx`.
+   * into a repository they will never open. The page draws the shared no-project cover for it.
    */
   projectPath: string | null
   /**
@@ -143,7 +102,7 @@ export interface Kehikot {
    * things here: every checklist held against it is in front of the reader, and
    * the edit page offers it as a target to hold a list against.
    */
-  selection: string[]
+  selection: readonly string[]
   /**
    * Where in a document the reader is pointing, as the host last said it.
    *
@@ -306,295 +265,95 @@ export function marksOf(marks: string): Disposition[] {
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
 export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void): Kehikot {
-  const [where, setWhere] = useState<Where>('listening')
-  const [selection, setSelection] = useState<string[]>([])
-  const [passage, setPassage] = useState('')
-  const [containers, setContainers] = useState('')
-  const [chosen, setChosen] = useState('')
-  const [epic, setEpic] = useState<string | null>(null)
-  const [projectPath, setProjectPath] = useState<string | null>(null)
-  const [projectName, setProjectName] = useState<string | null>(null)
-  const [kehikko, setKehikko] = useState<Kehikko | null>(null)
-  const [trackerAt, setTrackerAt] = useState('')
-  const [trackerReading, setTrackerReading] = useState(false)
-  const [marks, setMarks] = useState('')
-  const [parts, setParts] = useState('')
-  const host = useRef<Connection | null>(null)
+  const host = useHost(id, { onGoto }, { reloadWhenStale: false })
+  const { where, context, epic, projectPath, project, selection, request, resize, filters } = host
 
-  /**
-   * The handler, held in a ref and read at the moment a `goto` arrives.
-   *
-   * The view rebuilds this function whenever the rows change, and connecting to
-   * the window again on every render would mean a torn-down listener during the
-   * one millisecond a host chose to greet in. So the listener is established once
-   * and always calls the newest handler — which is also the only one that knows
-   * what is currently on screen.
-   */
-  const goto = useRef(onGoto)
-  goto.current = onGoto
-
-  /** The same arrangement, for "an agent came through the MCP door". */
+  /* The doorbell, read through a ref so the pump below is started once and always rings the newest one. */
   const door = useRef(onDoor)
   door.current = onDoor
 
-  /** The epic the pump files an announcement under, read at each tick rather than captured. */
+  /* The epic the canvas is on, for the pump: an announcement that names none of its own is filed
+     under this one, and it is read at the moment of emitting rather than captured at mount. */
   const standingOn = useRef<string | null>(null)
+  standingOn.current = epic
 
-  useEffect(() => {
-    /**
-     * What the greeting and every later context both do.
-     *
-     * The theme is applied here rather than in a component, because it is a fact
-     * about the document rather than about any part of it: the host says light or
-     * dark and the root element carries it — on every context, not only the
-     * greeting, because a person changes the mode in a session that is already
-     * running. `wearTheme` is the one place that knows what carrying it means;
-     * see the essay there for `light` being written down rather than left to the
-     * machine, and for the `color-scheme` that decides the scrollbar.
-     */
-    const arrived = (context: {
-      epic: string | null
-      project: string | null
-      projectPath: string | null
-      theme: 'light' | 'dark'
-      selection: string[]
-      passage: { path: string; page: number | null; from: number | null; to: number | null } | null
-      kehikko: Kehikko | null
-      containers?: unknown
-      filters?: unknown
-      tracker?: unknown
-      dispositions?: unknown
-      parts?: unknown
-    }) => {
-      wearTheme(document.documentElement, context.theme)
-
-      setWhere('hosted')
-      setSelection(context.selection)
-      /*
-       * Flattened on arrival, for the reason `passage` above gives, and
-       * flattened HERE rather than at the one place that reads it — because the
-       * whole value of doing it is that the setter is a no-op when nothing
-       * moved, and a setter given a fresh object is never a no-op.
-       *
-       * The spelling is the four fields a target can be derived from, tab
-       * separated, in a fixed order. `quoted` is deliberately not among them:
-       * this module never re-anchors anything by its words — a tick is filed
-       * against a section id, not against a range — so carrying a quote would be
-       * carrying a document through a frame for nothing, and would make this
-       * string change when only the highlight did.
-       */
-      const here = context.passage
-      setPassage(
-        here && typeof here.path === 'string' && here.path
-          ? [here.path, here.page ?? '', here.from ?? '', here.to ?? ''].join('\t')
-          : '',
-      )
-      /*
-       * The host's list of containers, flattened on arrival for the reason the
-       * passage is. Each document inside is flattened the same way the passage
-       * is — path, page, from, to — so one parser reads both. A row that is not
-       * a row is left out; a host that sends nothing is `''`.
-       */
-      setContainers(flattenContainers(context.containers))
-      setChosen(flattenChoice(context.filters))
-      /*
-       * The tracker signal, read structurally for the reason `containers` is:
-       * a host from before shared readings sends none, and that is "nothing
-       * has been read", which is what `''` says.
-       */
-      const signal = (typeof context.tracker === 'object' && context.tracker !== null ? context.tracker : {}) as {
-        at?: unknown
-        refreshing?: unknown
-      }
-      setTrackerAt(typeof signal.at === 'string' ? signal.at : '')
-      setTrackerReading(signal.refreshing === true)
-      setMarks(Array.isArray(context.dispositions) && context.dispositions.length ? JSON.stringify(context.dispositions) : '')
-      /* The parts of the epic, on every context: moving to another epic sends
-         that epic's parts with nothing picked in the same message, and a page
-         that kept the last epic's focus would go on hiding lists for it. */
-      setParts(flattenParts(context.parts))
-      setEpic(context.epic)
-      /*
-       * Normalised to null the moment it arrives, rather than at each call site.
-       *
-       * A host that sends `projectPath: ""` — or omits it, against an older
-       * protocol — means "there is no project", and so does `null`. Two spellings
-       * of one state would eventually be compared two ways in two effects, and
-       * the effect that got it wrong would fetch with an empty project and paint
-       * an empty container that looked like a project with no checklists.
-       *
-       * A plain string comparison is enough to make this a no-op when nothing
-       * moved, which matters because a context arrives after every selection
-       * change anywhere on the canvas and this value is a dependency of the
-       * fetch.
-       */
-      setProjectPath(typeof context.projectPath === 'string' && context.projectPath ? context.projectPath : null)
-      setProjectName(typeof context.project === 'string' && context.project ? context.project : null)
-      standingOn.current = context.epic
-      /*
-       * Written unconditionally rather than only when it changed.
-       *
-       * A context arrives after every selection change anywhere on the canvas,
-       * so this runs often, and the old version of this hook was careful to
-       * compare before writing — because a write meant throwing away a tracker
-       * reading and refetching it. Nothing is refetched now. What these setters
-       * cost is a render of a page that is already drawn, and React bails out of
-       * one where the value is identical anyway, so a comparison here would be a
-       * guard against a cost that no longer exists.
-       *
-       * The kehikko IS compared, because it is an object: a fresh `{id, name}`
-       * with the same id every two seconds would be a new identity in every memo
-       * downstream, and the whole point of reading it is to key a stable choice
-       * by it.
-       */
-      setKehikko((was) =>
-        was?.id === context.kehikko?.id && was?.name === context.kehikko?.name ? was : context.kehikko,
-      )
-    }
-
-    /**
-     * The connection is stored BEFORE it is told to listen, and the order is the
-     * whole of a bug that made two sibling modules hang forever.
-     *
-     * `listen()` subscribes to the mailbox, and the mailbox replays what has
-     * already arrived SYNCHRONOUSLY, inside that call. The greeting almost always
-     * arrives before React mounts — that is the entire reason the mailbox exists
-     * — so `onHello` fires on that line. If `connect` also subscribed, it would
-     * fire before `host.current` had been assigned, and anything reading
-     * `host.current` then finds null and quietly does nothing.
-     *
-     * Worse, it works often enough to look fine. When the host happens to greet
-     * after this effect returns — a slow module, a reload, a busy machine — the
-     * assignment has already happened and everything behaves. A race whose good
-     * outcome is the common one is the kind that ships.
-     *
-     * What used to stand here was twenty lines that caught the too-early arrival
-     * in a box and replayed it once the assignment was done. It worked, and it
-     * was the wrong shape: it fixed one module's copy of a hazard every module
-     * had. `connect` and `listen` are two calls now, so the ordering is three
-     * plain lines that read in the order they happen, and the protocol package
-     * has a test that holds a one-step connect against the same greeting and
-     * watches it fail.
-     */
-    type Context = {
-      epic: string | null
-      project: string | null
-      projectPath: string | null
-      theme: 'light' | 'dark'
-      selection: string[]
-      passage: { path: string; page: number | null; from: number | null; to: number | null } | null
-      kehikko: Kehikko | null
-      containers?: unknown
-      filters?: unknown
-      tracker?: unknown
-      dispositions?: unknown
-      parts?: unknown
-    }
-    /* The greeting's kept `state` is deliberately not read. A string an older
-       version of this module asked the host to keep — which checklist was
-       picked on which kehikko — means nothing to this one, and reading it
-       would be a page opening on a list nobody asked for today. */
-    const live = connect(id, {
-      onHello: (context) => arrived(context as Context),
-      onContext: (context) => arrived(context as Context),
-      onGoto: (message, answer) => goto.current(message, answer),
-    })
-    host.current = live
-    live.listen()
-
-    const grace = setTimeout(() => {
-      setWhere((was) => (was === 'listening' ? 'unhosted' : was))
-    }, GREETING_GRACE_MS)
-
-    /*
-     * Tell the host when an agent comes through this app's MCP door.
-     *
-     * Started here, with the connection, because it has nothing to say when
-     * there is no connection to say it on — see the essay in `emit.ts` for why
-     * the door and the wire are in two different processes and need a pump
-     * between them at all.
-     */
-    const stopPump = pump(
-      (method, params) => {
-        const current = host.current
-        if (!current) return Promise.reject(new Error('nothing has greeted this page'))
-        return current.request(method, params)
-      },
-      () => standingOn.current,
-      undefined,
-      () => door.current?.(),
-    )
-
-    return () => {
-      stopPump()
-      clearTimeout(grace)
-      live.stop()
-      /* Cleared only if it is still ours. Under StrictMode the second mount has
-         already assigned its own connection by the time some cleanups run, and
-         a blind `null` here would leave the surviving mount holding nothing. */
-      if (host.current === live) host.current = null
-    }
-  }, [id])
-
-  const resize = useCallback((height: number) => host.current?.resize(height), [])
-
-  /**
-   * Ask the host to ask the person which project. See `pickProject` above.
-   *
-   * The answer is parsed with the protocol's own schema rather than read off
-   * the object, for the reason the package itself gives: a module validating
-   * what a host sent it is the only side that can. This one is worth the care
-   * — what comes back is about to be handed to this app's server as a folder to
-   * read — and the parse is what turns a host that answered something odd into
-   * "nothing was picked" instead of a path-shaped surprise.
-   *
-   * Every refusal is `null`, including a rejected promise. A host that has
-   * never heard of `projects.pick` answers `unknown-method`, which is a `throw`
-   * here, and the honest thing for this page to do about a host too old to be
-   * asked is exactly what it does about a person who pressed Cancel.
+  /*
+   * The pump: this app's own outbox, emitted to the host as events. Started once for the life of
+   * the page and stopped with it. `request` is the hook's and is stable; with nothing greeting
+   * the page it refuses, which the pump reports and does not retry.
    */
+  useEffect(
+    () =>
+      pump(
+        (method, params) => request(method, params),
+        () => standingOn.current,
+        undefined,
+        () => door.current?.(),
+      ),
+    [request],
+  )
+
+  /* Each of these is a string, so what depends on it moves when the canvas moved. See the essay at the top. */
+  const here = context?.passage ?? null
+  const passage =
+    here && typeof here.path === 'string' && here.path ? [here.path, here.page ?? '', here.from ?? '', here.to ?? ''].join('\t') : ''
+  const containers = useMemo(() => flattenContainers(context?.containers), [context])
+  const chosen = useMemo(() => flattenChoice(context?.filters), [context])
+  const signal = (typeof context?.tracker === 'object' && context.tracker !== null ? context.tracker : {}) as {
+    at?: unknown
+    refreshing?: unknown
+  }
+  const trackerAt = typeof signal.at === 'string' ? signal.at : ''
+  const trackerReading = signal.refreshing === true
+  const marks = useMemo(
+    () => (Array.isArray(context?.dispositions) && context.dispositions.length ? JSON.stringify(context.dispositions) : ''),
+    [context],
+  )
+  /* The parts of the epic, on every context: moving to another epic sends that epic's parts with
+     nothing picked in the same message, and a page that kept the last epic's focus would go on
+     hiding lists for it. */
+  const parts = useMemo(() => flattenParts(context?.parts), [context])
+
+  /* A kehikko is compared by id and name before it replaces the one held, so a context that
+     repeats itself is not a new object for whatever depends on it. */
+  const said = context?.kehikko ?? null
+  const held = useRef<Kehikko | null>(null)
+  if (held.current?.id !== said?.id || held.current?.name !== said?.name) held.current = said ? { id: said.id, name: said.name } : null
+  const kehikko = held.current
+
   const pickProject = useCallback(async (): Promise<{ path: string; name: string } | null> => {
-    const live = host.current
-    if (!live) return null
     try {
-      const answered = await live.request('projects.pick', {}, { within: PERSON_ANSWERS_WITHIN_MS })
+      const answered = await request('projects.pick', {}, { within: PERSON_ANSWERS_WITHIN_MS })
       const read = projectPickResult.safeParse(answered)
       if (!read.success || read.data.outcome !== 'picked' || !read.data.project) return null
       return { path: read.data.project.path, name: read.data.project.name }
     } catch {
       return null
     }
-  }, [])
-
-  /* Sent unconditionally: a page with no host posts into nothing, which costs
-     nothing, and a page that checked first would have to know whether the
-     greeting has arrived yet — which is exactly the race the client's own replay
-     exists to end. */
-  const filters = useCallback((groups: FilterGroup[]) => host.current?.filters(groups), [])
+  }, [request])
 
   /* See `readTracker` above. Bounded to what one ask may name; the page asks
      for the refs its lists are held against, which is rarely more than a few. */
-  const readTracker = useCallback(async (refs: readonly string[]): Promise<TrackerReading | null> => {
-    const live = host.current
-    if (!live || !refs.length) return null
-    try {
-      const answered = await live.request('tracker.get', {
-        refs: refs.slice(0, LIMITS.TRACKER_ASK),
-        detail: 'detail',
-      })
-      const read = trackerReadingResult.safeParse(answered)
-      return read.success ? read.data : null
-    } catch {
-      return null
-    }
-  }, [])
+  const readTracker = useCallback(
+    async (refs: readonly string[]): Promise<TrackerReading | null> => {
+      if (!refs.length) return null
+      try {
+        const answered = await request('tracker.get', { refs: refs.slice(0, LIMITS.TRACKER_ASK), detail: 'detail' })
+        const read = trackerReadingResult.safeParse(answered)
+        return read.success ? read.data : null
+      } catch {
+        return null
+      }
+    },
+    [request],
+  )
 
   return useMemo(
     () => ({
       where,
       epic,
       projectPath,
-      project: projectName,
+      project,
       kehikko,
       selection,
       passage,
@@ -613,7 +372,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       where,
       epic,
       projectPath,
-      projectName,
+      project,
       kehikko,
       selection,
       passage,
