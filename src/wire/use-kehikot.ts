@@ -266,7 +266,7 @@ export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
 export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void): Kehikot {
   const host = useHost(id, { onGoto }, { reloadWhenStale: false })
-  const { where, context, epic, projectPath, project, selection, request, resize, filters } = host
+  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters } = host
 
   /* The doorbell, read through a ref so the pump below is started once and always rings the newest one. */
   const door = useRef(onDoor)
@@ -313,13 +313,6 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
      nothing picked in the same message, and a page that kept the last epic's focus would go on
      hiding lists for it. */
   const parts = useMemo(() => flattenParts(context?.parts), [context])
-
-  /* A kehikko is compared by id and name before it replaces the one held, so a context that
-     repeats itself is not a new object for whatever depends on it. */
-  const said = context?.kehikko ?? null
-  const held = useRef<Kehikko | null>(null)
-  if (held.current?.id !== said?.id || held.current?.name !== said?.name) held.current = said ? { id: said.id, name: said.name } : null
-  const kehikko = held.current
 
   const pickProject = useCallback(async (): Promise<{ path: string; name: string } | null> => {
     try {
