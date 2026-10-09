@@ -12,7 +12,6 @@ import type { Target } from '../list/targets.ts'
 import { AllView } from '../src/view/all.tsx'
 import { EditView } from '../src/view/edit.tsx'
 import { HereView } from '../src/view/here.tsx'
-import { Nowhere } from '../src/view/nowhere.tsx'
 import { room, type Room } from '../src/view/room.ts'
 import type { Here } from '../src/store/ask.ts'
 
@@ -111,7 +110,6 @@ function Reading(props: Partial<ComponentProps<typeof HereView>> & { here: Here 
   return (
     <HereView
       somewhere
-      listening={false}
       onEdit={noop}
       onOpen={noop}
       onAll={noop}
@@ -197,9 +195,9 @@ describe('the reading page under a parts focus', () => {
 })
 
 describe('the reading page: what is in front of the reader', () => {
-  test('waits without claiming anything before the server has answered', () => {
+  test('claims nothing before the server has answered: the page draws the shared cover for that', () => {
     const { container } = render(<Reading here={null} room={ROOMY} />)
-    expect(container.querySelector('[data-here="waiting"]')).toBeTruthy()
+    expect(container.textContent).toBe('')
     expect(container.querySelectorAll('[data-instance]')).toHaveLength(0)
   })
 
@@ -596,23 +594,8 @@ describe('every checklist in the project', () => {
   })
 })
 
-describe('the screen for "there is nowhere to keep a checklist"', () => {
-  test('says a project has to be open, and offers nothing to press', () => {
-    const { container } = render(<Nowhere unhosted={false} project={null} />)
-    expect(screen.getByText(/No project is open/)).toBeTruthy()
-    expect(container.querySelectorAll('button')).toHaveLength(0)
-  })
-
-  test('names the project when the host gave a name but no folder', () => {
-    render(<Nowhere unhosted={false} project="Roadmap" />)
-    expect(screen.getByText(/“Roadmap”/)).toBeTruthy()
-  })
-
-  test('says something different again when nothing is framing the page at all', () => {
-    render(<Nowhere unhosted project={null} />)
-    expect(screen.getByText(/Nothing is framing this page/)).toBeTruthy()
-  })
-})
+/* The screen for "there is nowhere to keep a checklist" is the protocol's shared cover now, and is
+   asserted where the whole page is rendered: test/app.test.tsx. */
 
 describe('what the tracker says, beside a ref’s lists (Jalez/kehikko-checklist#1)', () => {
   /* Stand-ins through the protocol's own schema: the host side,

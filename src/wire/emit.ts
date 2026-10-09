@@ -1,3 +1,5 @@
+import { answered, ask } from 'kehikot-module-protocol/client'
+
 import { FORMAT } from '../../manifest.ts'
 
 /**
@@ -124,8 +126,10 @@ export function pump(
     if (asking || !live) return
     asking = true
     try {
-      const response = await fetch(`/api/announcements?since=${cursor}`, { cache: 'no-store' })
-      const body = (await response.json()) as { announcements?: Announcement[]; cursor?: number }
+      /* Through the protocol's `ask`, so this poll — the one thing here that asks on a timer — is
+         also what notices that this app's own server has stopped, or has come back as another
+         process. A failure is thrown and caught below, as a failed `fetch` was. */
+      const body = answered(await ask<{ announcements?: Announcement[]; cursor?: number }>('/api/announcements', { query: { since: cursor } })) ?? {}
       const announcements = Array.isArray(body.announcements) ? body.announcements : []
 
       /* The cursor moves whether or not anything was emitted below. An

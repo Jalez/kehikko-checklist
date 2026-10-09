@@ -25,7 +25,7 @@
  * followed the machine — a light card with a dark scrollbar down the side of it,
  * which is exactly what "it hasn't noticed" looks like, and which only started
  * to matter when this module grew a scroll area of its own. See
- * `src/wire/theme.ts`.
+ * the protocol's `useHost` (it used to be `src/wire/theme.ts`).
  *
  * A probe and not a test because the claim is about COMPUTED STYLE under a real
  * cascade with a real media query. happy-dom has neither. `test/theme.test.ts`

@@ -1,5 +1,7 @@
-import { afterEach, expect, mock, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+
+import { resetServerStanding } from 'kehikot-module-protocol/client'
 
 import type { Kehikot } from '../src/wire/use-kehikot.ts'
 
@@ -140,4 +142,159 @@ test('a parts focus puts aside the lists held against refs outside it, says how 
   expect(line()).toBeNull()
   /* The focus is applied to an answer already held: no question was re-asked. */
   expect(asked).toBe(before)
+})
+
+/**
+ * The not-ready moments, each as the protocol's one shared cover — and what stays under it.
+ *
+ * The hook is this file's stand-in (so `where` and the project are whatever a case says); the
+ * server is `fetch`, and `ask()`, the standing and the cover are the real things.
+ */
+describe('the not-ready moments, each as the one shared cover', () => {
+  const realFetch = globalThis.fetch
+  let down = false
+  let refuse = false
+  let wrote: { ticket: string | null; body: Record<string, unknown> }[] = []
+  const here = { placed: null, positions: [], instances: [], trouble: null, nowhere: false }
+
+  beforeEach(() => {
+    down = false
+    refuse = false
+    wrote = []
+    resetServerStanding()
+    const island = document.createElement('script')
+    island.id = 'ticket'
+    island.type = 'application/json'
+    island.textContent = JSON.stringify('the-page-ticket')
+    document.body.appendChild(island)
+    globalThis.fetch = (async (url: string, init: RequestInit = {}) => {
+      if (down) throw new TypeError('Load failed')
+      const at = new URL(url, 'http://x')
+      const project = at.searchParams.get('project')
+      if ((init.method ?? 'GET') === 'POST') {
+        wrote.push({ ticket: (init.headers as Record<string, string>)['x-module-ticket'] ?? null, body: JSON.parse(String(init.body)) as Record<string, unknown> })
+        if (refuse) return Response.json({ ok: false, error: 'that press did not come from this app’s own page', refused: 'ticket' }, { status: 403 })
+        return Response.json({ ok: true, said: 'made', id: 'made', lists: [summary('made')], held: null })
+      }
+      if (at.pathname === '/api/checklists') return Response.json({ lists: project ? [summary('one list')] : [], trouble: null, nowhere: !project })
+      if (at.pathname === '/api/here') return Response.json({ ...here, nowhere: !project })
+      return Response.json({})
+    }) as unknown as typeof fetch
+  })
+  afterEach(() => {
+    globalThis.fetch = realFetch
+    document.getElementById('ticket')?.remove()
+    resetServerStanding()
+  })
+
+  const cover = () => document.querySelector('[data-cover]')?.getAttribute('data-cover') ?? null
+  const settle = (ms = 30) => act(async () => void (await new Promise((done) => setTimeout(done, ms))))
+  const openAll = async () => {
+    fireEvent.click(await screen.findByText('All checklists'))
+    await screen.findByText('one list')
+  }
+
+  test('before anything has greeted the page it is waiting — never "no project"', async () => {
+    wire = { where: 'listening' }
+    render(<App />)
+    await settle()
+    expect(cover()).toBe('waiting')
+    expect(document.body.textContent).toContain('Waiting for Kehikot…')
+    expect(document.body.textContent).not.toContain('No project')
+  })
+
+  test('nothing framing the page, and a host that named no folder, are two covers with where the lists live under them', async () => {
+    wire = { where: 'unhosted' }
+    const { unmount } = render(<App />)
+    await settle()
+    expect(cover()).toBe('unhosted')
+    expect(document.body.textContent).toContain('Nothing is framing this page — open Checklist in Kehikot.')
+    expect(document.body.textContent).toContain('.kehikot folder')
+    expect(document.querySelector('[data-cover]')?.querySelectorAll('button')).toHaveLength(0)
+    unmount()
+
+    wire = { where: 'hosted', project: 'Roadmap' }
+    render(<App />)
+    await settle()
+    expect(cover()).toBe('no-project')
+    expect(document.body.textContent).toContain('“Roadmap”')
+  })
+
+  test('a project open: the first read is "loading", then the page', async () => {
+    wire = { projectPath: '/p' }
+    render(<App />)
+    expect(cover()).toBe('loading')
+    await settle()
+    expect(cover()).toBeNull()
+    expect(screen.getByText('All checklists')).toBeTruthy()
+  })
+
+  test('its own server not answering is the cover — not "Reading." for ever — with the page mounted under it, and Try again asks again', async () => {
+    wire = { projectPath: '/p' }
+    render(<App />)
+    await openAll()
+    down = true
+    /* The next thing that asks. On a real page that is the announcements poll, every two seconds. */
+    await act(async () => void (await (await import('kehikot-module-protocol/client')).ask('/api/checklists')))
+    expect(cover()).toBe('down')
+    expect(document.body.textContent).toContain('Checklist’s own server is not answering.')
+    expect(document.querySelector('[hidden]')?.textContent).toContain('one list')
+    down = false
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await settle()
+    expect(cover()).toBeNull()
+  })
+
+  test('a write carries the page’s ticket in the shared header', async () => {
+    wire = { projectPath: '/p' }
+    render(<App />)
+    await openAll()
+    const box = screen.getByLabelText('Start a checklist')
+    fireEvent.change(box, { target: { value: 'What a change owes' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await settle()
+    expect(wrote).toHaveLength(1)
+    expect(wrote[0]).toMatchObject({ ticket: 'the-page-ticket', body: { op: 'create', name: 'What a change owes', project: '/p' } })
+    expect(cover()).toBeNull()
+  })
+
+  test('a write refused because the page is older than its server: the words are not lost with the box that held them', async () => {
+    wire = { projectPath: '/p' }
+    render(<App />)
+    await openAll()
+    refuse = true
+    const box = screen.getByLabelText('Start a checklist')
+    fireEvent.change(box, { target: { value: 'Never made' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    await settle()
+    expect(wrote).toHaveLength(1)
+    /* The box emptied itself on the press, as it always has. The page is NOT covered and does not
+       reload: it says what happened and shows the words where they can be copied. */
+    expect(cover()).toBeNull()
+    expect(document.querySelector('[data-holding="stale"]')?.textContent).toContain('This page is older than its server, so what you have typed cannot be sent from it.')
+    expect(document.querySelector('[data-unsent]')?.textContent).toBe('Not sent: “Never made”')
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeTruthy()
+  })
+
+  test('something typed and not sent is not covered when the server stops: the words stay, with what to do about them', async () => {
+    wire = { projectPath: '/p' }
+    render(<App />)
+    await openAll()
+    fireEvent.change(screen.getByLabelText('Start a checklist'), { target: { value: 'half an item' } })
+    down = true
+    await act(async () => void (await (await import('kehikot-module-protocol/client')).ask('/api/checklists')))
+    expect(cover()).toBeNull()
+    expect(document.querySelector('[data-holding="down"]')?.textContent).toContain('Copy it now')
+    expect((screen.getByLabelText('Start a checklist') as HTMLTextAreaElement).value).toBe('half an item')
+  })
+
+  test('a page with nothing typed, older than its server, is the stale cover', async () => {
+    wire = { projectPath: '/p' }
+    render(<App />)
+    await openAll()
+    refuse = true
+    await act(async () => void (await (await import('kehikot-module-protocol/client')).ask('/api/checklist', { body: { op: 'create' } })))
+    expect(cover()).toBe('stale')
+    expect(document.body.textContent).toContain('This page is older than its server — reloading…')
+  })
 })

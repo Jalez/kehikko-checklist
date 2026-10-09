@@ -95,7 +95,6 @@ export function HereView({
   here,
   somewhere,
   why = null,
-  listening,
   onEdit,
   onOpen,
   onAll,
@@ -111,8 +110,6 @@ export function HereView({
   somewhere: boolean
   /** Why the page is empty when the picks emptied it, or null when they did not. See `whyEmpty` in `list/aim.ts`. */
   why?: string | null
-  /** True for the moment before the host has greeted this page. */
-  listening: boolean
   onEdit: (edit: Edit) => void
   /** Open one checklist's edit page. */
   onOpen: (id: string) => void
@@ -131,13 +128,9 @@ export function HereView({
      instance arriving after a scroll is open without this noticing. */
   const [shut, setShut] = useState<Record<string, boolean>>({})
 
-  if (listening || !here) {
-    return (
-      <p className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-here="waiting">
-        {listening ? 'Waiting to hear where this is.' : 'Reading.'}
-      </p>
-    )
-  }
+  /* Not read yet. `App` draws the shared cover for that — waiting for a host, loading, or this
+     app's own server not answering — so there is nothing of this screen's to draw. */
+  if (!here) return null
 
   const several = here.instances.length > 1
 

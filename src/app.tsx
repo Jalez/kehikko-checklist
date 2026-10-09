@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { serverStanding } from 'kehikot-module-protocol/client'
+import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 
@@ -11,6 +14,7 @@ import {
   paperOutline,
   pointing,
   shown,
+  unanswered,
   whatIsHere,
   type Edit,
   type Here,
@@ -25,7 +29,7 @@ import { AllView } from '@/view/all.tsx'
 import { EditView } from '@/view/edit.tsx'
 import { HereView } from '@/view/here.tsx'
 import { Importing } from '@/view/importing.tsx'
-import { Nowhere } from '@/view/nowhere.tsx'
+import { Button } from '@/components/ui/button.tsx'
 import { wantedHeight } from '@/view/room.ts'
 import { useRoom } from '@/view/use-room.ts'
 import { cn } from '@/lib/utils.ts'
@@ -94,7 +98,7 @@ import { cn } from '@/lib/utils.ts'
  * `projectPath` decides where the checklists ARE — the store lives at
  * `<projectPath>/.kehikot/checklist/checklists.json` — so without one there is
  * no file to read and nowhere to write, and the page says so and offers
- * nothing to press (`src/view/nowhere.tsx`). `kehikko` decided where a pick
+ * nothing to press (the shared cover, below). `kehikko` decided where a pick
  * was remembered, and nothing is remembered any more, so a host with no
  * canvases gets the ordinary page.
  *
@@ -237,6 +241,8 @@ export function App() {
    * open" for one frame and then correct itself.
    */
   const [nowhere, setNowhere] = useState(false)
+  /* The words of a write that could not be delivered — the server was away, or is a newer one — or null. */
+  const [unsent, setUnsent] = useState<string | null>(null)
 
   /* The one offer, once hosted, and again whenever the count in its label
      changes. `[]` on a host that lists no containers. See the essay above. */
@@ -257,8 +263,10 @@ export function App() {
         setStoreTrouble(bad)
         setNowhere(none)
       })
-      .catch(() => {
-        if (alive) setLists([])
+      .catch((caught: unknown) => {
+        /* Nothing answered: `ask` has said so to `useServerStanding`, which draws the cover, and
+           what was read stays underneath it. Anything else is a read that came back unusable. */
+        if (alive && !unanswered(caught)) setLists([])
       })
     return () => {
       alive = false
@@ -283,8 +291,8 @@ export function App() {
       .then((got) => {
         if (alive) setHere(got)
       })
-      .catch(() => {
-        if (alive) setHere(null)
+      .catch((caught: unknown) => {
+        if (alive && !unanswered(caught)) setHere(null)
       })
     return () => {
       alive = false
@@ -379,8 +387,10 @@ export function App() {
         setOpened(answer)
         setGone(null)
       })
-      .catch(() => {
-        if (alive) setOpened(null)
+      .catch((caught: unknown) => {
+        /* Kept when it was only the server being away: the edit page stays mounted, and so does
+           whatever somebody was typing into it. */
+        if (alive && !unanswered(caught)) setOpened(null)
       })
     return () => {
       alive = false
@@ -442,6 +452,10 @@ export function App() {
         const answer = await edit(change, projectPath)
         if (!answer.ok) {
           setTrouble(answer.error)
+          /* The box it was typed into has already emptied itself — every view clears on the
+             press — so when the write could not even be delivered, the words are kept here and
+             drawn back where they can be copied. See `holding` below. */
+          if (serverStanding() !== 'up') setUnsent('name' in change ? change.name : 'text' in change ? change.text : null)
           return
         }
         setTrouble(null)
@@ -543,11 +557,41 @@ export function App() {
     return () => watch.disconnect()
   })
 
-  const screen = nowhere && where !== 'listening' ? (
-    /* Above every other screen, because it is not a variant of any of them —
-       there is nothing to read from and nothing to write to. */
-    <Nowhere unhosted={where === 'unhosted'} project={project} />
-  ) : from ? (
+  /* How this page's own server last answered: `down` when nothing did, `stale` when it has restarted under this page. */
+  const server = useServerStanding()
+
+  /*
+   * Whether somebody is in the middle of typing something that has not been sent — an item, a
+   * name, a rewording. Asked of the page itself, once, at the moment its server stops answering,
+   * and held until the server is back: the boxes are each view's own state, and this is the one
+   * question about all of them. While it is true no cover is drawn over the page and this page
+   * does not reload itself (the stale `Cover` is what reloads; `wire/use-kehikot.ts` turned the
+   * hook's own reload off) — the words stay in front of the person, with a line saying what to
+   * do with them. That does not stop Vite's dev client, which reloads the page by itself when its
+   * server answers again; the line says so while there is still time to copy.
+   */
+  const typed = useRef(false)
+  if (server === 'up') typed.current = false
+  else if (!typed.current) typed.current = typing(shell)
+  useEffect(() => {
+    if (server === 'up') setUnsent(null)
+  }, [server])
+  const holding = typed.current || (server !== 'up' && unsent !== null)
+
+  /*
+   * Every not-ready moment is the protocol's one cover, in the order that makes each true: a page
+   * that has not been greeted is `waiting`, never "no project". `nowhere` is the server's own
+   * word — a path may be present and still name nothing this app will write under — and is the
+   * same cover as no project at all. Whatever is covered stays MOUNTED underneath, hidden.
+   */
+  const cover: CoverState | null = holding
+    ? null
+    : server === 'stale'
+      ? 'stale'
+      : (coverFor({ where, projectPath })
+        ?? (nowhere ? 'no-project' : server === 'down' ? 'down' : view.kind === 'here' && !from && !here ? 'loading' : null))
+
+  const screen = from ? (
     /* Above the others on purpose. Somebody who is mid-import pressed Copy
        from the list of every checklist, and putting this under anything would
        mean pressing Copy and watching nothing happen. */
@@ -610,7 +654,6 @@ export function App() {
          cause, whatever the picked-out containers were also doing. */
       why={whyUnfocused(focused.focus, focused.instances.length) ?? whyEmpty(front)}
       focus={focused.focus}
-      listening={where === 'listening'}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
       onAll={() => setView({ kind: 'all' })}
@@ -631,7 +674,9 @@ export function App() {
   return (
     <div
       ref={setShell}
-      className={cn('flex flex-col gap-2 text-foreground', room.pinned && 'h-dvh min-h-0')}
+      /* Not pinned under a cover: a cover fills a parent that has a height, and this page reports
+         its height to the host — a cover as tall as the frame would ask for a taller frame, forever. */
+      className={cn('flex flex-col gap-2 text-foreground', room.pinned && !cover && 'h-dvh min-h-0')}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
       {framed ? null : (
@@ -656,7 +701,52 @@ export function App() {
         </p>
       ) : null}
 
-      {screen}
+      {holding ? (
+        <div role="alert" data-holding={server} className="mx-2 mt-2 flex shrink-0 flex-wrap items-center gap-1 rounded border border-failed/40 bg-failed/5 px-2 py-1.5 text-[0.7rem] leading-4">
+          <span className="min-w-0 basis-full">
+            {server === 'stale'
+              ? 'This page is older than its server, so what you have typed cannot be sent from it. Copy it now, then reload.'
+              : 'Checklist’s own server is not answering, so what you have typed cannot be sent. Copy it now: when the server starts again this page reloads, and what is only here is lost.'}
+          </span>
+          {unsent ? (
+            <span className="min-w-0 basis-full [overflow-wrap:anywhere]" data-unsent>
+              Not sent: “{unsent}”
+            </span>
+          ) : null}
+          {server === 'stale' ? (
+            <Button type="button" size="container" variant="outline" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {cover ? (
+        <Cover
+          state={cover}
+          name="Checklist"
+          onRetry={bump}
+          /* A name is not a path, and this page will not guess: a guess writes somebody's list into a folder they will never look in. */
+          detail={
+            cover === 'no-project' && project && !projectPath
+              ? `This canvas says the project is called “${project}” but not where it is on this machine. Checklists are kept inside the project, in a .kehikot folder there.`
+              : cover === 'no-project' || cover === 'unhosted'
+                ? 'Checklists are kept inside the project they are about, in a .kehikot folder there. Nothing has been lost and nothing has been written.'
+                : null
+          }
+        />
+      ) : null}
+      <div hidden={cover !== null} className={cn('min-w-0', room.pinned && !cover && 'flex min-h-0 flex-1 flex-col')}>
+        {screen}
+      </div>
     </div>
+  )
+}
+
+/** Whether any box on the page holds words somebody typed and has not sent. */
+function typing(shell: HTMLElement | null): boolean {
+  if (!shell) return false
+  return [...shell.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input:not([type="checkbox"])')].some(
+    (box) => box.value.trim() !== '',
   )
 }

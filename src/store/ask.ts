@@ -1,3 +1,5 @@
+import { AskFailed, ask } from 'kehikot-module-protocol/client'
+
 import type { Held, Summary } from '../../list/checklists.ts'
 import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
 import type { Placed } from '../../list/scope.ts'
@@ -40,35 +42,27 @@ import type { Shown } from '../../list/aim.ts'
  */
 
 /**
- * The ticket, read once off the inert JSON island the document carries.
+ * A read of this app's own server, through the protocol's `ask()`.
  *
- * Read at module load rather than per request, because it cannot change while
- * this document is open: it is minted per server process and printed into the
- * page. A missing island is an empty string rather than a throw — that is a page
- * served by something other than this app's own server, which is a real state
- * during a build, and the writes will be refused with a sentence rather than the
- * page failing to render at all.
+ * These doors say what is wrong IN the body — `nowhere`, `trouble`, an `error` beside `ok: false`
+ * — so a body the server sent is handed back whether or not the server called it a success, and
+ * each reader below takes what it understands from it, as it always did.
+ *
+ * What is thrown, as the protocol's `AskFailed`, is the other thing entirely: nothing answered
+ * (`down`), or this page is older than its server (`stale`). `ask()` has by then told
+ * `useServerStanding`, which is what draws the cover in `App` — where a read used to fail in
+ * silence and leave the page saying "Reading." for as long as it was open.
  */
-function ticket(): string {
-  const island = typeof document === 'undefined' ? null : document.getElementById('ticket')
-  if (!island?.textContent) return ''
-  try {
-    const parsed: unknown = JSON.parse(island.textContent)
-    return typeof parsed === 'string' ? parsed : ''
-  } catch {
-    return ''
-  }
+async function read<T>(path: string): Promise<T> {
+  const asked = await ask<T>(path)
+  if (asked.ok) return asked.body ?? ({} as T)
+  if (asked.kind === 'refused' && asked.body && typeof asked.body === 'object') return asked.body as T
+  throw new AskFailed(asked)
 }
 
-const TICKET = ticket()
-
-async function post(path: string, body: unknown): Promise<unknown> {
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-checklist-ticket': TICKET },
-    body: JSON.stringify(body),
-  })
-  return response.json()
+/** Whether a failed read was the server not being there (or being a newer one), rather than an answer. */
+export function unanswered(caught: unknown): boolean {
+  return caught instanceof AskFailed && caught.kind !== 'refused'
 }
 
 export type { Held, Outline, OutlineFile, OutlineSection, Placed, Shown, Summary, Target }
@@ -109,8 +103,7 @@ export interface Everything {
 
 /** Every checklist in the open project: the screen behind `All checklists`. */
 export async function everyChecklist(projectPath: string | null): Promise<Everything> {
-  const response = await fetch(withProject('/api/checklists', projectPath))
-  const body = (await response.json()) as { lists?: unknown; trouble?: unknown; nowhere?: unknown }
+  const body = await read<{ lists?: unknown; trouble?: unknown; nowhere?: unknown }>(withProject('/api/checklists', projectPath))
   return {
     lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
@@ -184,14 +177,13 @@ export async function whatIsHere(
     }
   }
   if (refs.length) parts.push(`refs=${encodeURIComponent(refs.join(' '))}`)
-  const response = await fetch(withProject(`/api/here${parts.length ? `?${parts.join('&')}` : ''}`, projectPath))
-  const body = (await response.json()) as {
+  const body = await read<{
     placed?: unknown
     positions?: unknown
     instances?: unknown
     trouble?: unknown
     nowhere?: unknown
-  }
+  }>(withProject(`/api/here${parts.length ? `?${parts.join('&')}` : ''}`, projectPath))
   return {
     placed: (body.placed as Placed | null) ?? null,
     positions: Array.isArray(body.positions) ? (body.positions as (Placed | null)[]) : [],
@@ -248,8 +240,9 @@ export interface Opened {
  * different answers with two different remedies.
  */
 export async function openChecklist(id: string, projectPath: string | null): Promise<Opened | { error: string }> {
-  const response = await fetch(withProject(`/api/checklist?id=${encodeURIComponent(id)}`, projectPath))
-  const body = (await response.json()) as { ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }
+  const body = await read<{ ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }>(
+    withProject(`/api/checklist?id=${encodeURIComponent(id)}`, projectPath),
+  )
   if (body.ok === true && body.held) {
     return {
       held: body.held as Held,
@@ -281,8 +274,7 @@ export async function openChecklist(id: string, projectPath: string | null): Pro
  * existence oracle `file/confine.ts` refuses, one question at a time.
  */
 export async function paperOutline(projectPath: string | null, path: string): Promise<Outline | null> {
-  const response = await fetch(withProject(`/api/outline?path=${encodeURIComponent(path)}`, projectPath))
-  const body = (await response.json()) as { outline?: unknown }
+  const body = await read<{ outline?: unknown }>(withProject(`/api/outline?path=${encodeURIComponent(path)}`, projectPath))
   const outline = body.outline as Outline | null | undefined
   return outline && Array.isArray(outline.files) ? outline : null
 }
@@ -337,22 +329,18 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
       : {}
   const { ...sent } = change as Record<string, unknown>
   delete sent.target
-  const body = (await post('/api/checklist', { ...sent, ...target, project: projectPath })) as {
-    ok?: unknown
-    said?: unknown
-    id?: unknown
-    lists?: unknown
-    held?: unknown
-    error?: unknown
+  /* The protocol's `ask` carries the page's ticket and turns every failure into a sentence: the
+     server said no (its own words), nothing answered, or this page is older than its server. */
+  const asked = await ask<{ said?: unknown; id?: unknown; lists?: unknown; held?: unknown }>('/api/checklist', {
+    body: { ...sent, ...target, project: projectPath },
+  })
+  if (!asked.ok) return { ok: false, error: asked.error }
+  const body = asked.body ?? {}
+  return {
+    ok: true,
+    said: typeof body.said === 'string' ? body.said : '',
+    id: typeof body.id === 'string' ? body.id : '',
+    lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
+    held: (body.held as Held | null) ?? null,
   }
-  if (body.ok === true) {
-    return {
-      ok: true,
-      said: typeof body.said === 'string' ? body.said : '',
-      id: typeof body.id === 'string' ? body.id : '',
-      lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
-      held: (body.held as Held | null) ?? null,
-    }
-  }
-  return { ok: false, error: typeof body.error === 'string' ? body.error : 'it did not work, and said nothing about why' }
 }
