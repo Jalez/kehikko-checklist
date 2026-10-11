@@ -163,6 +163,20 @@ describe('reads', () => {
     expect(spread.positions.map((one) => one?.file)).toEqual(['chapters/1_introduction.tex', 'chapters/3_methods.tex'])
     expect(spread.instances.map((one) => one.checklist.id)).toEqual([otherId, list])
     expect(spread.instances.filter((one) => one.checklist.id === otherId)).toHaveLength(1)
+
+    /* `whole=1`, which the page asks while parts of the epic are picked: every
+       list held against this paper, wherever in it, each with its own ticks —
+       and the reader's place is not what decides it. */
+    const whole = answer('GET', '/api/here', asking({ epic: 'thesis', whole: '1', path: 'chapters/1_introduction.tex' }), null, null)
+    const all = whole?.body as Here
+    expect(all.instances.map((one) => one.checklist.id)).toEqual([list, otherId])
+    expect(all.instances[0]?.target).toEqual({ kind: 'paper', epic: 'thesis', section: 'chapters:3_methods' })
+    expect(all.instances[0]?.done).toBe(1)
+    /* The place named is resolved for its name, and is nobody's position. */
+    expect(all.placed).toBeNull()
+    expect((all as Here & { positions: ({ file: string } | null)[] }).positions.map((one) => one?.file)).toEqual(['chapters/1_introduction.tex'])
+    /* Without an epic there is no paper to be the whole of. */
+    expect((answer('GET', '/api/here', asking({ whole: '1' }), null, null)?.body as Here).instances).toEqual([])
   })
 
   test('the page can hold and release through its own door, and a release with no target is refused', async () => {

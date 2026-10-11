@@ -101,6 +101,47 @@ describe('some picked out means only what those show', () => {
   })
 })
 
+describe('picked parts say what is in front, ahead of what the canvas happens to show', () => {
+  test('a part picked and no container picked out: no document is asked by, the whole paper is, and the refs are as they were', () => {
+    /* A paper walked to a passage by somebody else names the chapter it was
+       walked to; one showing two picked parts has its caret in one. Neither is
+       what the person picked. `list/focus.ts` narrows to the parts. */
+    const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(), aim: 'follow', focused: true })
+    expect(front.byParts).toBe(true)
+    expect(front.documents).toEqual([])
+    expect(front.paper).toBe(true)
+    expect(front.narrowed).toBe(false)
+    expect(front.refs).toEqual(['gh#7', 'gh#10', 'gh#11'])
+    expect(whyEmpty(front)).toBeNull()
+  })
+
+  test('a container somebody picked out still narrows, and the parts are applied to what it shows', () => {
+    const front = inFrontOf({
+      passage: PARAGRAPH,
+      selection: ['gh#7'],
+      containers: canvas(['kehikot.paper']),
+      aim: 'follow',
+      focused: true,
+    })
+    expect(front.byParts).toBe(false)
+    expect(front.narrowed).toBe(true)
+    expect(front.documents).toEqual([PARAGRAPH, CHAPTER])
+  })
+
+  test('picked-out containers the reader chose not to follow do not narrow, so the parts decide', () => {
+    const front = inFrontOf({ passage: PARAGRAPH, selection: [], containers: canvas(['kehikot.paper']), aim: 'all', focused: true })
+    expect(front.byParts).toBe(true)
+    expect(front.documents).toEqual([])
+  })
+
+  test('no part picked: nothing changes', () => {
+    const rested = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(), aim: 'follow', focused: false })
+    expect(rested).toEqual(inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(), aim: 'follow' }))
+    expect(rested.byParts).toBe(false)
+    expect(rested.documents).toEqual([PARAGRAPH, CHAPTER, INTRO])
+  })
+})
+
 describe('the control in the header', () => {
   test('one group, following by default, with the count in the label', () => {
     const [group] = aimOffer(canvas(['kehikot.paper', 'kehikot.journeys']))

@@ -138,6 +138,32 @@ export function showing(input: { ladder: string; selection: string[]; lists: Hol
 }
 
 /**
+ * Every instance held against an epic's paper, wherever in it — and, as in
+ * `showing`, against each reference in front.
+ *
+ * `showing` answers for a READER: one place, and the lists on the rungs under
+ * it. This answers for a person who picked parts of the epic out in the host's
+ * bar, which is not a place — it is several files at once, none of them with a
+ * caret in it. So nothing is climbed: every pairing of a list with a target in
+ * this paper comes back, a section and the file around it both when a list is
+ * held against both, and `list/focus.ts` on the page puts aside the ones the
+ * picked parts do not own and counts them. Asking about the picked files alone
+ * would leave nothing to count.
+ *
+ * Like `showing`, it reads what was assigned and assigns nothing.
+ */
+export function everywhere(input: { epic: string; selection: string[]; lists: Holding[] }): Instance[] {
+  const out = showing({ ladder: '', selection: input.selection, lists: input.lists })
+  for (const list of input.lists) {
+    for (const key of list.targets) {
+      const target = readKey(key)
+      if (target?.kind === 'paper' && target.epic === input.epic) out.push({ id: list.id, target })
+    }
+  }
+  return out
+}
+
+/**
  * The keys of a list as targets, for the edit page — which draws them and
  * offers to release each one. A key this version cannot read is left out of
  * the drawing and left in the file, which is the rule `readKey` sets for every

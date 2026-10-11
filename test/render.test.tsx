@@ -102,7 +102,7 @@ function held(over: Partial<Held> = {}): Held {
 const noop = () => {}
 
 function here(instances: Held[], placed: Placed | null = null): Here {
-  return { placed, positions: placed ? [placed] : [], instances, trouble: null, nowhere: false }
+  return { placed, positions: placed ? [placed] : [], instances, trouble: null, nowhere: false, whole: false }
 }
 
 /** `HereView` with everything a case is not about already filled in. */
@@ -158,7 +158,7 @@ function nothingOld(container: HTMLElement) {
  * pixels too — and prints nothing at all at rest.
  */
 describe('the reading page under a parts focus', () => {
-  const FOCUS = { picked: ['The posting seam'], outside: 2, unnarrowed: 1, sentence: '2 checklists outside the picked part (The posting seam).' }
+  const FOCUS = { picked: ['The posting seam'], outside: 2, sentence: '2 checklists outside the picked part (The posting seam).' }
 
   test('draws nothing about a focus when no part is picked out', () => {
     const { container } = render(<Reading here={here([held()])} room={ROOMY} />)
@@ -166,14 +166,12 @@ describe('the reading page under a parts focus', () => {
     expect(container.textContent).not.toContain('outside')
   })
 
-  test.each([ROOMY, TIGHT])('says how many lists are outside, which part, and what was left alone', (size) => {
+  test.each([ROOMY, TIGHT])('says how many lists are outside and which part', (size) => {
     const { container } = render(
       <Reading here={here([held({ target: PAPER })])} focus={FOCUS} room={size} />,
     )
     const line = container.querySelector('[data-focus]')!
-    expect(line.textContent).toBe(
-      '2 checklists outside the picked part (The posting seam). 1 list held against the paper is shown as before: parts name references, not sections.',
-    )
+    expect(line.textContent).toBe('2 checklists outside the picked part (The posting seam).')
     expect(line.getAttribute('title')).toBe(FOCUS_WHERE)
     expect(line.className).not.toContain('truncate')
     expect(line.className).not.toContain('hidden')
@@ -182,9 +180,9 @@ describe('the reading page under a parts focus', () => {
   })
 
   test('when the focus emptied the page, the line stays and the sentence under it says why', () => {
-    const why = 'All 2 checklists in front of you are held against references outside the picked part.'
+    const why = 'No checklist is held against anything in the picked part.'
     const { container } = render(
-      <Reading here={here([])} why={why} focus={{ ...FOCUS, unnarrowed: 0 }} room={ROOMY} />,
+      <Reading here={here([])} why={why} focus={FOCUS} room={ROOMY} />,
     )
     expect(container.querySelector('[data-focus]')?.textContent).toBe(
       '2 checklists outside the picked part (The posting seam).',
@@ -272,6 +270,27 @@ describe('the reading page: what is in front of the reader', () => {
     /* The folded list's name and count are still there: folding is about
        room, not about hiding that the list applies. */
     expect(screen.getByText('What a change owes')).toBeTruthy()
+  })
+
+  test('of several, the ones under the reader start open and the rest folded: a paper that says it shows every file is not a wall', () => {
+    const list = (id: string, target: Target) => held({ checklist: { ...held().checklist, id }, target })
+    const elsewhere: Target = { kind: 'paper', epic: 'thesis', section: 'chapters:4_results' }
+    const many = [list('ref', REF), list('section', SECTION), list('file', FILE), list('paper', PAPER), list('results', elsewhere)]
+    const open = (container: HTMLElement) =>
+      [...container.querySelectorAll('[data-instance]')].map((one) => `${one.getAttribute('data-instance')} ${one.getAttribute('data-open')}`)
+
+    const { container, unmount } = render(<Reading here={here(many, PLACED)} room={ROOMY} />)
+    expect(open(container)).toEqual(['ref yes', 'section yes', 'file yes', 'paper yes', 'results no'])
+    /* Folded is one line with its name and count, and one press opens it; a press on an open one folds it. */
+    expect(container.querySelector('[data-instance="results"] [data-count]')?.textContent).toBe('1/2')
+    fireEvent.click(container.querySelector('[data-instance="results"] [data-fold]') as HTMLElement)
+    fireEvent.click(container.querySelector('[data-instance="file"] [data-fold]') as HTMLElement)
+    expect(open(container)).toEqual(['ref yes', 'section yes', 'file no', 'paper yes', 'results yes'])
+    unmount()
+
+    /* No place of the reader's — parts picked in the host's bar — and every list starts open. */
+    const picked = render(<Reading here={here(many)} room={ROOMY} />)
+    expect(open(picked.container)).toEqual(['ref yes', 'section yes', 'file yes', 'paper yes', 'results yes'])
   })
 
   test('the same list against a reference and a chapter is two instances, each saying which', () => {

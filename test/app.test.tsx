@@ -79,12 +79,15 @@ test('a late read of every checklist for the previous project does not replace t
 /**
  * The parts focus, through the page's own fetch.
  *
- * The server is asked about everything in front, and the lists held against
- * references outside the picked parts are put aside after it answers — so the
- * count of what was hidden is on screen — and a change of focus re-draws the
- * page without asking the server again.
+ * While a part is picked the page asks for every list of the epic's paper —
+ * not for the passage and what the containers show — and the lists held
+ * against a reference, a file or a section outside the picked parts are put
+ * aside after the server answers, so the count of what was hidden is on
+ * screen. `test/follows.test.tsx` is the same walk over the real wire and the
+ * real doors; here the hook is this file's stand-in and the answer is fixed,
+ * so what is held is the asking and the narrowing.
  */
-test('a parts focus puts aside the lists held against refs outside it, says how many, and follows a change of focus', async () => {
+test('a parts focus asks for the whole paper, puts aside what is outside the picked parts, says how many, and follows a change of focus', async () => {
   const instance = (id: string, target: unknown) => ({
     checklist: { id, name: `list ${id}`, at: '', by: '', origin: null, items: [], targets: [] },
     target,
@@ -92,17 +95,19 @@ test('a parts focus puts aside the lists held against refs outside it, says how 
     done: 0,
     total: 0,
   })
-  let asked = 0
+  const asked: URLSearchParams[] = []
   globalThis.fetch = (async (url: string) => {
     if (url.startsWith('/api/checklists')) return Response.json({ lists: [] })
-    asked += 1
+    asked.push(new URL(url, 'http://x').searchParams)
     return Response.json({
+      whole: asked.at(-1)!.get('whole') === '1',
       placed: null,
       positions: [],
       instances: [
         instance('a', { kind: 'ref', ref: 'gh#10' }),
         instance('b', { kind: 'ref', ref: 'gh#7' }),
         instance('c', { kind: 'paper', epic: 'thesis', section: null }),
+        instance('d', { kind: 'paper', epic: 'thesis', section: '.kehikot:paper:thesis:chapters:3_methods#sec:meth-design' }),
       ],
       trouble: null,
       nowhere: false,
@@ -111,37 +116,51 @@ test('a parts focus puts aside the lists held against refs outside it, says how 
 
   const parts = (seam: boolean, tests: boolean) =>
     JSON.stringify([
-      { id: 'seam', heading: 'The posting seam', refs: ['gh#10'], picked: seam },
+      { id: 'seam', heading: 'The posting seam', refs: ['gh#10'], picked: seam, files: ['chapters/3_methods.tex'] },
       { id: 'tests', heading: 'What the tests check', refs: ['gh#7'], picked: tests },
     ])
   const drawn = () => [...document.querySelectorAll('[data-instance]')].map((one) => one.getAttribute('data-instance'))
   const line = () => document.querySelector('[data-focus]')?.textContent ?? null
+  const last = () => asked.at(-1)!
 
-  /* Parts listed and none picked: the page as it always was. */
-  wire = { projectPath: '/p', epic: 'thesis', selection: ['gh#10', 'gh#7'], parts: parts(false, false) }
+  /* Parts listed and none picked: the page as it always was, asked by the passage. */
+  wire = {
+    projectPath: '/p',
+    epic: 'thesis',
+    selection: ['gh#10', 'gh#7'],
+    passage: '/p/.kehikot/paper/thesis/chapters/4_results.tex\t\t\t',
+    parts: parts(false, false),
+  }
   const { rerender } = render(<App />)
-  await waitFor(() => expect(drawn()).toEqual(['a', 'b', 'c']))
+  await waitFor(() => expect(drawn()).toEqual(['a', 'b', 'c', 'd']))
   expect(line()).toBeNull()
-  const before = asked
+  expect(last().get('whole')).toBeNull()
+  expect(last().getAll('doc')).toEqual(['/p/.kehikot/paper/thesis/chapters/4_results.tex'])
 
+  /* A part picked: the whole paper is asked for, the refs as they were. */
   wire = { ...wire, parts: parts(true, false) }
   rerender(<App />)
-  await waitFor(() => expect(drawn()).toEqual(['a', 'c']))
-  expect(line()).toBe(
-    '1 checklist outside the picked part (The posting seam). 1 list held against the paper is shown as before: parts name references, not sections.',
-  )
+  await waitFor(() => expect(drawn()).toEqual(['a', 'c', 'd']))
+  expect(line()).toBe('1 checklist outside the picked part (The posting seam).')
+  expect(last().get('whole')).toBe('1')
+  /* The picked part's file is named, for its label only — not the passage's. */
+  expect(last().getAll('doc')).toEqual(['/p/.kehikot/paper/thesis/chapters/3_methods.tex'])
+  expect(last().get('refs')).toBe('gh#10 gh#7')
 
+  /* Another part, which owns no file: the section's list is put aside with the other ref's. */
   wire = { ...wire, parts: parts(false, true) }
   rerender(<App />)
   await waitFor(() => expect(drawn()).toEqual(['b', 'c']))
-  expect(line()).toContain('(What the tests check)')
+  expect(line()).toBe('2 checklists outside the picked part (What the tests check).')
+  /* Still the whole paper, and this part owns no file to name. */
+  expect(last().get('whole')).toBe('1')
+  expect(last().getAll('doc')).toEqual([])
 
   wire = { ...wire, parts: '' }
   rerender(<App />)
-  await waitFor(() => expect(drawn()).toEqual(['a', 'b', 'c']))
+  await waitFor(() => expect(drawn()).toEqual(['a', 'b', 'c', 'd']))
   expect(line()).toBeNull()
-  /* The focus is applied to an answer already held: no question was re-asked. */
-  expect(asked).toBe(before)
+  expect(last().get('whole')).toBeNull()
 })
 
 /**

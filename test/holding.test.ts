@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { heldTargets, showing, type Instance } from '../list/holding.ts'
+import { everywhere, heldTargets, showing, type Instance } from '../list/holding.ts'
 import { ladderKey, rungsOf, scopeOf, type Placed } from '../list/scope.ts'
 import { targetKey, type Target } from '../list/targets.ts'
 
@@ -179,6 +179,35 @@ describe('a selected reference, which has no passage and is where the reader is 
 
   test('with nothing selected and no paper, a ref-held list is in front of nobody', () => {
     expect(showing({ ladder: where('unepiced'), selection: [], lists: [change] })).toEqual([])
+  })
+})
+
+describe('every list of a paper, which is what is asked while parts of the epic are picked', () => {
+  const key = (section: string | null) => targetKey({ kind: 'paper', epic: EPIC, section })
+  const LISTS = [
+    { id: 'design', targets: [key('chapters:3_methods#sec:meth-design')] },
+    { id: 'methods', targets: [key('chapters:3_methods'), 'ref:gh#105'] },
+    { id: 'both', targets: [key('chapters:2_literature_review'), key('chapters:2_literature_review#sec:lit-gaps')] },
+    { id: 'thesis', targets: [key(null)] },
+    { id: 'other', targets: ['paper:another/chapters:3_methods'] },
+    { id: 'nothing', targets: [] },
+  ]
+  const said = (instances: Instance[]) => instances.map((one) => `${one.id} ${targetKey(one.target)}`)
+
+  test('every pairing in this paper, section and file alike, with no ladder climbed and no other paper’s', () => {
+    expect(said(everywhere({ epic: EPIC, selection: [], lists: LISTS }))).toEqual([
+      `design ${key('chapters:3_methods#sec:meth-design')}`,
+      `methods ${key('chapters:3_methods')}`,
+      `both ${key('chapters:2_literature_review')}`,
+      `both ${key('chapters:2_literature_review#sec:lit-gaps')}`,
+      `thesis ${key(null)}`,
+    ])
+  })
+
+  test('a selected reference still leads, as it does for a reader', () => {
+    expect(said(everywhere({ epic: EPIC, selection: ['gh#105'], lists: LISTS }))[0]).toBe('methods ref:gh#105')
+    /* And a reference nobody selected is not in front because a part was picked. */
+    expect(said(everywhere({ epic: EPIC, selection: [], lists: LISTS }))).not.toContain('methods ref:gh#105')
   })
 })
 

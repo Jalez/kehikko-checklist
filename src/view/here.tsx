@@ -1,10 +1,10 @@
 import { useState } from 'react'
 
 import type { Edit, Held, Here } from '@/store/ask.ts'
-import { labelOf } from '../../list/scope.ts'
+import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
-import { focusLine, type Focus } from '../../list/focus.ts'
+import type { Focus } from '../../list/focus.ts'
 import { FOCUS_WHERE, type TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -73,12 +73,24 @@ import { cn } from '@/lib/utils.ts'
  * frame can put one away while ticking another. The fold is session state and
  * is written down nowhere.
  *
+ * Which of several start open is where the reader IS: the lists on the rungs
+ * under their own place, the whole paper's, and a selected reference's. The
+ * rest start folded — one line each, with its count. That is for the paper
+ * beside this page, which with no part picked says it is showing every file
+ * it has: thirteen in a thesis, so nine lists and eight thousand pixels of
+ * them in a frame of five hundred, and the chapter being read somewhere in
+ * the middle. They are all in front, as that paper says, and the page reads
+ * as the paper's progress chapter by chapter with the reader's own chapter
+ * open in it. A press on a fold outlasts the reader moving. With no place of
+ * the reader's — parts picked in the host's bar, which is several files and
+ * no caret — every list starts open: they are what was picked.
+ *
  * ## The parts focus, which is the one line this page prints about itself
  *
  * When a person has picked parts of the epic out in the host's bar, the lists
- * held against references outside those parts are put aside, and a line at
- * the top says so: how many, which parts, and — when one is on screen — that
- * the paper's lists were not narrowed. It is the same rule as the sentence
+ * held against a reference, a file or a section outside those parts are put
+ * aside, and a line at the top says so: how many, and which parts. It is the
+ * same rule as the sentence
  * for picked-out containers above, applied before the page is empty rather
  * than only once it is, because this narrowing has no control in this
  * container's header to explain it: the pick is the host's. Nothing is drawn
@@ -123,10 +135,12 @@ export function HereView({
   /** What the parts focus put aside, or null when no part of the epic is picked out. See `list/focus.ts`. */
   focus?: Focus | null
 }) {
-  /* Which instances are folded, keyed by list and target, so the same list
-     against two targets folds separately. Departures from "open", so a new
-     instance arriving after a scroll is open without this noticing. */
-  const [shut, setShut] = useState<Record<string, boolean>>({})
+  /* Which instances a person folded or unfolded, keyed by list and target, so
+     the same list against two targets folds separately. Only what was pressed
+     is kept: anything else is open or folded by where the reader is — see
+     "Several" above — so a new instance arriving after a scroll needs nothing
+     from this. */
+  const [turned, setTurned] = useState<Record<string, boolean>>({})
 
   /* Not read yet. `App` draws the shared cover for that — waiting for a host, loading, or this
      app's own server not answering — so there is nothing of this screen's to draw. */
@@ -152,7 +166,7 @@ export function HereView({
           data-focus={focus.outside}
           title={FOCUS_WHERE}
         >
-          {focusLine(focus)}
+          {focus.sentence}
         </p>
       ) : null}
 
@@ -164,15 +178,16 @@ export function HereView({
           {here.instances.map((held) => {
             const target = held.target as Target
             const key = `${held.checklist.id}|${targetKey(target)}`
+            const open = !several || (turned[key] ?? under(target, here.placed))
             return (
               <Instance
                 key={key}
                 held={held}
                 target={target}
-                label={labelOf(target, here.placed, null)}
-                open={!shut[key]}
+                label={labelOf(target, placeAmong(target, here.positions) ?? here.placed, null)}
+                open={open}
                 foldable={several}
-                onFold={() => setShut((was) => ({ ...was, [key]: !was[key] }))}
+                onFold={() => setTurned((was) => ({ ...was, [key]: !open }))}
                 onEdit={onEdit}
                 onOpen={onOpen}
                 busy={busy}

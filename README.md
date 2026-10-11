@@ -89,7 +89,8 @@ would be this program picking. Selected references lead, in the canvas's order.
 
 An epic may be divided into parts, and a person may pick some of them out in the
 host's bar. `context.parts` (protocol 0.29.0) lists every part of the open epic
-with the references the host says belong to it, and flags the picked ones; this
+with the references the host says belong to it and the files of the epic's paper
+it owns, and flags the picked ones; this
 module says `reacts: ['parts']`. `list/focus.ts` is the rule:
 
 - **Nothing picked** — an epic with no parts, no epic, a host that has never
@@ -97,22 +98,37 @@ module says `reacts: ['parts']`. `list/focus.ts` is the rule:
 - **A list held against a reference** is in front only while a picked part
   lists that reference (`refInFocus`, the protocol's rule). A reference no part
   lists is outside every focus. The lists put aside are counted, not dropped.
-- **A list held against the paper — a section, a file, the whole of it — is
-  not narrowed.** A part carries references and nothing else, so nothing the
-  host said puts chapter 3 inside or outside a part. Hiding those lists would
-  be this program deciding, on no evidence, that the paper belongs to no part,
-  and a reader would watch the checklist for the chapter they are writing
-  vanish because of a pick about issues. So they stay, and the page says so.
+- **A list held against a file of the paper, or a section in one,** is in
+  front only while a picked part owns that file (`files` on a part). A target
+  is stored as the file's id — its path inside the project, without the
+  extension — so a part's files are spelled the same way and the ids compared.
+  A file no part owns (`main.tex`) is outside every focus, and counted.
+- **A list held against the whole paper stays**, under any focus: every part
+  is a part of the paper.
+- **While a part is picked, the parts say what is in front**, not the passage
+  or what the containers beside this one show: the page asks for every list of
+  the epic's paper (`/api/here?whole=1`) and narrows that, so the lists are the
+  picked parts' own — a section's list too, though no caret is in it — and the
+  count is the rest of the epic's. A neighbour that has gone quiet on another
+  chapter cannot put that chapter's list under the pick. A container somebody
+  picked out still narrows, and the parts are applied to what it shows.
+  References are as they were: the selection and what the containers show.
 - **The reading page says it**, in one wrapped line above the lists whenever
   any part is picked: `2 checklists outside the picked part (The posting
-  seam).` — and, when a paper's list is on screen, `1 list held against the
-  paper is shown as before: parts name references, not sections.` The tooltip
-  says where the control is. If the focus leaves nothing, the line under it
-  reads `All 2 checklists in front of you are held against references outside
-  the picked part.`
+  seam).` The tooltip says where the control is. If the focus leaves nothing,
+  the line under it reads `No checklist is held against anything in the picked
+  part.`
+- **A change of parts writes nothing.** Every tick stays in the file under its
+  own checklist, item and target, and is back on screen when the pick is.
 
-The server is still asked about everything in front; the lists are put aside
-after it answers, which is what lets the page count them. Only the reading page
+With no part picked, a paper beside this page says it is showing every file it
+has, and every list held against any of them is in front. The ones under the
+reader — their own file or section, the whole paper, a selected reference —
+start open; the rest start folded, one line each with its count, so the page
+reads as the paper's progress with the reader's chapter open in it.
+
+The lists are put aside after the server answers, which is what lets the page
+count them. Only the reading page
 is narrowed: the list of every checklist and the edit page hide nothing, so
 they say nothing about a focus.
 
