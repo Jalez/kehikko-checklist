@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { dataFile, makeDir, oldPapersFile } from '../store.ts'
 import { evidenceSchema, FACT_NAMES, type Evidence, type Fact, FACTS } from './evidence.ts'
-import { showing } from './holding.ts'
+import { everywhere, showing } from './holding.ts'
 import { readKey, targetKey, targetName, type Target } from './targets.ts'
 
 /**
@@ -820,7 +820,13 @@ export function inFront(
    * twice — the whole-paper list, in front of both chapters — is one instance,
    * because it is one set of ticks.
    */
-  input: { ladders: readonly string[]; selection: string[] },
+  /**
+   * `whole` is an epic, and asks a different question: every pairing held
+   * against that epic's paper, wherever in it, with no ladder climbed. It is
+   * what the page asks while parts of the epic are picked out — see
+   * `everywhere` in `list/holding.ts`.
+   */
+  input: { ladders: readonly string[]; selection: string[]; whole?: string | null },
   projectPath: string | null | undefined,
 ): { instances: Held[]; trouble: string | null; nowhere: boolean } {
   const { store, where, trouble } = read(projectPath)
@@ -829,8 +835,10 @@ export function inFront(
     .sort((a, b) => a.name.localeCompare(b.name))
   const ladders = input.ladders.length ? input.ladders : ['']
   const seen = new Set<string>()
-  const instances = ladders
-    .flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))
+  const found = input.whole
+    ? everywhere({ epic: input.whole, selection: input.selection, lists })
+    : ladders.flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))
+  const instances = found
     .filter((one) => {
       const key = `${one.id}|${targetKey(one.target)}`
       if (seen.has(key)) return false

@@ -36,6 +36,29 @@
  * "Nothing picked out" is deliberately EVERYTHING and not nothing. A person who
  * has ticked no boxes has not asked for an empty pane; they have not narrowed.
  *
+ * ## Picked parts say it first
+ *
+ * All of the above is a reading of what the canvas happens to be showing,
+ * made when nobody has said. A part picked in the host's bar is somebody
+ * saying: the workspace is pointed at those parts, and the lists in front are
+ * the ones held against their files and references. So while a part is picked
+ * and no container is picked out, the passage and what the containers show
+ * are not what the paper's lists are asked by — `byParts` — and the page asks
+ * for every list of the epic's paper and lets `list/focus.ts` narrow and
+ * count.
+ *
+ * It used to be the other way round — the passage and the containers first,
+ * the parts never — and the page inherited whatever the paper beside it last
+ * said. A paper that somebody else walked to a passage says nothing new until
+ * a person touches it, so a pick of another chapter left the old chapter's
+ * list on screen; a collapsed paper says nothing at all; and a paper showing
+ * two picked parts has its caret in one of them.
+ *
+ * A container somebody picked out still narrows, and the parts are then
+ * applied to what it shows: the box in a container's header is as deliberate
+ * as a pick in the bar. References are unchanged by any of this — the ones in
+ * front are still the selection and what the containers show.
+ *
  * ## Narrowing hides things, so narrowing says what it hid
  *
  * A container that goes empty because a neighbour was ticked is a container
@@ -112,6 +135,13 @@ export interface InFront {
    * exactly that on the first live run.
    */
   paper: boolean
+  /**
+   * Whether the picked parts decide which of the paper's lists are in front:
+   * a part is picked and no container narrows. `documents` is empty then, and
+   * the page asks for the whole of the epic's paper. See "Picked parts say it
+   * first" above.
+   */
+  byParts: boolean
   /** The picked-out containers, in the canvas's order. Empty when nothing is picked out. */
   picked: string[]
   /** Those of them that show nothing at all — refs or documents — and so cannot have a list in front. */
@@ -133,20 +163,26 @@ export function inFrontOf(input: {
   selection: readonly string[]
   containers: readonly Shown[]
   aim: Aim
+  /** Whether a part of the epic is picked in the host's bar. See "Picked parts say it first" above. */
+  focused?: boolean
 }): InFront {
   const { passage, selection, containers, aim } = input
   const picked = containers.filter((one) => one.selected)
   const narrowed = aim === 'follow' && picked.length > 0
+  const byParts = input.focused === true && !narrowed
   const from = narrowed ? picked : containers
 
   const refs = dedupe([...(narrowed ? [] : selection), ...from.flatMap((one) => one.refs)])
-  const documents = dedupePlaces([...(narrowed || !passage ? [] : [passage]), ...from.flatMap((one) => one.documents)])
+  const documents = byParts
+    ? []
+    : dedupePlaces([...(narrowed || !passage ? [] : [passage]), ...from.flatMap((one) => one.documents)])
 
   return {
     refs,
     documents,
     narrowed,
     paper: !narrowed || documents.length > 0,
+    byParts,
     picked: picked.map((one) => one.module),
     quiet: picked.filter((one) => one.refs.length === 0 && one.documents.length === 0).map((one) => one.module),
   }

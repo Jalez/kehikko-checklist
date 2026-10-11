@@ -1,51 +1,80 @@
-import { anchorInFocus, focusSentence, isFocused, partsSchema, pickedParts, type EpicPart } from 'kehikot-module-protocol'
+import {
+  KEHIKOT_DIR,
+  PAPER_MODULE,
+  anchorInFocus,
+  focusSentence,
+  isFocused,
+  moduleFolder,
+  partsSchema,
+  pickedFiles,
+  pickedParts,
+  type EpicPart,
+} from 'kehikot-module-protocol'
 
+import { fileId } from './scope.ts'
 import type { Target } from './targets.ts'
 
 /**
  * The parts focus: what the reading page puts aside when a person has picked
  * parts of the open epic out in the host's bar, and what it says about it.
  *
- * ## What a part is, and the one thing it carries
+ * ## What a part is, and the two things it carries
  *
  * An epic may be divided into parts — a heading and what is under it, one
  * level deep — and a person may point the whole workspace at one or several.
  * The host sends every part of the open epic in `context.parts`, picked or
- * not, each with the REFERENCES it says belong to it. Refs and nothing else.
- * None picked means the whole epic, which is the resting state and what a host
- * that has never heard of parts says by sending nothing.
+ * not, each with the REFERENCES it says belong to it and the FILES of the
+ * epic's paper it owns. None picked means the whole epic, which is the resting
+ * state and what a host that has never heard of parts says by sending nothing.
  *
- * ## What narrows here, and what does not
+ * ## What narrows here
  *
- * A checklist is held against one of two kinds of thing, and the focus can
- * speak about only one of them:
+ * A checklist is held against one of two kinds of thing, and a part speaks
+ * about both:
  *
  *   - **Against a reference** — an issue, a merge request, a pull request.
- *     The list IS about that ref, so its anchor is `{ ref }` and the
- *     protocol's `anchorInFocus` is exactly the question: while parts are picked, the instance is in front only if a
- *     picked part lists its ref. A ref no part lists is outside every focus.
+ *     Its anchor is `{ ref }` and the protocol's `anchorInFocus` is exactly
+ *     the question: in front only if a picked part lists the ref. A ref no
+ *     part lists is outside every focus.
  *
- *   - **Against the paper** — a section, a file, or the whole of it. A part
- *     has no documents in it, so nothing the host said puts chapter 3 inside
- *     or outside "the posting seam". These are LEFT SHOWN, and the page says
- *     they were not narrowed. The other two choices were both worse. Hiding
- *     them would be this program deciding that a paper's lists belong to no
- *     part, on no evidence, and a reader scrolling the chapter they are
- *     writing would watch its checklist vanish because of a pick about
- *     issues. Guessing a part for them — from the refs a chapter cites, say —
- *     is the inference the protocol refuses for steps, for the same reason.
+ *   - **Against a file of the paper, or a section in one.** In front only if
+ *     a picked part owns the file. A target is stored as the file's id
+ *     (`fileId` in `list/scope.ts`: the path inside the project, without its
+ *     extension) and not as a path, so the part's files are spelled the same
+ *     way and the ids compared — the one spelling, rather than a path guessed
+ *     back out of an id. A file no part owns (`main.tex`) is outside every
+ *     focus, and counted.
+ *
+ *   - **Against the whole paper.** Left in front under any focus. Every part
+ *     is a part OF the paper, so what the paper owes is owed in each of them;
+ *     it is the same reason the list is in front of a reader anywhere in the
+ *     paper (`list/holding.ts`).
+ *
+ * This file used to leave every list held against the paper alone, on the
+ * grounds that a part had no documents in it. Parts own files now, and the
+ * page was saying so wrongly: somebody who moved from Methods to Results kept
+ * the Methods list, under a sentence that it was "shown as before".
+ *
+ * ## While parts are picked, the parts say what is in front
+ *
+ * See `byParts` in `list/aim.ts`. The page then asks the server for every
+ * list held against the epic's paper (`everywhere` in `list/holding.ts`) and
+ * this file narrows THAT, so the lists are the picked parts' own and the
+ * number is the rest of the epic's — not whichever file a neighbouring
+ * container last happened to name.
  *
  * ## Narrowing hides things, so narrowing says what it hid
  *
  * The rule `list/aim.ts` keeps for picked-out containers, kept again: the
- * count of instances put aside comes back with the ones that are left, and so
- * does the count of the paper's lists that were not narrowed, so the page can
- * print one line that accounts for everything it is and is not showing. The
- * first half of that line is the protocol's `focusSentence`, the one every
- * module says; the paper's half is this module's own.
+ * count of instances put aside comes back with the ones that are left, so the
+ * page can print one line that accounts for what it is not showing. That line
+ * is the protocol's `focusSentence`, the one every module says.
  *
  * With nothing picked `focus` is null, the instances come back as they went
  * in — the same array — and the page is the page it was.
+ *
+ * Nothing here ticks, unticks, holds or releases: an instance put aside keeps
+ * its ticks in the file, under its own target, and is back when the pick is.
  *
  * Pure. `test/focus.test.ts` is a table.
  */
@@ -54,17 +83,47 @@ import type { Target } from './targets.ts'
 export interface Focus {
   /** What a person calls each picked part — its heading, or its id where it has none — in the epic's order. */
   picked: string[]
-  /** Instances held against a reference that no picked part lists: put aside, and counted. */
+  /** Instances held against a reference, a file or a section that no picked part has: put aside, and counted. */
   outside: number
-  /** Instances held against the paper that are still shown, because a part says nothing about a document. */
-  unnarrowed: number
   /** `2 checklists outside the picked part (The seam).` — the protocol's sentence. */
   sentence: string
 }
 
-/** Whether one target is in front under these parts. A paper target always is; see the essay. */
+/**
+ * A file of an epic's paper as a target spells it: the id of its path inside
+ * the project. `chapters/3_methods.tex` of `thesis` is
+ * `.kehikot:paper:thesis:chapters:3_methods`, which is what `placeOf` made of
+ * the same file when a list was held against it.
+ */
+export function paperFileId(epic: string, file: string): string | null {
+  return fileId(`${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${epic}/${file}`)
+}
+
+/**
+ * The files the picked parts own, as places on this machine, for the page to
+ * name to its server while the parts decide what is in front. They narrow
+ * nothing — `whole` asks for every list of the paper — and are sent so the
+ * server can say what each file is called, which is what a row is labelled
+ * with. Empty without a project or an epic to find the paper's folder by.
+ */
+export function pickedPlaces(
+  parts: readonly EpicPart[],
+  projectPath: string | null,
+  epic: string | null,
+): { path: string; from: null; to: null }[] {
+  if (!projectPath || !epic) return []
+  const folder = `${projectPath.replace(/\/+$/, '')}/${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${epic}`
+  return pickedFiles(parts).map((file) => ({ path: `${folder}/${file}`, from: null, to: null }))
+}
+
+/** Whether one target is in front under these parts. See the essay for the three cases. */
 export function targetInFocus(parts: readonly EpicPart[], target: Target | null): boolean {
-  return target?.kind !== 'ref' || anchorInFocus(parts, { ref: target.ref })
+  if (!target || !isFocused(parts)) return true
+  if (target.kind === 'ref') return anchorInFocus(parts, { ref: target.ref })
+  if (!target.section) return true
+  const cut = target.section.indexOf('#')
+  const file = cut === -1 ? target.section : target.section.slice(0, cut)
+  return pickedFiles(parts).some((one) => paperFileId(target.epic, one) === file)
 }
 
 /**
@@ -85,26 +144,9 @@ export function focusOn<T extends { target: Target | null }>(
     focus: {
       picked: pickedParts(parts).map((part) => part.heading || part.id),
       outside,
-      unnarrowed: kept.filter((one) => one.target?.kind !== 'ref').length,
       sentence: focusSentence(parts, outside, 'checklist'),
     },
   }
-}
-
-/**
- * The line the reading page prints while parts are picked out.
- *
- * Always printed then, even at `0 checklists outside`: a focus that happens to
- * hide nothing today is still a focus, and the list held tomorrow against a
- * ref outside it will be put aside. The paper's half is said only when a
- * paper's list is actually on screen, because that is the only time a reader
- * could wonder why it survived.
- */
-export function focusLine(focus: Focus): string {
-  const paper = focus.unnarrowed
-    ? ` ${focus.unnarrowed === 1 ? '1 list held against the paper is' : `${focus.unnarrowed} lists held against the paper are`} shown as before: parts name references, not sections.`
-    : ''
-  return `${focus.sentence}${paper}`
 }
 
 /**
@@ -112,14 +154,22 @@ export function focusLine(focus: Focus): string {
  *
  * Null when the focus put nothing aside — then the page's other sentences
  * apply, unchanged. It goes ahead of them, and ahead of `whyEmpty`, because it
- * is the cause that is true: there WERE lists in front, and the pick hid them.
+ * is the cause that is true: there WERE lists, and the pick put them aside.
+ *
+ * Two wordings, because the page asked two different questions. `led` is the
+ * parts having decided what is in front (`byParts` in `list/aim.ts`): every
+ * list of the epic's paper was asked for, so none left means none is held
+ * against the picked parts at all. Otherwise a picked-out container decided
+ * it, and what is true is narrower — the lists that container shows are held
+ * outside the picked parts.
  */
-export function whyUnfocused(focus: Focus | null, left: number): string | null {
+export function whyUnfocused(focus: Focus | null, left: number, led = false): string | null {
   if (!focus || left > 0 || focus.outside === 0) return null
-  const one = focus.picked.length === 1
+  const parts = focus.picked.length === 1 ? 'part' : 'parts'
+  if (led) return `No checklist is held against anything in the picked ${parts}.`
   return focus.outside === 1
-    ? `The one checklist in front of you is held against a reference outside the picked ${one ? 'part' : 'parts'}.`
-    : `All ${focus.outside} checklists in front of you are held against references outside the picked ${one ? 'part' : 'parts'}.`
+    ? `The one checklist in front of you is held against something outside the picked ${parts}.`
+    : `All ${focus.outside} checklists in front of you are held against things outside the picked ${parts}.`
 }
 
 /**

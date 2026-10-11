@@ -938,7 +938,13 @@ export function answer(
       asked.push({ path: docPath, from: Number.isFinite(from) ? from : null, to: Number.isFinite(to) ? to : null })
     }
     const positions = where ? asked.map((at) => placeOf(where, at.path, at.from, at.to)) : []
-    const placed = positions[0] ?? null
+    /* `whole=1`: every list held against this epic's paper, wherever in it.
+       The page asks it while parts of the epic are picked out, and narrows
+       and counts the answer itself — `list/focus.ts`. The places it names
+       then are the picked parts' files, resolved for their names; none of
+       them is where a reader is, so there is no `placed`. */
+    const whole = query.get('whole') === '1' ? epic : null
+    const placed = whole ? null : (positions[0] ?? null)
     /* One ladder per place, and the paper rung once even with no place at
        all: a reader with an epic and no document open is still standing on
        the whole paper, which is what `scopeOf(epic, null)` says. */
@@ -949,8 +955,8 @@ export function answer(
       .split(' ')
       .map(part)
       .filter((one): one is string => one !== null)
-    const { instances, trouble, nowhere } = inFront({ ladders, selection }, where)
-    return ok({ ok: true, placed, positions, instances, trouble, nowhere })
+    const { instances, trouble, nowhere } = inFront({ ladders, selection, whole }, where)
+    return ok({ ok: true, placed, positions, instances, trouble, nowhere, whole: whole !== null })
   }
 
   /*

@@ -6,7 +6,7 @@ import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-mod
 import { ID } from '../manifest.ts'
 
 import { aimOf, aimOffer, inFrontOf, whyEmpty } from '../list/aim.ts'
-import { focusOn, partsOf, whyUnfocused } from '../list/focus.ts'
+import { focusOn, partsOf, pickedPlaces, whyUnfocused } from '../list/focus.ts'
 import {
   edit,
   everyChecklist,
@@ -22,7 +22,7 @@ import {
   type Outline,
   type Summary,
 } from '@/store/ask.ts'
-import type { TrackerReading } from 'kehikot-module-protocol'
+import { isFocused, type TrackerReading } from 'kehikot-module-protocol'
 import { marksOf, useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { factsOf } from '@/view/facts.tsx'
 import { AllView } from '@/view/all.tsx'
@@ -210,12 +210,21 @@ export function App() {
   const selected = selection.join(' ')
 
   /**
+   * The parts of the open epic, picked or not, inflated once from the string
+   * the wire holds. Read here, ahead of what is in front, because a picked
+   * part decides that too: see "Picked parts say it first" in `list/aim.ts`.
+   */
+  const epicParts = useMemo(() => partsOf(parts), [parts])
+  const focusedNow = isFocused(epicParts)
+
+  /**
    * What is in front of the reader, once the picks are taken into account.
    *
    * Memoised on strings only — the passage's, the selection's, the host's list
-   * of containers and the header's choice — so that a context which re-states
-   * the same canvas hands back the same object and the fetch below does not
-   * re-run. The rule is in `list/aim.ts`; this is where its inputs meet.
+   * of containers and the header's choice — and on whether a part is picked,
+   * so that a context which re-states the same canvas hands back the same
+   * object and the fetch below does not re-run. The rule is in `list/aim.ts`;
+   * this is where its inputs meet.
    */
   const front = useMemo(
     () =>
@@ -224,11 +233,22 @@ export function App() {
         selection: selected ? selected.split(' ') : [],
         containers: shown(containers),
         aim: aimOf(chosen ? (JSON.parse(chosen) as Record<string, string>) : null),
+        focused: focusedNow,
       }),
-    [at, selected, containers, chosen],
+    [at, selected, containers, chosen, focusedNow],
+  )
+  /**
+   * The places named to the server. While the picked parts decide what is in
+   * front they are the parts' own files, sent only so each row can be labelled
+   * with its file's name: `whole` is what is asked, and it is not narrowed by
+   * them.
+   */
+  const documents = useMemo(
+    () => (front.byParts ? pickedPlaces(epicParts, projectPath, epic) : front.documents),
+    [front, epicParts, projectPath, epic],
   )
   /** And the same, as one string, for the fetch to depend on. */
-  const frontKey = JSON.stringify({ refs: front.refs, documents: front.documents })
+  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts })
 
   /**
    * Whether there is anywhere at all to read from or write to.
@@ -287,7 +307,7 @@ export function App() {
        `InFront`. The server builds the whole-paper rung from the epic alone,
        and a page narrowed to containers showing no document must not hand it
        one. */
-    void whatIsHere(projectPath, front.paper ? epic : null, front.documents, front.refs)
+    void whatIsHere(projectPath, front.paper ? epic : null, documents, front.refs, front.byParts)
       .then((got) => {
         if (alive) setHere(got)
       })
@@ -304,22 +324,28 @@ export function App() {
   /**
    * What is in front once the parts focus is taken into account.
    *
-   * The server is asked about everything in front, as it always was, and the
-   * lists held against references outside the picked parts are put aside
-   * HERE, after the answer — not by asking about fewer refs. That order is
-   * what lets the page count what it hid: a ref left out of the question would
-   * come back as nothing, and "2 checklists outside the picked part" is a
-   * sentence that needs the two. Lists held against the paper are left as they
-   * are. `list/focus.ts` is the rule and the reason.
+   * The server is asked about everything in front — and, while the picked
+   * parts decide it (`front.byParts`), about every list of the epic's paper —
+   * and the lists held against a reference, a file or a section outside the
+   * picked parts are put aside HERE, after the answer, not by asking about
+   * less. That order is what lets the page count what it hid: something left
+   * out of the question would come back as nothing, and "2 checklists outside
+   * the picked part" is a sentence that needs the two. `list/focus.ts` is the
+   * rule and the reason.
    *
    * With nothing picked `inFocus` is `here` itself, the same object, so no
    * effect below re-runs and the page is the page it was.
+   *
+   * A change of parts only ever changes what is ASKED and what is drawn. It
+   * writes nothing: every tick stays in the file under its own checklist, item
+   * and target, and the edit page — one list, with whatever is typed into it
+   * — is not re-read for it.
    *
    * Only the reading page is narrowed. The list of every checklist is the way
    * to find a list wherever it is held, and the edit page is one list; neither
    * hides anything, so neither has anything to say about a focus.
    */
-  const focused = useMemo(() => focusOn(here?.instances ?? [], partsOf(parts)), [here, parts])
+  const focused = useMemo(() => focusOn(here?.instances ?? [], epicParts), [here, epicParts])
   const inFocus = useMemo(
     () => (here && focused.focus ? { ...here, instances: [...focused.instances] } : here),
     [here, focused],
@@ -359,6 +385,28 @@ export function App() {
     }
   }, [where, refsKey, trackerAt, readTracker])
   const facts = useMemo(() => factsOf(tracker, marksOf(marks), trackerReading), [tracker, marks, trackerReading])
+
+  /**
+   * What the reading page draws: the lists, the focus line and the sentence
+   * for an empty page, all from one moment.
+   *
+   * A pick in the host's bar changes the QUESTION — every list of the paper,
+   * or the lists under what is in front — and for the moment between the pick
+   * and the server's answer `here` is still the answer to the other one. Read
+   * under the new parts it is wrong both ways: unpicking would draw every list
+   * of the paper, all open, until the answer landed. So what was last drawn
+   * stays until the answer in hand is to the question now being asked.
+   */
+  const settled = !here || here.whole === front.byParts
+  const drawnNow = {
+    here: inFocus,
+    focus: focused.focus,
+    /* The focus first: when it put lists aside and none is left, that is the
+       cause, whatever the picked-out containers were also doing. */
+    why: whyUnfocused(focused.focus, focused.instances.length, front.byParts) ?? whyEmpty(front),
+  }
+  const drawn = useRef(drawnNow)
+  if (settled) drawn.current = drawnNow
 
   const editing = view.kind === 'edit' ? view.id : null
 
@@ -648,12 +696,10 @@ export function App() {
     />
   ) : (
     <HereView
-      here={inFocus}
+      here={drawn.current.here}
       somewhere={Boolean(epic) || front.refs.length > 0 || front.documents.length > 0}
-      /* The focus first: when it put lists aside and none is left, that is the
-         cause, whatever the picked-out containers were also doing. */
-      why={whyUnfocused(focused.focus, focused.instances.length) ?? whyEmpty(front)}
-      focus={focused.focus}
+      why={drawn.current.why}
+      focus={drawn.current.focus}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
       onAll={() => setView({ kind: 'all' })}

@@ -137,6 +137,13 @@ export interface Here {
   instances: Held[]
   trouble: string | null
   nowhere: boolean
+  /**
+   * Which question this answers: every list of the epic's paper (`whole`), or
+   * the lists under the places asked about. Said back by the server so the
+   * page can tell an answer to the question it is asking NOW from the one it
+   * asked before the picked parts changed — see `settled` in `src/app.tsx`.
+   */
+  whole: boolean
 }
 
 /**
@@ -155,13 +162,16 @@ export async function whatIsHere(
   epic: string | null,
   documents: readonly Pointing[],
   refs: readonly string[],
+  /** Every list held against the epic's paper, wherever in it: what is asked while parts are picked. See `byParts` in `list/aim.ts`. */
+  whole = false,
 ): Promise<Here> {
   const body = replied(
-    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown }>('/api/here', {
+    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
       query: {
         epic: epic || null,
         doc: epic ? documents.map((at) => (at.from !== null && at.to !== null ? `${at.path}\t${at.from}\t${at.to}` : at.path)) : [],
         refs: refs.length ? refs.join(' ') : null,
+        whole: whole && epic ? '1' : null,
         project: projectPath || null,
       },
     }),
@@ -172,6 +182,7 @@ export async function whatIsHere(
     instances: Array.isArray(body.instances) ? (body.instances as Held[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
     nowhere: body.nowhere === true,
+    whole: body.whole === true,
   }
 }
 

@@ -250,6 +250,35 @@ export function targetOf(scope: Scope): Target | null {
 }
 
 /**
+ * Whether a target is one the reader is standing on: a rung of the ladder
+ * under `placed`, the whole paper, or a reference.
+ *
+ * It decides nothing about which lists are in front — `showing` in
+ * `list/holding.ts` did that — only which of several start unfolded on the
+ * reading page. True for everything when the reader has no place of their
+ * own, because then nothing is nearer than anything else.
+ */
+export function under(target: Target, placed: Placed | null): boolean {
+  if (target.kind === 'ref' || !target.section || !placed) return true
+  return target.section === placed.section || target.section === fileId(placed.file)
+}
+
+/**
+ * The place a target is in, among the several the server resolved: the one
+ * whose file the target names. For a row's label and nothing else — with
+ * several files in front, or parts picked, the first place is not the file
+ * every row belongs to, and `labelOf` given the wrong one can only spell the
+ * target's id. Null for a reference, the whole paper, or a file nobody asked
+ * about.
+ */
+export function placeAmong(target: Target, positions: readonly (Placed | null)[]): Placed | null {
+  if (target.kind !== 'paper' || !target.section) return null
+  const cut = target.section.indexOf('#')
+  const file = cut === -1 ? target.section : target.section.slice(0, cut)
+  return positions.find((one) => one !== null && fileId(one.file) === file) ?? null
+}
+
+/**
  * One rung out, or null at the top.
  *
  * A section widens to its file rather than straight to the paper, because those
