@@ -4,7 +4,7 @@ import type { ComponentProps } from 'react'
 
 import type { Held } from '../list/checklists.ts'
 import { FACTS } from '../list/evidence.ts'
-import { FOCUS_WHERE, trackerReadingResult, trackerRowSchema } from 'kehikot-module-protocol'
+import { trackerReadingResult, trackerRowSchema } from 'kehikot-module-protocol'
 import { factsOf } from '../src/view/facts.tsx'
 import type { Outline } from '../file/outline.ts'
 import type { Placed } from '../list/scope.ts'
@@ -151,43 +151,30 @@ function nothingOld(container: HTMLElement) {
 }
 
 /**
- * The line the reading page prints while parts of the epic are picked out.
- *
- * `test/focus.test.ts` holds the words. What is held here is that the page
- * prints them — above the lists, wrapped rather than clipped, and at 220
- * pixels too — and prints nothing at all at rest.
+ * What the reading page prints about the parts picked out in the host's bar:
+ * nothing, while there is a list to draw. It used to print a row above the
+ * lists — how many were outside and which parts — and the row is gone: the
+ * host's bar shows the pick and the lists are the message. An empty page still
+ * says one sentence, where the lists would be. `test/focus.test.ts` holds it.
  */
 describe('the reading page under a parts focus', () => {
-  const FOCUS = { picked: ['The posting seam'], outside: 2, sentence: '2 checklists outside the picked part (The posting seam).' }
-
-  test('draws nothing about a focus when no part is picked out', () => {
-    const { container } = render(<Reading here={here([held()])} room={ROOMY} />)
+  test.each([ROOMY, TIGHT])('draws no line about the picked parts above the lists', (size) => {
+    const { container } = render(<Reading here={here([held({ target: PAPER })])} room={size} />)
     expect(container.querySelector('[data-focus]')).toBeNull()
     expect(container.textContent).not.toContain('outside')
-  })
-
-  test.each([ROOMY, TIGHT])('says how many lists are outside and which part', (size) => {
-    const { container } = render(
-      <Reading here={here([held({ target: PAPER })])} focus={FOCUS} room={size} />,
-    )
-    const line = container.querySelector('[data-focus]')!
-    expect(line.textContent).toBe('2 checklists outside the picked part (The posting seam).')
-    expect(line.getAttribute('title')).toBe(FOCUS_WHERE)
-    expect(line.className).not.toContain('truncate')
-    expect(line.className).not.toContain('hidden')
+    expect(container.textContent).not.toContain('picked part')
     expect(container.querySelectorAll('[data-instance]')).toHaveLength(1)
+    /* The first thing in the page is the list itself. */
+    expect(container.querySelector('section')!.firstElementChild!.querySelector('[data-instance]')).toBeTruthy()
     nothingOld(container)
   })
 
-  test('when the focus emptied the page, the line stays and the sentence under it says why', () => {
+  test('when the focus emptied the page, one sentence in the empty place says why, and nothing above it', () => {
     const why = 'No checklist is held against anything in the picked part.'
-    const { container } = render(
-      <Reading here={here([])} why={why} focus={FOCUS} room={ROOMY} />,
-    )
-    expect(container.querySelector('[data-focus]')?.textContent).toBe(
-      '2 checklists outside the picked part (The posting seam).',
-    )
+    const { container } = render(<Reading here={here([])} why={why} room={ROOMY} />)
+    expect(container.querySelector('[data-focus]')).toBeNull()
     expect(container.querySelector('[data-none="narrowed"]')?.textContent).toBe(why)
+    expect(container.textContent).not.toContain('outside')
     expect(container.querySelector('[data-all]')).toBeTruthy()
   })
 })

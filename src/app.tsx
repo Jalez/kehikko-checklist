@@ -328,10 +328,10 @@ export function App() {
    * parts decide it (`front.byParts`), about every list of the epic's paper —
    * and the lists held against a reference, a file or a section outside the
    * picked parts are put aside HERE, after the answer, not by asking about
-   * less. That order is what lets the page count what it hid: something left
-   * out of the question would come back as nothing, and "2 checklists outside
-   * the picked part" is a sentence that needs the two. `list/focus.ts` is the
-   * rule and the reason.
+   * less. That order is what lets an empty page know the pick emptied it:
+   * something left out of the question would come back as nothing, and "no
+   * checklist is in the picked part" needs there to have been one. Nothing is
+   * said while a list is drawn. `list/focus.ts` is the rule and the reason.
    *
    * With nothing picked `inFocus` is `here` itself, the same object, so no
    * effect below re-runs and the page is the page it was.
@@ -387,8 +387,8 @@ export function App() {
   const facts = useMemo(() => factsOf(tracker, marksOf(marks), trackerReading), [tracker, marks, trackerReading])
 
   /**
-   * What the reading page draws: the lists, the focus line and the sentence
-   * for an empty page, all from one moment.
+   * What the reading page draws: the lists and the sentence for an empty
+   * page, both from one moment.
    *
    * A pick in the host's bar changes the QUESTION — every list of the paper,
    * or the lists under what is in front — and for the moment between the pick
@@ -400,7 +400,6 @@ export function App() {
   const settled = !here || here.whole === front.byParts
   const drawnNow = {
     here: inFocus,
-    focus: focused.focus,
     /* The focus first: when it put lists aside and none is left, that is the
        cause, whatever the picked-out containers were also doing. */
     why: whyUnfocused(focused.focus, focused.instances.length, front.byParts) ?? whyEmpty(front),
@@ -699,7 +698,6 @@ export function App() {
       here={drawn.current.here}
       somewhere={Boolean(epic) || front.refs.length > 0 || front.documents.length > 0}
       why={drawn.current.why}
-      focus={drawn.current.focus}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
       onAll={() => setView({ kind: 'all' })}

@@ -108,16 +108,15 @@ module says `reacts: ['parts']`. `list/focus.ts` is the rule:
 - **While a part is picked, the parts say what is in front**, not the passage
   or what the containers beside this one show: the page asks for every list of
   the epic's paper (`/api/here?whole=1`) and narrows that, so the lists are the
-  picked parts' own — a section's list too, though no caret is in it — and the
-  count is the rest of the epic's. A neighbour that has gone quiet on another
+  picked parts' own — a section's list too, though no caret is in it. A neighbour that has gone quiet on another
   chapter cannot put that chapter's list under the pick. A container somebody
   picked out still narrows, and the parts are applied to what it shows.
   References are as they were: the selection and what the containers show.
-- **The reading page says it**, in one wrapped line above the lists whenever
-  any part is picked: `2 checklists outside the picked part (The posting
-  seam).` The tooltip says where the control is. If the focus leaves nothing,
-  the line under it reads `No checklist is held against anything in the picked
-  part.`
+- **The reading page prints nothing about it** while there is a list to
+  draw: no line, no count of what was put aside. The host's bar shows the pick
+  and the lists are the message. Only if the focus leaves nothing does the
+  empty page say one sentence, where the lists would be: `No checklist is held
+  against anything in the picked part.`
 - **A change of parts writes nothing.** Every tick stays in the file under its
   own checklist, item and target, and is back on screen when the pick is.
 

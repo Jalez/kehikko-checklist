@@ -359,8 +359,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * `parts`, which arrived with protocol 0.29.0. An epic may be divided into
    * parts and a person may pick some of them out in the host's bar; while any
    * is picked, the reading page shows the lists held against the picked
-   * parts' references, files and the sections in them, puts the rest aside,
-   * and a line at its top says how many and which parts. A list held against
+   * parts' references, files and the sections in them and puts the rest aside
+   * (saying so only where that leaves the page empty). A list held against
    * the whole paper stays: every part is a part of it. The page is different
    * afterwards, which is the field's test. `list/focus.ts` is the rule. The
    * picking is the host's own control, so nothing is declared in `uses` for it.

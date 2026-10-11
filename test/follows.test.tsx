@@ -151,22 +151,23 @@ const drawn = () =>
   })
 /** The one muted line under each name, saying which target the ticks belong to. */
 const labels = () => [...document.querySelectorAll('[data-label]')].map((one) => one.textContent)
-const line = () => document.querySelector('[data-focus]')?.textContent ?? null
+/** Anything on the page that talks about the picked parts while a list is drawn: there is to be none. */
+const notice = () => document.querySelector('[data-focus]') !== null || /outside the|picked part|host’s bar/.test(document.body.textContent ?? '')
 
 describe('the checklists follow the picked parts, whatever the paper beside them last said', () => {
-  test('no part, one, another, two, none: each pick is that part’s lists, and the count is the rest of the epic’s', async () => {
+  test('no part, one, another, two, none: each pick is that part’s lists, and no line says what was put aside', async () => {
     render(<App />)
     /* Nothing picked, and the paper says it is showing every file it has. All of them are in front
        — but only the reader's own file and the whole paper are open; the rest are one line each. */
     await say('hello', canvas('main.tex', EVERY, []))
     await waitFor(() => expect(drawn()).toEqual(['+Main 0/1', '+Thesis 0/1', '-Methods 1/1', '-Results 0/1']))
-    expect(line()).toBeNull()
+    expect(notice()).toBe(false)
     expect(labels()).toEqual(['main.tex', 'the whole paper', '3_methods.tex', '4_results.tex'])
 
     /* Methods: the chapter's list AND the list held against a section of it, which no passage named. */
     await say('context', canvas('chapters/3_methods.tex', ['chapters/3_methods.tex'], ['methods']))
     await waitFor(() => expect(drawn()).toEqual(['+Design 0/1', '+Methods 1/1', '+Thesis 0/1']))
-    expect(line()).toBe('2 checklists outside the picked part (Methods).')
+    expect(notice()).toBe(false)
     /* Each row still says which target its ticks belong to, by the file's own name. */
     expect(labels()).toEqual(['sec:meth-design', '3_methods.tex', 'the whole paper'])
 
@@ -174,12 +175,12 @@ describe('the checklists follow the picked parts, whatever the paper beside them
        passage, or it is folded away. The old chapter's lists go; they are not "shown as before". */
     await say('context', canvas('chapters/3_methods.tex', ['chapters/3_methods.tex'], ['results']))
     await waitFor(() => expect(drawn()).toEqual(['+Results 0/1', '+Thesis 0/1']))
-    expect(line()).toBe('3 checklists outside the picked part (Results).')
+    expect(notice()).toBe(false)
 
     /* Two parts, and the paper's caret is in one of them. */
     await say('context', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], ['methods', 'results']))
     await waitFor(() => expect(drawn()).toEqual(['+Design 0/1', '+Methods 1/1', '+Results 0/1', '+Thesis 0/1']))
-    expect(line()).toBe('1 checklist outside the 2 picked parts (Methods, Results).')
+    expect(notice()).toBe(false)
 
     /* Nothing picked again: back to what the canvas shows, and no line. And never, on the way
        there, the answer to the question just left read under no parts at all — every list of the
@@ -190,7 +191,7 @@ describe('the checklists follow the picked parts, whatever the paper beside them
     await say('context', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], []))
     await waitFor(() => expect(drawn()).toEqual(['+Results 0/1', '+Thesis 0/1']))
     watch.disconnect()
-    expect(line()).toBeNull()
+    expect(notice()).toBe(false)
     expect(seen.flat().filter((one) => one.includes('Main') || one.includes('Design') || one.includes('Methods'))).toEqual([])
   })
 
@@ -200,22 +201,22 @@ describe('the checklists follow the picked parts, whatever the paper beside them
     stale.containers.push({ module: 'kehikot.notes', selected: false, showing: { refs: [], documents: [place('main.tex')] } })
     await say('hello', stale)
     await waitFor(() => expect(drawn()).toEqual(['+Design 0/1', '+Methods 1/1', '+Thesis 0/1']))
-    expect(line()).toBe('2 checklists outside the picked part (Methods).')
+    expect(notice()).toBe(false)
   })
 
   test('a container somebody picked out still narrows, and the parts are applied to what it shows', async () => {
     render(<App />)
     await say('hello', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], ['methods', 'results'], { selected: true }))
     await waitFor(() => expect(drawn()).toEqual(['+Results 0/1', '+Thesis 0/1']))
-    expect(line()).toBe('0 checklists outside the 2 picked parts (Methods, Results).')
+    expect(notice()).toBe(false)
 
-    /* And when what it shows is outside the pick, the page says that is why it is empty of chapters. */
+    /* And when what it shows is outside the pick, the chapter's list is put aside. */
     await say('context', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], ['methods'], { selected: true }))
     await waitFor(() => expect(drawn()).toEqual(['+Thesis 0/1']))
-    expect(line()).toBe('1 checklist outside the picked part (Methods).')
+    expect(notice()).toBe(false)
   })
 
-  test('a list held against a reference follows the parts as it did: in front when a picked part lists it, counted when none does', async () => {
+  test('a list held against a reference follows the parts as it did: in front when a picked part lists it, put aside when none does', async () => {
     render(<App />)
     const refs = { methods: ['gh#105'] }
     await say('hello', canvas('main.tex', EVERY, [], { selection: ['gh#105'], refs }))
@@ -223,11 +224,11 @@ describe('the checklists follow the picked parts, whatever the paper beside them
 
     await say('context', canvas('chapters/3_methods.tex', ['chapters/3_methods.tex'], ['methods'], { selection: ['gh#105'], refs }))
     await waitFor(() => expect(drawn()).toEqual(['+Change 1/1', '+Design 0/1', '+Methods 1/1', '+Thesis 0/1']))
-    expect(line()).toBe('2 checklists outside the picked part (Methods).')
+    expect(notice()).toBe(false)
 
     await say('context', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], ['results'], { selection: ['gh#105'], refs }))
     await waitFor(() => expect(drawn()).toEqual(['+Results 0/1', '+Thesis 0/1']))
-    expect(line()).toBe('4 checklists outside the picked part (Results).')
+    expect(notice()).toBe(false)
   })
 
   test('a part that owns nothing a list is held against says so, rather than showing the last part’s lists', async () => {
@@ -239,7 +240,9 @@ describe('the checklists follow the picked parts, whatever the paper beside them
     empty.parts = [{ id: 'appendices', heading: 'Appendices', refs: [], picked: true, files: ['chapters/appendix.tex'] }]
     await say('hello', empty)
     await waitFor(() => expect(document.querySelector('[data-none="narrowed"]')?.textContent).toBe('No checklist is held against anything in the picked part.'))
-    expect(line()).toBe('4 checklists outside the picked part (Appendices).')
+    /* The one sentence, in the empty place, and no row above it. */
+    expect(document.querySelector('[data-focus]')).toBeNull()
+    expect(document.body.textContent).not.toContain('outside the')
     expect(drawn()).toEqual([])
   })
 
