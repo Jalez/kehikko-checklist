@@ -82,12 +82,11 @@ test('a late read of every checklist for the previous project does not replace t
  * While a part is picked the page asks for every list of the epic's paper —
  * not for the passage and what the containers show — and the lists held
  * against a reference, a file or a section outside the picked parts are put
- * aside after the server answers, so the count of what was hidden is on
- * screen. `test/follows.test.tsx` is the same walk over the real wire and the
+ * aside after the server answers, and nothing is printed about them. `test/follows.test.tsx` is the same walk over the real wire and the
  * real doors; here the hook is this file's stand-in and the answer is fixed,
  * so what is held is the asking and the narrowing.
  */
-test('a parts focus asks for the whole paper, puts aside what is outside the picked parts, says how many, and follows a change of focus', async () => {
+test('a parts focus asks for the whole paper, puts aside what is outside the picked parts, prints no line about it, and follows a change of focus', async () => {
   const instance = (id: string, target: unknown) => ({
     checklist: { id, name: `list ${id}`, at: '', by: '', origin: null, items: [], targets: [] },
     target,
@@ -120,7 +119,8 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
       { id: 'tests', heading: 'What the tests check', refs: ['gh#7'], picked: tests },
     ])
   const drawn = () => [...document.querySelectorAll('[data-instance]')].map((one) => one.getAttribute('data-instance'))
-  const line = () => document.querySelector('[data-focus]')?.textContent ?? null
+  /** Anything on the page that talks about the picked parts while a list is drawn: there is to be none. */
+  const notice = () => document.querySelector('[data-focus]') !== null || /outside the|picked part|host’s bar/.test(document.body.textContent ?? '')
   const last = () => asked.at(-1)!
 
   /* Parts listed and none picked: the page as it always was, asked by the passage. */
@@ -133,7 +133,7 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   }
   const { rerender } = render(<App />)
   await waitFor(() => expect(drawn()).toEqual(['a', 'b', 'c', 'd']))
-  expect(line()).toBeNull()
+  expect(notice()).toBe(false)
   expect(last().get('whole')).toBeNull()
   expect(last().getAll('doc')).toEqual(['/p/.kehikot/paper/thesis/chapters/4_results.tex'])
 
@@ -141,7 +141,7 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   wire = { ...wire, parts: parts(true, false) }
   rerender(<App />)
   await waitFor(() => expect(drawn()).toEqual(['a', 'c', 'd']))
-  expect(line()).toBe('1 checklist outside the picked part (The posting seam).')
+  expect(notice()).toBe(false)
   expect(last().get('whole')).toBe('1')
   /* The picked part's file is named, for its label only — not the passage's. */
   expect(last().getAll('doc')).toEqual(['/p/.kehikot/paper/thesis/chapters/3_methods.tex'])
@@ -151,7 +151,7 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   wire = { ...wire, parts: parts(false, true) }
   rerender(<App />)
   await waitFor(() => expect(drawn()).toEqual(['b', 'c']))
-  expect(line()).toBe('2 checklists outside the picked part (What the tests check).')
+  expect(notice()).toBe(false)
   /* Still the whole paper, and this part owns no file to name. */
   expect(last().get('whole')).toBe('1')
   expect(last().getAll('doc')).toEqual([])
@@ -159,7 +159,7 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   wire = { ...wire, parts: '' }
   rerender(<App />)
   await waitFor(() => expect(drawn()).toEqual(['a', 'b', 'c', 'd']))
-  expect(line()).toBeNull()
+  expect(notice()).toBe(false)
   expect(last().get('whole')).toBeNull()
 })
 

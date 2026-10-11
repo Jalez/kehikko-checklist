@@ -2,7 +2,6 @@ import {
   KEHIKOT_DIR,
   PAPER_MODULE,
   anchorInFocus,
-  focusSentence,
   isFocused,
   moduleFolder,
   partsSchema,
@@ -16,7 +15,7 @@ import type { Target } from './targets.ts'
 
 /**
  * The parts focus: what the reading page puts aside when a person has picked
- * parts of the open epic out in the host's bar, and what it says about it.
+ * parts of the open epic out in the host's bar.
  *
  * ## What a part is, and the two things it carries
  *
@@ -59,16 +58,18 @@ import type { Target } from './targets.ts'
  *
  * See `byParts` in `list/aim.ts`. The page then asks the server for every
  * list held against the epic's paper (`everywhere` in `list/holding.ts`) and
- * this file narrows THAT, so the lists are the picked parts' own and the
- * number is the rest of the epic's — not whichever file a neighbouring
- * container last happened to name.
+ * this file narrows THAT, so the lists are the picked parts' own — not
+ * whichever file a neighbouring container last happened to name.
  *
- * ## Narrowing hides things, so narrowing says what it hid
+ * ## Nothing is said about what was put aside, unless nothing is left
  *
- * The rule `list/aim.ts` keeps for picked-out containers, kept again: the
- * count of instances put aside comes back with the ones that are left, so the
- * page can print one line that accounts for what it is not showing. That line
- * is the protocol's `focusSentence`, the one every module says.
+ * The page used to print a line above the lists whenever a part was picked —
+ * `9 checklists outside the picked part (Results).` — and it cost a row of a
+ * container whose rows are the point. The host's bar already says which parts
+ * are picked; the lists that are drawn are the message. So the count of what
+ * was put aside is kept only to tell an empty page the pick emptied from one
+ * nobody holds a list on, and that page says one sentence where the lists
+ * would have been (`whyUnfocused`).
  *
  * With nothing picked `focus` is null, the instances come back as they went
  * in — the same array — and the page is the page it was.
@@ -79,14 +80,12 @@ import type { Target } from './targets.ts'
  * Pure. `test/focus.test.ts` is a table.
  */
 
-/** What the reading page says about the focus. Null on `focusOn` when nothing is picked out. */
+/** What the focus did, for the empty page's one sentence. Null on `focusOn` when nothing is picked out. */
 export interface Focus {
   /** What a person calls each picked part — its heading, or its id where it has none — in the epic's order. */
   picked: string[]
-  /** Instances held against a reference, a file or a section that no picked part has: put aside, and counted. */
+  /** Instances held against a reference, a file or a section that no picked part has: put aside. Never printed. */
   outside: number
-  /** `2 checklists outside the picked part (The seam).` — the protocol's sentence. */
-  sentence: string
 }
 
 /**
@@ -127,7 +126,7 @@ export function targetInFocus(parts: readonly EpicPart[], target: Target | null)
 }
 
 /**
- * The instances left in front, and what to say about the rest.
+ * The instances left in front, and how many were put aside.
  *
  * Generic over the instance so that this file does not need to know what a
  * checklist is — only that each one is held against a target.
@@ -144,7 +143,6 @@ export function focusOn<T extends { target: Target | null }>(
     focus: {
       picked: pickedParts(parts).map((part) => part.heading || part.id),
       outside,
-      sentence: focusSentence(parts, outside, 'checklist'),
     },
   }
 }
@@ -160,16 +158,14 @@ export function focusOn<T extends { target: Target | null }>(
  * parts having decided what is in front (`byParts` in `list/aim.ts`): every
  * list of the epic's paper was asked for, so none left means none is held
  * against the picked parts at all. Otherwise a picked-out container decided
- * it, and what is true is narrower — the lists that container shows are held
- * outside the picked parts.
+ * it, and what is true is narrower — none of the lists that container shows
+ * is in the picked parts. One short sentence either way, and no count.
  */
 export function whyUnfocused(focus: Focus | null, left: number, led = false): string | null {
   if (!focus || left > 0 || focus.outside === 0) return null
   const parts = focus.picked.length === 1 ? 'part' : 'parts'
   if (led) return `No checklist is held against anything in the picked ${parts}.`
-  return focus.outside === 1
-    ? `The one checklist in front of you is held against something outside the picked ${parts}.`
-    : `All ${focus.outside} checklists in front of you are held against things outside the picked ${parts}.`
+  return `No checklist in front of you is in the picked ${parts}.`
 }
 
 /**

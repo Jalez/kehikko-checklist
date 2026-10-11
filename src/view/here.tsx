@@ -4,8 +4,7 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
-import type { Focus } from '../../list/focus.ts'
-import { FOCUS_WHERE, type TrackerRow } from 'kehikot-module-protocol'
+import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
 import { FactLine, RefFacts, type Facts } from '@/view/facts.tsx'
@@ -85,16 +84,14 @@ import { cn } from '@/lib/utils.ts'
  * the reader's — parts picked in the host's bar, which is several files and
  * no caret — every list starts open: they are what was picked.
  *
- * ## The parts focus, which is the one line this page prints about itself
+ * ## The parts focus, about which this page prints nothing
  *
  * When a person has picked parts of the epic out in the host's bar, the lists
  * held against a reference, a file or a section outside those parts are put
- * aside, and a line at the top says so: how many, and which parts. It is the
- * same rule as the sentence
- * for picked-out containers above, applied before the page is empty rather
- * than only once it is, because this narrowing has no control in this
- * container's header to explain it: the pick is the host's. Nothing is drawn
- * with nothing picked. `list/focus.ts` writes it.
+ * aside. A line at the top used to say how many and which parts; it took a
+ * row of a container that has few, and the host's bar already shows the pick.
+ * The lists drawn are the message. Only an EMPTY page says anything — `why`,
+ * one sentence where the lists would be. `list/focus.ts` is the rule.
  *
  * ## The way to everything
  *
@@ -114,7 +111,6 @@ export function HereView({
   busy,
   room,
   facts = null,
-  focus = null,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
@@ -132,8 +128,6 @@ export function HereView({
   room: Room
   /** What the host's tracker reading says about the refs in front, or null when there is none. See `facts.tsx`. */
   facts?: Facts | null
-  /** What the parts focus put aside, or null when no part of the epic is picked out. See `list/focus.ts`. */
-  focus?: Focus | null
 }) {
   /* Which instances a person folded or unfolded, keyed by list and target, so
      the same list against two targets folds separately. Only what was pressed
@@ -157,19 +151,6 @@ export function HereView({
       data-here={here.instances.length}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
-      {/* Above the lists and outside the scroller, so it stays put while they
-          scroll: it is the reason the page is shorter than it was. Wrapped and
-          never truncated, like every line here. */}
-      {focus ? (
-        <p
-          className="shrink-0 border-b bg-muted/40 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground"
-          data-focus={focus.outside}
-          title={FOCUS_WHERE}
-        >
-          {focus.sentence}
-        </p>
-      ) : null}
-
       {here.instances.length ? (
         <div
           className={cn(room.pinned && 'min-h-0 flex-1 overflow-y-auto', room.snap && 'snap-y snap-proximity')}

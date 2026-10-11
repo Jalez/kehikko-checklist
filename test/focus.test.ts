@@ -56,11 +56,7 @@ describe('a picked part narrows the lists held against references', () => {
     const { instances, focus } = focusOn(FRONT, [seam(true), tests(false)])
     /* The chapter's list goes too: the seam owns no file. The whole paper's stays. */
     expect(ids(instances)).toEqual(['gh#10', 'paper'])
-    expect(focus).toEqual({
-      picked: ['The seam'],
-      outside: 3,
-      sentence: '3 checklists outside the picked part (The seam).',
-    })
+    expect(focus).toEqual({ picked: ['The seam'], outside: 3 })
   })
 
   test('several picked parts are a union, and a ref in no part is outside every focus', () => {
@@ -89,7 +85,7 @@ describe('a picked part narrows the lists held against its files', () => {
   test('to the file a part owns and the sections in it, and counts the rest', () => {
     const { instances, focus } = focusOn(CHAPTERS, [methods(true), results(false)])
     expect(ids(instances)).toEqual(['section', 'design', 'paper'])
-    expect(focus).toEqual({ picked: ['Methods'], outside: 2, sentence: '2 checklists outside the picked part (Methods).' })
+    expect(focus).toEqual({ picked: ['Methods'], outside: 2 })
   })
 
   test('another part is another file: the first part’s lists are put aside, not kept', () => {
@@ -102,7 +98,7 @@ describe('a picked part narrows the lists held against its files', () => {
     const { instances, focus } = focusOn(CHAPTERS, [methods(true), results(true)])
     expect(ids(instances)).toEqual(['section', 'design', 'found', 'paper'])
     /* `main.tex` is nobody's. */
-    expect(focus).toMatchObject({ outside: 1, sentence: '1 checklist outside the 2 picked parts (Methods, Results).' })
+    expect(focus).toEqual({ picked: ['Methods', 'Results'], outside: 1 })
   })
 
   test('the whole paper is in front under any focus, and a part that owns no file has no file’s lists', () => {
@@ -128,26 +124,15 @@ describe('a picked part narrows the lists held against its files', () => {
 })
 
 describe('the words', () => {
-  test('how many are outside, and which parts', () => {
-    const line = (front: typeof FRONT, ...parts: ReturnType<typeof part>[]) => focusOn(front, parts).focus!.sentence
-    expect(line([ref('gh#10'), ref('gh#7'), ref('gh#99')], seam(true))).toBe(
-      '2 checklists outside the picked part (The seam).',
-    )
-    expect(line([ref('gh#10'), ref('gh#99'), PAPER], seam(true), tests(true))).toBe(
-      '1 checklist outside the 2 picked parts (The seam, The tests).',
-    )
-    /* Nothing about the paper's lists being left alone: they are not. */
-    expect(line([ref('gh#10'), SECTION, PAPER], seam(true))).toBe('1 checklist outside the picked part (The seam).')
+  test('there is no sentence about what was put aside: the focus is its parts and a number nobody prints', () => {
+    expect(Object.keys(focusOn([ref('gh#10'), ref('gh#7'), ref('gh#99')], [seam(true)]).focus!).sort()).toEqual(['outside', 'picked'])
   })
 
   test('an empty page says the focus emptied it only when it did', () => {
-    const focus = { picked: ['The seam'], outside: 2, sentence: '' }
-    expect(whyUnfocused(focus, 0)).toBe(
-      'All 2 checklists in front of you are held against things outside the picked part.',
-    )
-    expect(whyUnfocused({ ...focus, outside: 1, picked: ['a', 'b'] }, 0)).toBe(
-      'The one checklist in front of you is held against something outside the picked parts.',
-    )
+    const focus = { picked: ['The seam'], outside: 2 }
+    /* A picked-out container decided what was asked: one short sentence, and no count. */
+    expect(whyUnfocused(focus, 0)).toBe('No checklist in front of you is in the picked part.')
+    expect(whyUnfocused({ ...focus, outside: 1, picked: ['a', 'b'] }, 0)).toBe('No checklist in front of you is in the picked parts.')
     /* The parts decided what was asked: every list of the epic's paper, so none left is none held. */
     expect(whyUnfocused(focus, 0, true)).toBe('No checklist is held against anything in the picked part.')
     expect(whyUnfocused({ ...focus, picked: ['a', 'b'] }, 0, true)).toBe(
