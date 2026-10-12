@@ -82,7 +82,7 @@ test('a late read of every checklist for the previous project does not replace t
  * While a part is picked the page asks for every list of the epic's paper —
  * not for the passage and what the containers show — and the lists held
  * against a reference, a file or a section outside the picked parts are put
- * aside after the server answers, and nothing is printed about them. `test/follows.test.tsx` is the same walk over the real wire and the
+ * aside after the server answers, by the protocol's rule, and nothing is printed about them. `test/follows.test.tsx` is the same walk over the real wire and the
  * real doors; here the hook is this file's stand-in and the answer is fixed,
  * so what is held is the asking and the narrowing.
  */
@@ -101,7 +101,8 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
     return Response.json({
       whole: asked.at(-1)!.get('whole') === '1',
       placed: null,
-      positions: [],
+      /* Asked for the whole paper, the server says which file each list is held against. */
+      positions: asked.at(-1)!.get('whole') === '1' ? [{ file: '.kehikot/paper/thesis/chapters/3_methods.tex', section: null, title: null }] : [],
       instances: [
         instance('a', { kind: 'ref', ref: 'gh#10' }),
         instance('b', { kind: 'ref', ref: 'gh#7' }),
@@ -143,8 +144,8 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   await waitFor(() => expect(drawn()).toEqual(['a', 'c', 'd']))
   expect(notice()).toBe(false)
   expect(last().get('whole')).toBe('1')
-  /* The picked part's file is named, for its label only — not the passage's. */
-  expect(last().getAll('doc')).toEqual(['/p/.kehikot/paper/thesis/chapters/3_methods.tex'])
+  /* No place is named: not the passage's, and not the part's — the server says where each list is held. */
+  expect(last().getAll('doc')).toEqual([])
   expect(last().get('refs')).toBe('gh#10 gh#7')
 
   /* Another part, which owns no file: the section's list is put aside with the other ref's. */
@@ -155,6 +156,23 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   /* Still the whole paper, and this part owns no file to name. */
   expect(last().get('whole')).toBe('1')
   expect(last().getAll('doc')).toEqual([])
+
+  /* The same part as a host from 0.1.17 says it: its document, relative to the project. */
+  wire = {
+    ...wire,
+    parts: JSON.stringify([
+      { id: 'seam', heading: 'The posting seam', refs: [], picked: true, documents: ['.kehikot/paper/thesis/chapters/3_methods.tex'], files: ['chapters/3_methods.tex'] },
+    ]),
+  }
+  rerender(<App />)
+  await waitFor(() => expect(drawn()).toEqual(['c', 'd']))
+  expect(notice()).toBe(false)
+
+  /* A pick that leaves nothing of an answer that had lists: the protocol's one sentence, where the lists were. */
+  wire = { ...wire, parts: JSON.stringify([{ id: 'none', heading: 'Nothing here', refs: [], picked: true }]) }
+  rerender(<App />)
+  await waitFor(() => expect(drawn()).toEqual(['c']))
+  expect(notice()).toBe(false)
 
   wire = { ...wire, parts: '' }
   rerender(<App />)

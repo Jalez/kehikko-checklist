@@ -92,7 +92,7 @@ import { cn } from '@/lib/utils.ts'
  * aside. A line at the top used to say how many and which parts; it took a
  * row of a container that has few, and the host's bar already shows the pick.
  * The lists drawn are the message. Only an EMPTY page says anything — `why`,
- * one sentence where the lists would be. `list/focus.ts` is the rule.
+ * one sentence where the lists would be: the protocol's, for a pick.
  *
  * ## The way to everything
  *

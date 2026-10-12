@@ -101,9 +101,18 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-const parts = (picked: string[], refs: Record<string, string[]> = {}) => [
-  { id: 'methods', heading: 'Methods', refs: refs.methods ?? [], picked: picked.includes('methods'), files: ['chapters/3_methods.tex'] },
-  { id: 'results', heading: 'Results', refs: refs.results ?? [], picked: picked.includes('results'), files: ['chapters/4_results.tex'] },
+/**
+ * The two ways a host says what a part has. One from before protocol 1.2.0
+ * (app 0.1.16) sends only `files`, relative to the paper's folder; one from
+ * 0.1.17 sends `documents`, relative to the project, and goes on filling
+ * `files` beside them. Every walk below is made under both.
+ */
+const SHAPES = ['files', 'documents'] as const
+let shape: (typeof SHAPES)[number] = 'files'
+const has = (file: string) => (shape === 'files' ? { files: [file] } : { documents: [`${PAPER}/${file}`], files: [file] })
+const parts = (picked: string[], refs: Record<string, string[]> = {}): Record<string, unknown>[] => [
+  { id: 'methods', heading: 'Methods', refs: refs.methods ?? [], picked: picked.includes('methods'), ...has('chapters/3_methods.tex') },
+  { id: 'results', heading: 'Results', refs: refs.results ?? [], picked: picked.includes('results'), ...has('chapters/4_results.tex') },
 ]
 const place = (name: string) => ({ path: `${dir}/${PAPER}/${name}`, page: null, from: null, to: null, quoted: '' })
 /** A canvas with a paper on it: its caret in `caret`, saying it shows `shown`, and these parts picked. */
@@ -154,7 +163,11 @@ const labels = () => [...document.querySelectorAll('[data-label]')].map((one) =>
 /** Anything on the page that talks about the picked parts while a list is drawn: there is to be none. */
 const notice = () => document.querySelector('[data-focus]') !== null || /outside the|picked part|host’s bar/.test(document.body.textContent ?? '')
 
-describe('the checklists follow the picked parts, whatever the paper beside them last said', () => {
+for (const sent of SHAPES) describe(`the checklists follow the picked parts, whatever the paper beside them last said — a host that sends ${sent}`, () => {
+  beforeEach(() => {
+    shape = sent
+  })
+
   test('no part, one, another, two, none: each pick is that part’s lists, and no line says what was put aside', async () => {
     render(<App />)
     /* Nothing picked, and the paper says it is showing every file it has. All of them are in front
@@ -237,9 +250,9 @@ describe('the checklists follow the picked parts, whatever the paper beside them
     store = readFileSync(join(dir, '.kehikot', 'checklist', 'checklists.json'), 'utf8')
     render(<App />)
     const empty = canvas('main.tex', ['main.tex'], ['methods'])
-    empty.parts = [{ id: 'appendices', heading: 'Appendices', refs: [], picked: true, files: ['chapters/appendix.tex'] }]
+    empty.parts = [{ id: 'appendices', heading: 'Appendices', refs: [], picked: true, ...has('chapters/appendix.tex') }]
     await say('hello', empty)
-    await waitFor(() => expect(document.querySelector('[data-none="narrowed"]')?.textContent).toBe('No checklist is held against anything in the picked part.'))
+    await waitFor(() => expect(document.querySelector('[data-none="narrowed"]')?.textContent).toBe('No checklist is in the picked part.'))
     /* The one sentence, in the empty place, and no row above it. */
     expect(document.querySelector('[data-focus]')).toBeNull()
     expect(document.body.textContent).not.toContain('outside the')

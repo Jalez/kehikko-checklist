@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { serverStanding } from 'kehikot-module-protocol/client'
-import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
+import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../manifest.ts'
 
 import { aimOf, aimOffer, forPicked, inFrontOf, moduleLabels, whyAside, whyEmpty } from '../list/aim.ts'
-import { focusOn, partsOf, pickedPlaces, whyUnfocused } from '../list/focus.ts'
+import { NOUN, anchorOf, readParts } from '../list/focus.ts'
 import {
   edit,
   everyChecklist,
@@ -22,7 +22,7 @@ import {
   type Outline,
   type Summary,
 } from '@/store/ask.ts'
-import { isFocused, type TrackerReading } from 'kehikot-module-protocol'
+import type { TrackerReading } from 'kehikot-module-protocol'
 import { marksOf, useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
 import { factsOf } from '@/view/facts.tsx'
 import { AllView } from '@/view/all.tsx'
@@ -214,8 +214,10 @@ export function App() {
    * the wire holds. Read here, ahead of what is in front, because a picked
    * part decides that too: see "Picked parts say it first" in `list/aim.ts`.
    */
-  const epicParts = useMemo(() => partsOf(parts), [parts])
-  const focusedNow = isFocused(epicParts)
+  const epicParts = useMemo(() => readParts(parts), [parts])
+  /* The protocol's rule over those parts: the one thing on this page that says what a pick shows. */
+  const focus = useFocus({ parts: epicParts, epic, projectPath })
+  const focusedNow = focus.focused
 
   /**
    * What is in front of the reader, once the picks are taken into account.
@@ -238,15 +240,11 @@ export function App() {
     [at, selected, containers, chosen, focusedNow],
   )
   /**
-   * The places named to the server. While the picked parts decide what is in
-   * front they are the parts' own files, sent only so each row can be labelled
-   * with its file's name: `whole` is what is asked, and it is not narrowed by
-   * them.
+   * The places named to the server. None while the picked parts decide what
+   * is in front (`front.documents` is empty then): `whole` is what is asked,
+   * and the server answers with the file each list is held against.
    */
-  const documents = useMemo(
-    () => (front.byParts ? pickedPlaces(epicParts, projectPath, epic) : front.documents),
-    [front, epicParts, projectPath, epic],
-  )
+  const documents = front.documents
   /** And the same, as one string, for the fetch to depend on. */
   const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts })
 
@@ -331,7 +329,11 @@ export function App() {
    * less. That order is what lets an empty page know the pick emptied it:
    * something left out of the question would come back as nothing, and "no
    * checklist is in the picked part" needs there to have been one. Nothing is
-   * said while a list is drawn. `list/focus.ts` is the rule and the reason.
+   * said while a list is drawn.
+   *
+   * The rule is the protocol's (`focus.narrow`); this module gives it each
+   * list's anchor (`anchorOf` in `list/focus.ts`) and the list in hand
+   * (`keep`): the one whose edit page is open.
    *
    * With nothing picked `inFocus` is `here` itself, the same object, so no
    * effect below re-runs and the page is the page it was.
@@ -345,10 +347,18 @@ export function App() {
    * to find a list wherever it is held, and the edit page is one list; neither
    * hides anything, so neither has anything to say about a focus.
    */
-  const focused = useMemo(() => focusOn(here?.instances ?? [], epicParts), [here, epicParts])
+  const inHand = view.kind === 'edit' ? view.id : null
+  const focused = useMemo(
+    () =>
+      focus.narrow(here?.instances ?? [], (one) => anchorOf(one, here?.positions), {
+        noun: NOUN,
+        keep: (one) => one.checklist.id === inHand,
+      }),
+    [here, focus, inHand],
+  )
   const inFocus = useMemo(
-    () => (here && focused.focus ? { ...here, instances: [...focused.instances] } : here),
-    [here, focused],
+    () => (here && focus.focused ? { ...here, instances: focused.shown } : here),
+    [here, focus, focused],
   )
   /*
    * And then by whose work a list is for, while containers are picked out:
@@ -421,9 +431,7 @@ export function App() {
     here: inSight,
     /* The focus first: when it put lists aside and none is left, that is the
        cause, whatever the picked-out containers were also doing. */
-    why:
-      whyUnfocused(focused.focus, focused.instances.length, front.byParts)
-      ?? whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
+    why: focused.empty || whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
     /* And with lists left, the ones put aside for another module's work are
        counted in the hint on "All checklists": no row is drawn for them. */
     aside: whyAside((inFocus?.instances.length ?? 0) - forThese.instances.length, forThese.aside),

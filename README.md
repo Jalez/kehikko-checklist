@@ -88,23 +88,31 @@ would be this program picking. Selected references lead, in the canvas's order.
 ### Focused on parts of the epic
 
 An epic may be divided into parts, and a person may pick some of them out in the
-host's bar. `context.parts` (protocol 0.29.0) lists every part of the open epic
-with the references the host says belong to it and the files of the epic's paper
-it owns, and flags the picked ones; this
-module says `reacts: ['parts']`. `list/focus.ts` is the rule:
+host's bar. `context.parts` lists every part of the open epic with the
+references and the documents the modules hold for it, and flags the picked
+ones; this module says `reacts: ['parts']`. The rule is the protocol's
+(`kehikot-module-protocol` 1.2.0, `docs/parts.md`): the page narrows with
+`useFocus(context).narrow(lists, anchorOf, { noun, keep })` and has no rule of
+its own. `list/focus.ts` is the anchor each list answers:
 
 - **Nothing picked** — an epic with no parts, no epic, a host that has never
   heard of parts — and the reading page is exactly what it was.
-- **A list held against a reference** is in front only while a picked part
-  lists that reference (`refInFocus`, the protocol's rule). A reference no part
-  lists is outside every focus. The lists put aside are counted, not dropped.
-- **A list held against a file of the paper, or a section in one,** is in
-  front only while a picked part owns that file (`files` on a part). A target
-  is stored as the file's id — its path inside the project, without the
-  extension — so a part's files are spelled the same way and the ids compared.
-  A file no part owns (`main.tex`) is outside every focus, and counted.
-- **A list held against the whole paper stays**, under any focus: every part
-  is a part of the paper.
+- **A list held against a reference** answers `{ ref }`: in front only while a
+  picked part lists that reference.
+- **A list held against a file of the paper, or a section in one,** answers
+  `{ file }`: in front only while a picked part has that document. A target is
+  stored as the file's id — its path inside the project, without the extension
+  — so the server asks the disk which file spells it and answers the path
+  beside the lists (`positions` on `/api/here`). The protocol matches it
+  against a part's `documents` (relative to the project) and, for a host from
+  before 1.2.0, its `files`. A file no part has (`main.tex`) is outside every
+  pick.
+- **A list held against the whole paper** answers `{ whole: true }` and stays
+  under any pick: every part is a part of the paper.
+- **The list being edited is kept** (`keep`), whatever is picked.
+- **Nothing here names another module.** A path an agent spells from the
+  folder an epic's paper is kept in is looked for in every
+  `.kehikot/<folder>/<epic>/` the project has (`file/open.ts`).
 - **While a part is picked, the parts say what is in front**, not the passage
   or what the containers beside this one show: the page asks for every list of
   the epic's paper (`/api/here?whole=1`) and narrows that, so the lists are the
@@ -115,8 +123,8 @@ module says `reacts: ['parts']`. `list/focus.ts` is the rule:
 - **The reading page prints nothing about it** while there is a list to
   draw: no line, no count of what was put aside. The host's bar shows the pick
   and the lists are the message. Only if the focus leaves nothing does the
-  empty page say one sentence, where the lists would be: `No checklist is held
-  against anything in the picked part.`
+  empty page say one sentence, where the lists would be — the protocol's:
+  `No checklist is in the picked part.`
 - **A change of parts writes nothing.** Every tick stays in the file under its
   own checklist, item and target, and is back on screen when the pick is.
 

@@ -31,7 +31,7 @@ import { flattenParts } from '../../list/focus.ts'
  *   anywhere on the canvas, as fresh objects each time, and this page's reads depend on what it
  *   says. A string is compared by value, so an effect that depends on one runs when the canvas
  *   moved and not when it merely spoke: the passage, the containers, the filter choice, the
- *   tracker's signal, the dispositions and the parts (`flattenParts` / `partsOf`) are each
+ *   tracker's signal, the dispositions and the parts (`flattenParts` / `readParts`) are each
  *   flattened here, once, from the context `useHost` hands over.
  * - **The announcements pump** (`wire/emit.ts`): what an agent did over this app's MCP door,
  *   emitted to the host as events, through the hook's `request`.
@@ -214,14 +214,14 @@ export interface Kehikot {
   marks: string
   /**
    * `context.parts`: every part of the open epic, the picked ones flagged, as
-   * one string for the reason everything above is one. `partsOf` in
+   * one string for the reason everything above is one. `readParts` in
    * `list/focus.ts` reads it back.
    *
    * `''` is no parts: nothing is framing this page, the epic is not divided,
    * or the host has never heard of them — all three mean the whole epic is in
    * front. This is the whole of `reacts: ['parts']`: when the picked parts
    * change the string changes, and the reading page puts aside the lists held
-   * against references outside them and says how many. There is no setter;
+   * against what is outside them. There is no setter;
    * picking a part is the host's own control.
    */
   parts: string
