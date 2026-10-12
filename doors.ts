@@ -1,3 +1,5 @@
+import { join } from 'node:path'
+
 import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
@@ -251,7 +253,8 @@ const TARGET_PROPERTIES = {
       + "paper's own folder spells it, the same file from the project folder, or its absolute path. This app "
       + 'opens the file and works out which section the offsets below fall in, so you do not have to know the '
       + 'section id. A path that is not a file of this project is refused; it is never read as the whole paper. '
-      + 'Ignored if section is given.',
+      + "Where the paper's folder and the project both have that relative path, the paper's is taken and the "
+      + 'answer says so. Ignored if section is given.',
   },
   from: {
     type: 'number',
@@ -330,38 +333,19 @@ function resolve(args: Record<string, unknown>, where: string | null): Target | 
  * target is never checked, "because a target with ticks on it is a record of
  * work done and not a claim about today's document", and that holds: a heading
  * renamed since, or a hold made before this refusal existed, can still be read,
- * unticked and released by the name it was stored under. What is refused is
- * minting a new one.
+ * ticked, unticked and released by the name it was stored under. So the stored
+ * names are asked FIRST, before the disk: a hold stored as `chapters:3_methods`
+ * beside a file whose id is now `.kehikot:paper:<epic>:chapters:3_methods`
+ * would otherwise resolve to the second and never be nameable again. What is
+ * refused is minting a new one, and `minting` — a hold — is the one call that
+ * asks the disk first, so that spelling held anew lands where a reader arrives.
  */
-function aimed(args: Record<string, unknown>, where: string, id: string): Target | null {
+function aimed(args: Record<string, unknown>, where: string, id: string, minting: boolean): Aimed | null {
   const named = readTarget(args)
-  if (!named || named.kind === 'ref') return named
-  if (named.section) {
-    const found = placeNamed(where, named.epic, named.section)
-    if (found && 'section' in found) return { kind: 'paper', epic: named.epic, section: found.section }
-    if (targetsOf(id, where).some((row) => targetKey(row.target) === targetKey(named))) return named
-    if (found) {
-      throw new Error(
-        `${found.file} has no heading with the id "${named.section.slice(named.section.indexOf('#') + 1)}", so `
-        + 'nothing was held or ticked against it: a list held against a heading that is not there is shown '
-        + 'nowhere. '
-        + (found.headings.length
-          ? `Its headings are: ${found.headings.join(', ')}. Give one of those as section, or leave the "#" part `
-            + 'off to mean the whole file.'
-          : 'This app found no headings in that file; leave the "#" part off to mean the whole file.'),
-      )
-    }
-    throw new Error(
-      `"${named.section}" names no file or heading of this project or of the paper ${named.epic} is aimed at, so `
-      + 'nothing was held or ticked against it: a list held against a section that is not there is shown nowhere. '
-      + 'A section is the id this app prints — a file is its path without the extension and with ":" for "/", '
-      + 'e.g. "chapters:3_methods", and a heading is that plus "#" and its \\label{}, e.g. '
-      + '"chapters:3_methods#sec:meth-design". A bare label is not one. Or give path (with from and to) instead '
-      + 'and this app works the id out.',
-    )
-  }
+  if (!named) return null
+  if (named.kind === 'ref' || named.section) return settle(named, where, id, minting, 'paper')
   const path = str(args.path, MAX_PROJECT)
-  if (!path) return named
+  if (!path) return { target: named, also: null }
   /* A half-range stays on the file rung, exactly as in `resolve`. */
   const from = typeof args.from === 'number' && Number.isFinite(args.from) ? Math.trunc(args.from) : null
   const to = typeof args.to === 'number' && Number.isFinite(args.to) ? Math.trunc(args.to) : null
@@ -375,7 +359,78 @@ function aimed(args: Record<string, unknown>, where: string, id: string): Target
       + 'spells it, or the absolute path; or leave path out to mean the whole paper.',
     )
   }
-  return targetOf(scopeOf(named.epic, placed)) ?? named
+  return {
+    target: targetOf(scopeOf(named.epic, placed)) ?? named,
+    also: placed.other
+      ? `"${path.slice(0, 200)}" is a file both in the folder of the paper ${named.epic} is aimed at and in the `
+        + `project (${placed.other}). The paper’s was taken, because that is the one the paper shows. To mean the `
+        + `project’s instead, give its absolute path: "${join(where, placed.other)}".`
+      : null,
+  }
+}
+
+/** A target, and — where the words that named it name a second file as well — the sentence saying which was taken. */
+interface Aimed {
+  target: Target
+  also: string | null
+}
+
+/**
+ * A named target, held to the one standard both doors keep: a section either
+ * is one this list is already held against, by the exact name it was stored
+ * under, or names a file or a heading on disk. Throws the refusal otherwise.
+ *
+ * A reference and the whole paper pass untouched: neither is a place in a file.
+ * `first` is `placeNamed`'s — the agent's door means the paper's folder, the
+ * page presses an id this app minted from the project.
+ */
+function settle(named: Target, where: string, id: string, minting: boolean, first: 'paper' | 'project'): Aimed {
+  if (named.kind === 'ref' || !named.section) return { target: named, also: null }
+  const stored = targetsOf(id, where).some((row) => targetKey(row.target) === targetKey(named))
+  if (stored && !minting) return { target: named, also: null }
+  const found = placeNamed(where, named.epic, named.section, first)
+  if (found && 'section' in found) {
+    return {
+      target: { kind: 'paper', epic: named.epic, section: found.section },
+      also:
+        found.other && first === 'paper'
+          ? `"${named.section}" names a file in the folder of the paper ${named.epic} is aimed at and one in the `
+            + `project (${found.other}). The paper’s was taken, as ${found.section}, because that is the one the `
+            + `paper shows. To mean the project’s instead, give path: "${join(where, found.other)}".`
+          : null,
+    }
+  }
+  if (stored) return { target: named, also: null }
+  if (found && 'long' in found) {
+    throw new Error(
+      `"${named.section}" is on disk, but the id this app mints for it is spelled from the project folder `
+      + `("${found.long}") and does not fit: a target’s name is at most ${MAX_TARGET_PART} characters, with no `
+      + 'space or slash. So nothing was held or ticked against it. Leave the "#" part off to mean the file, or '
+      + 'leave section out to mean the whole paper.',
+    )
+  }
+  if (found) {
+    throw new Error(
+      `${found.file} has no heading with the id "${named.section.slice(named.section.indexOf('#') + 1)}", so `
+      + 'nothing was held or ticked against it: a list held against a heading that is not there is shown '
+      + 'nowhere. '
+      + (found.headings.length
+        ? `Its headings are: ${found.headings.join(', ')}`
+          + (found.total > found.headings.length
+            ? ` — the first ${found.headings.length} of ${found.total}, the rest are not listed here`
+            : '')
+          + '. Give one of those as section, or leave the "#" part off to mean the whole file.'
+        : 'This app found no headings in that file; leave the "#" part off to mean the whole file.'),
+    )
+  }
+  throw new Error(
+    `"${named.section}" names no file or heading of this project or of the paper ${named.epic} is aimed at, so `
+    + 'nothing was held or ticked against it: a list held against a section that is not there is shown nowhere. '
+    + 'A section is the id this app prints — a file is its path without the extension and with ":" for "/", '
+    + 'e.g. "chapters:3_methods", and a heading is that plus "#" and its \\label{}, e.g. '
+    + '"chapters:3_methods#sec:meth-design". A bare label is not one. Or give path (with from and to) instead '
+    + 'and this app works the id out.',
+  )
 }
 
 /**
@@ -710,18 +765,18 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     /* The same passage resolution as `check_item`, so an agent that was told
        what is owed "here" can hold a list here without spelling the section id
        this program mints. */
-    const target = aimed(args, where, id)
-    if (!target) {
+    const aim = aimed(args, where, id, args.release !== true)
+    if (!aim) {
       throw new Error(
         'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
         + 'e.g. "gh#105") or an epic whose paper this is, optionally with a section of it or a path into it. What a '
         + 'list is held against is where a person sees it, so there is nothing to do without one.',
       )
     }
-    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target, by, viaMcp: true }
+    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target: aim.target, by, viaMcp: true }
     const out = change(op, where)
     if (!out.ok) throw new Error(out.error)
-    return `${out.said}.\n\n${listText(id, null, where)}`
+    return `${out.said}.${aim.also ? `\n\n${aim.also}` : ''}\n\n${listText(id, null, where)}`
   }
 
   if (name === 'checklist_for') {
@@ -741,6 +796,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
 
   let op: Op
   let target: Target | null = null
+  let also: string | null = null
 
   if (name === 'add_checklist_item') {
     const text = str(args.text, MAX_TEXT)
@@ -776,8 +832,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
        the same passage resolution the reading tool does, so an agent that asked
        "what is owed here" and then ticks something is ticking against the place
        it was answered about rather than against the whole paper. */
-    target = aimed(args, where, id)
-    if (!target) {
+    const aim = aimed(args, where, id, false)
+    if (!aim) {
       throw new Error(
         'check_item needs to say WHAT is being ticked off: a ref (an issue, merge request or pull request, e.g. '
         + '"gh#105") or an epic whose paper this is, optionally with a section of it. A tick belongs to the '
@@ -786,6 +842,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         + `${MAX_TARGET_PART} characters, or contain a space or a slash.`,
       )
     }
+    target = aim.target
+    also = aim.also
     op = {
       op: 'tick',
       id,
@@ -800,7 +858,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
 
   const out = change(op, where)
   if (!out.ok) throw new Error(out.error)
-  return `${out.said}.\n\n${listText(id, target, where)}`
+  return `${out.said}.${also ? `\n\n${also}` : ''}\n\n${listText(id, target, where)}`
 }
 
 /* A status and a document — the protocol's `Reply`. Nothing here writes bytes; `doors()` does that. */
@@ -899,8 +957,8 @@ function mcp(rpc: Rpc): Reply {
            complaint about a ref nobody sent would be a refusal of the wrong
            thing. */
         const gave = args.ref !== undefined || args.epic !== undefined
-        const target = gave ? aimed(args, where, id) : null
-        if (gave && !target) {
+        const aim = gave ? aimed(args, where, id, false) : null
+        if (gave && !aim) {
           return text(
             'checklists was given something that is not a target. It takes a ref like "gh#105" or "!44", or an epic '
             + `slug with an optional section — no spaces, no slashes, no more than ${MAX_TARGET_PART} characters — or `
@@ -908,7 +966,7 @@ function mcp(rpc: Rpc): Reply {
             true,
           )
         }
-        return text(listText(id, target, where))
+        return text(`${aim?.also ? `${aim.also}\n\n` : ''}${listText(id, aim?.target ?? null, where)}`)
       }
       if (
         name === 'create_checklist'
@@ -1270,23 +1328,45 @@ export function answer(
         if (to === null) return bad('a move needs a position to move to, and nothing was moved.')
         return ok(change({ op: 'move', id, item, to, by }, where))
       }
+      /*
+       * The page's targets meet the agent's standard (`settle`): a file or a
+       * heading has to be one this list is already held against or one that is
+       * on disk, so this door cannot mint a target the other refuses. The page
+       * makes three kinds — a reference, the whole paper, and a file or heading
+       * off the outline, which was read off disk — so its own presses pass. A
+       * release is not held to it: letting go of a name mints nothing.
+       */
       if (op === 'hold' || op === 'release') {
-        const target = readTarget(body)
-        if (!target) {
+        const named = readTarget(body)
+        if (!named) {
           return bad(
             `that ${op} did not say which target. A checklist is held against an issue, a merge request, a pull `
             + 'request, or a paper, one of its files or one heading in it.',
           )
         }
+        let target = named
+        if (op === 'hold') {
+          try {
+            target = settle(named, where, id, true, 'project').target
+          } catch (refusal) {
+            return bad(refusal instanceof Error ? refusal.message : String(refusal))
+          }
+        }
         return ok(change({ op, id, target, by }, where))
       }
       if (op === 'tick') {
-        const target = readTarget(body)
-        if (!target) {
+        const named = readTarget(body)
+        if (!named) {
           return bad(
             'that tick did not say what it was against. A tick belongs to a checklist, an item and a target '
             + 'together — the same list held against two pieces of work keeps two separate sets of ticks.',
           )
+        }
+        let target = named
+        try {
+          target = settle(named, where, id, false, 'project').target
+        } catch (refusal) {
+          return bad(refusal instanceof Error ? refusal.message : String(refusal))
         }
         return ok(
           change(

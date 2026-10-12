@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { contains, inside, rootOf } from '../file/confine.ts'
-import { placeOf } from '../file/open.ts'
+import { placeIn, placeNamed, placeOf } from '../file/open.ts'
 
 /**
  * The file that exists entirely to try to get past the fence.
@@ -156,5 +156,64 @@ describe('what the reader gets back, given all that', () => {
     const placed = placeOf(root, join(root, 'main.tex'), 0, 5)
     expect(Object.keys(placed ?? {}).sort()).toEqual(['file', 'section', 'title'])
     expect(JSON.stringify(placed)).not.toContain('prose')
+  })
+})
+
+/**
+ * The two resolvers an agent's TYPED words go through. Both end in `inside`,
+ * and these are the same attempts made at them directly, so a later spelling
+ * that reaches a file some other way has a test to fail.
+ */
+describe('a path or an id an agent typed', () => {
+  const project = join(tmp, 'typed')
+  const paper = join(project, '.kehikot', 'paper', 'thesis')
+  mkdirSync(join(paper, 'chapters'), { recursive: true })
+  writeFileSync(join(paper, 'chapters', '3_methods.tex'), '\\section{Design}\\label{sec:design}\nprose\n')
+  writeFileSync(join(tmp, 'typed-evil.tex'), '\\section{Not yours}\\label{sec:secret}\n')
+  symlinkSync(join(tmp, 'typed-evil.tex'), join(project, 'link.tex'))
+  symlinkSync(join(tmp, 'typed-evil.tex'), join(paper, 'leak.tex'))
+  symlinkSync(evil, join(paper, 'away'))
+
+  test('resolves inside the project, so the refusals below are the fence and not a broken fixture', () => {
+    expect(placeIn(project, 'thesis', 'chapters/3_methods.tex', null, null)?.file).toBe('.kehikot/paper/thesis/chapters/3_methods.tex')
+    expect(placeNamed(project, 'thesis', 'chapters:3_methods#sec:design')).toEqual({
+      section: '.kehikot:paper:thesis:chapters:3_methods#sec:design',
+      other: null,
+    })
+  })
+
+  test('a path that climbs out with `..` is refused, from the project and from the paper’s folder', () => {
+    expect(placeIn(project, 'thesis', '../typed-evil.tex', null, null)).toBe(null)
+    expect(placeIn(project, 'thesis', '../../../../typed-evil.tex', null, null)).toBe(null)
+    expect(placeIn(project, 'thesis', '../project-evil/secret.tex', null, null)).toBe(null)
+  })
+
+  test('an absolute path outside the project is refused', () => {
+    expect(placeIn(project, 'thesis', join(tmp, 'typed-evil.tex'), null, null)).toBe(null)
+    expect(placeIn(project, 'thesis', join(evil, 'secret.tex'), 0, 5)).toBe(null)
+  })
+
+  test('a symlink that points outside is refused, a file or a folder on the way', () => {
+    expect(placeIn(project, 'thesis', 'link.tex', null, null)).toBe(null)
+    expect(placeIn(project, 'thesis', 'leak.tex', null, null)).toBe(null)
+    expect(placeIn(project, 'thesis', 'away/secret.tex', null, null)).toBe(null)
+  })
+
+  test('an id that climbs out with `..` names nothing', () => {
+    expect(placeNamed(project, 'thesis', '..:typed-evil')).toBe(null)
+    expect(placeNamed(project, 'thesis', '..:..:..:..:typed-evil#sec:secret')).toBe(null)
+    expect(placeNamed(project, 'thesis', '..:project-evil:secret')).toBe(null)
+  })
+
+  test('an id that spells an absolute path names nothing', () => {
+    expect(placeNamed(project, 'thesis', ':etc:hosts')).toBe(null)
+    expect(placeNamed(project, 'thesis', `${tmp.replace(/\//g, ':')}:typed-evil`)).toBe(null)
+  })
+
+  test('an id that reaches a symlink pointing outside names nothing', () => {
+    expect(placeNamed(project, 'thesis', 'link')).toBe(null)
+    expect(placeNamed(project, 'thesis', 'link#sec:secret')).toBe(null)
+    expect(placeNamed(project, 'thesis', 'leak')).toBe(null)
+    expect(placeNamed(project, 'thesis', 'away:secret')).toBe(null)
   })
 })

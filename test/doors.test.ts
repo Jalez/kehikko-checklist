@@ -128,6 +128,8 @@ describe('reads', () => {
     const { list, item } = await aList()
     const other = answer('POST', '/api/checklist', query, { op: 'create', name: 'What the thesis owes', project: dir }, TICKET)
     const otherId = (other?.body as { id: string }).id
+    /* On disk before it is held: this door holds a list against a file that is there. */
+    await aChapter('chapters/3_methods.tex')
     answer('POST', '/api/checklist', query, { op: 'hold', id: list, epic: 'thesis', section: 'chapters:3_methods', project: dir }, TICKET)
     answer('POST', '/api/checklist', query, { op: 'hold', id: otherId, epic: 'thesis', project: dir }, TICKET)
     answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, epic: 'thesis', section: 'chapters:3_methods', done: true, project: dir }, TICKET)
@@ -271,21 +273,17 @@ describe('writes', () => {
   test('a paper section is its own target, distinct from the whole paper', async () => {
     const { TICKET, answer } = await import('../doors.ts')
     const { list, item } = await aList()
+    await aChapter('chapters/bridge.tex', 'ch:bridge')
+    const section = 'chapters:bridge#ch:bridge'
     answer(
       'POST',
       '/api/checklist',
       query,
-      { op: 'tick', id: list, item, epic: 'modes-are-modules', section: 'ch:bridge', done: true, project: dir },
+      { op: 'tick', id: list, item, epic: 'modes-are-modules', section, done: true, project: dir },
       TICKET,
     )
     const whole = answer('GET', '/api/checklist', asking({ id: list, epic: 'modes-are-modules' }), null, null)
-    const part = answer(
-      'GET',
-      '/api/checklist',
-      asking({ id: list, epic: 'modes-are-modules', section: 'ch:bridge' }),
-      null,
-      null,
-    )
+    const part = answer('GET', '/api/checklist', asking({ id: list, epic: 'modes-are-modules', section }), null, null)
     expect((whole?.body as { held: { done: number } }).held.done).toBe(0)
     expect((part?.body as { held: { done: number } }).held.done).toBe(1)
   })
@@ -531,6 +529,135 @@ describe('the agent’s door', () => {
     /* And once let go it is a new target like any other, and refused. */
     const again = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:dependencies' })
     expect(again.isError).toBe(true)
+  })
+
+  test('a hold stored under an older spelling stays nameable beside the file that spelling now resolves to', async () => {
+    /* `chapters:3_methods` is the "chapter file's name" form the tool once
+       suggested. The file is there, under the id a reader arrives at, and the
+       stored name must not be swallowed by it. */
+    const { change } = await import('../list/checklists.ts')
+    const { list, item } = await aList()
+    await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
+    const stale = { kind: 'paper' as const, epic: 'thesis', section: 'chapters:3_methods' }
+    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test' }, dir)
+    const named = { checklist: list, epic: 'thesis', section: 'chapters:3_methods' }
+
+    const read = await tool('checklists', named)
+    expect(read.text).toContain('held against thesis · chapters:3_methods — 1/1 ticked')
+    const untick = await tool('check_item', { ...named, item, done: false })
+    expect(untick.isError).toBe(false)
+    expect(untick.text).toContain('held against thesis · chapters:3_methods — 0/1 ticked')
+
+    /* A NEW hold by that spelling is the one call that asks the disk first. */
+    const held = await tool('hold_checklist', named)
+    expect(held.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
+
+    const released = await tool('hold_checklist', { ...named, release: true })
+    expect(released.isError).toBe(false)
+    expect(released.text).toContain('is no longer held against thesis · chapters:3_methods')
+    expect(released.text).toContain('Held against: thesis · .kehikot:paper:thesis:chapters:3_methods')
+  })
+
+  test('a relative path both folders have is the paper’s, and the answer says how to name the project’s', async () => {
+    await aChapter('chapters/3_methods.tex')
+    await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex' })
+    expect(out.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
+    expect(out.text).toContain('The paper’s was taken')
+    expect(out.text).toContain(`give its absolute path: "${join(dir, 'chapters/3_methods.tex')}"`)
+    const other = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: join(dir, 'chapters/3_methods.tex') })
+    expect(other.text).toContain('is now held against thesis · chapters:3_methods')
+    expect(other.text).not.toContain('was taken')
+
+    const second = await aList('What a chapter owes')
+    const byId = await tool('hold_checklist', { checklist: second.list, epic: 'thesis', section: 'chapters:3_methods' })
+    expect(byId.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
+    expect(byId.text).toContain(`To mean the project’s instead, give path: "${join(dir, 'chapters/3_methods.tex')}"`)
+  })
+
+  test('a folder beside a file of the same name does not hide the file', async () => {
+    const { mkdirSync, writeFileSync } = await import('node:fs')
+    mkdirSync(join(dir, 'notes'))
+    writeFileSync(join(dir, 'notes.txt'), 'Words.\n')
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'notes' })
+    expect(out.isError).toBe(false)
+    expect(out.text).toContain('is now held against thesis · notes')
+  })
+
+  test('a refusal that lists only some of a file’s headings says so, and how many there are', async () => {
+    const { writeFileSync } = await import('node:fs')
+    const headings = Array.from({ length: 30 }, (_, at) => `\\section{Part ${at}}\\label{sec:p${at}}\n\nWords.\n`)
+    writeFileSync(join(dir, 'long.tex'), headings.join('\n'))
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'long#sec:nope' })
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('long#sec:p23 — the first 24 of 30')
+    expect(out.text).not.toContain('long#sec:p24')
+  })
+
+  test('a place whose id would be too long is refused for its length, not as a file that is not there', async () => {
+    const name = 'a'.repeat(55)
+    await aChapter(`.kehikot/paper/thesis/chapters/${name}.tex`)
+    const { list } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: `chapters:${name}` })
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('is on disk')
+    expect(out.text).toContain('at most 80 characters')
+    expect(out.text).not.toContain('names no file')
+    const heading = await tool('hold_checklist', {
+      checklist: list,
+      epic: 'thesis',
+      section: `chapters:${'a'.repeat(30)}#sec:meth-design`,
+    })
+    expect(heading.text).toContain('names no file')
+    await aChapter(`.kehikot/paper/thesis/chapters/${'b'.repeat(40)}.tex`)
+    const tooLong = await tool('hold_checklist', {
+      checklist: list,
+      epic: 'thesis',
+      section: `chapters:${'b'.repeat(40)}#sec:meth-design`,
+    })
+    expect(tooLong.isError).toBe(true)
+    expect(tooLong.text).toContain('at most 80 characters')
+  })
+
+  test('the page’s door holds to the same standard: a new hold names something on disk, a stored one stays usable', async () => {
+    const { TICKET, answer } = await import('../doors.ts')
+    const { change, targetsOf } = await import('../list/checklists.ts')
+    const { list, item } = await aList()
+    const post = (body: Record<string, unknown>) =>
+      answer('POST', '/api/checklist', query, { project: dir, id: list, epic: 'thesis', ...body }, TICKET)
+
+    const typo = post({ op: 'hold', section: 'chapters:3_methods' })
+    expect(typo?.status).toBe(400)
+    expect((typo?.body as { error: string }).error).toContain('names no file or heading')
+    expect(post({ op: 'tick', item, section: 'chapters:3_methods#sec:nope', done: true })?.status).toBe(400)
+    expect(targetsOf(list, dir)).toEqual([])
+
+    /* The whole paper and a reference are not places in a file, and pass. */
+    expect((post({ op: 'hold' })?.body as { ok: boolean }).ok).toBe(true)
+    expect((post({ op: 'hold', epic: undefined, ref: 'gh#105' })?.body as { ok: boolean }).ok).toBe(true)
+
+    /* What the outline offers is on disk, by the project's own spelling —
+       taken as pressed even when the paper's folder has a file of that name. */
+    await aChapter('chapters/3_methods.tex')
+    await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
+    expect((post({ op: 'hold', section: 'chapters:3_methods#sec:meth-design' })?.body as { ok: boolean }).ok).toBe(true)
+    expect(targetsOf(list, dir).map((row) => row.target)).toContainEqual({
+      kind: 'paper',
+      epic: 'thesis',
+      section: 'chapters:3_methods#sec:meth-design',
+    })
+
+    /* A target stored before any of this, naming nothing on disk. */
+    const stale = { kind: 'paper' as const, epic: 'thesis', section: 'sec:dependencies' }
+    change({ op: 'hold', id: list, target: stale, by: 'a test' }, dir)
+    const ticked = post({ op: 'tick', item, section: 'sec:dependencies', done: true })
+    expect((ticked?.body as { ok: boolean }).ok).toBe(true)
+    expect(targetsOf(list, dir).find((row) => row.target.kind === 'paper' && row.target.section === 'sec:dependencies')?.done).toBe(1)
+    expect((post({ op: 'release', section: 'sec:dependencies' })?.body as { ok: boolean }).ok).toBe(true)
+    expect(targetsOf(list, dir).some((row) => row.target.kind === 'paper' && row.target.section === 'sec:dependencies')).toBe(false)
   })
 
   test('hold_checklist with nothing to hold against is refused and told what a target is', async () => {

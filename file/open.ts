@@ -1,9 +1,10 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 
 import { KEHIKOT_DIR, PAPER_MODULE, moduleFolder } from 'kehikot-module-protocol'
 
 import { fileId, sectionId, type Placed } from '../list/scope.ts'
+import { MAX_TARGET_PART } from '../list/targets.ts'
 import { dialectOf, sectionAt, sectionsIn } from './sections.ts'
 import { inside, rootOf } from './confine.ts'
 
@@ -173,9 +174,12 @@ function paperFolder(epic: string): string {
  * the whole paper: seven chapters held by their own names became one hold on
  * the paper, and nothing said so.
  *
- * So a relative path the project does not have is looked for in the paper's
- * folder as well. The project is asked FIRST, which is what keeps every path
- * that resolved before this resolving to the same place.
+ * So a relative path is looked for in the paper's folder as well as in the
+ * project, and the PAPER'S is taken when both have it: the caller named an
+ * epic, so it is that epic's paper the path was spelled in, and the project's
+ * copy is a file the paper never shows. `other` is that copy, so the answer can
+ * say which was taken and how to name the one that was not — its absolute
+ * path, which is only ever read against the project.
  *
  * Null still means what the fence means by it, and the caller here is expected
  * to refuse on it rather than widen. See `aimed` in `doors.ts`.
@@ -186,10 +190,11 @@ export function placeIn(
   path: string,
   from: number | null,
   to: number | null,
-): Placed | null {
-  const placed = placeOf(projectPath, path, from, to)
-  if (placed || isAbsolute(path)) return placed
-  return placeOf(projectPath, join(paperFolder(epic), path), from, to)
+): (Placed & { other: string | null }) | null {
+  const project = placeOf(projectPath, path, from, to)
+  const paper = isAbsolute(path) ? null : placeOf(projectPath, join(paperFolder(epic), path), from, to)
+  if (!paper) return project && { ...project, other: null }
+  return { ...paper, other: project && project.file !== paper.file ? project.file : null }
 }
 
 /** How many entries of one directory are looked through for the file an id names. */
@@ -199,11 +204,19 @@ const MAX_ENTRIES = 1024
 const MAX_OFFERED = 24
 
 /**
- * What a section id names: the id as this app spells it — or, for a heading its
- * file does not have, that file and the headings it does have, which is what
- * the refusal offers instead.
+ * What a section id names. One of:
+ *
+ * - the id as this app spells it, and in `other` the second file the same
+ *   spelling names, when the project and the paper's folder both have one;
+ * - for a heading its file does not have, that file and the headings it does
+ *   have — the first `MAX_OFFERED` of `total` — which the refusal offers instead;
+ * - `long`: the place is there, and the id this app would mint for it does not
+ *   fit a target's name, so nothing can be held against it.
  */
-export type NamedPlace = { section: string } | { file: string; headings: string[] }
+export type NamedPlace =
+  | { section: string; other: string | null }
+  | { file: string; headings: string[]; total: number }
+  | { long: string }
 
 function isFile(path: string): boolean {
   try {
@@ -241,43 +254,83 @@ function headingsOf(real: string, rel: string, file: string): string[] {
  * that id: the one spelling, rather than an extension guessed back on.
  *
  * The id may be spelled from the project or from the epic's paper folder, for
- * the reason `placeIn` gives. What comes back is always the id from the
- * PROJECT, built from the real path as `placeOf` builds it, because that is the
- * only spelling a reader walking into the file arrives at.
+ * the reason `placeIn` gives, and `first` says which is taken when both have
+ * the file. An agent typing an id beside an epic means the paper's, as with a
+ * path; the page presses an id this app minted, which is the project's
+ * spelling exactly. What comes back is always the id from the PROJECT, built
+ * from the real path as `placeOf` builds it, because that is the only spelling
+ * a reader walking into the file arrives at.
  *
  * Headings and ids, never contents — the bound this file sets for itself at the
  * top holds here too.
  */
-export function placeNamed(projectPath: string | null | undefined, epic: string, section: string): NamedPlace | null {
+export function placeNamed(
+  projectPath: string | null | undefined,
+  epic: string,
+  section: string,
+  first: 'paper' | 'project' = 'paper',
+): NamedPlace | null {
   const root = rootOf(projectPath)
   if (!root) return null
   const cut = section.indexOf('#')
   const at = (cut === -1 ? section : section.slice(0, cut)).replace(/:/g, '/')
   if (!at) return null
-  for (const spelled of [at, join(paperFolder(epic), at)]) {
-    const dir = inside(root, dirname(spelled))
-    if (!dir) continue
-    let names: string[]
-    try {
-      names = readdirSync(dir).slice(0, MAX_ENTRIES)
-    } catch {
+  const inPaper = join(paperFolder(epic), at)
+  const found: { rel: string; id: string }[] = []
+  let miss: NamedPlace | null = null
+  const seen = new Set<string>()
+  for (const spelled of first === 'paper' ? [inPaper, at] : [at, inPaper]) {
+    const real = fileSpelled(root, spelled)
+    const rel = real ? relative(root, real) : ''
+    if (!real || !rel || rel.startsWith('..') || seen.has(rel)) continue
+    seen.add(rel)
+    const file = fileId(rel)
+    if (!file) {
+      miss ??= { long: rel }
       continue
     }
-    /* The extension is a stand-in for the one that was cut: `fileId` drops it,
-       and what is left is the id this spelling means. */
-    const wanted = fileId(`${spelled}.tex`)
-    const spells = names.filter((name) => wanted !== null && fileId(join(dirname(spelled), name)) === wanted)
-    /* `3_methods.tex` before `3_methods.bib`: both spell the id, and only one has headings. */
-    const name = spells.find((one) => dialectOf(one) !== null) ?? spells[0]
-    const real = name ? inside(root, join(dirname(spelled), name)) : null
-    if (!real || !isFile(real)) continue
-    const rel = relative(root, real)
-    const file = fileId(rel)
-    if (!file) continue
-    if (cut === -1) return { section: file }
-    const headings = headingsOf(real, rel, file)
+    if (cut === -1) {
+      found.push({ rel, id: file })
+      continue
+    }
     const id = `${file}#${section.slice(cut + 1)}`
-    return headings.includes(id) ? { section: id } : { file: rel, headings: headings.slice(0, MAX_OFFERED) }
+    if (id.length > MAX_TARGET_PART) {
+      miss ??= { long: id }
+      continue
+    }
+    const headings = headingsOf(real, rel, file)
+    if (headings.includes(id)) found.push({ rel, id })
+    else miss ??= { file: rel, headings: headings.slice(0, MAX_OFFERED), total: headings.length }
   }
-  return null
+  const [taken, next] = found
+  return taken ? { section: taken.id, other: next?.rel ?? null } : miss
+}
+
+/**
+ * The file a path without its extension spells, or null.
+ *
+ * Matched on the last name only — the directory was listed by that very
+ * spelling — so a path too long to be an id is still found, and is refused for
+ * its length rather than as a file that is not there. Files only: `notes/`
+ * beside `notes.txt` spells the same id and is nothing a list is held against.
+ */
+function fileSpelled(root: string, spelled: string): string | null {
+  const dir = inside(root, dirname(spelled))
+  if (!dir) return null
+  let names: string[]
+  try {
+    names = readdirSync(dir).slice(0, MAX_ENTRIES)
+  } catch {
+    return null
+  }
+  /* The extension is a stand-in for the one that was cut: `fileId` drops it,
+     and what is left is the id this spelling means. */
+  const wanted = fileId(`${basename(spelled)}.tex`)
+  if (!wanted) return null
+  const files = names
+    .filter((name) => fileId(name) === wanted)
+    .map((name) => inside(root, join(dirname(spelled), name)))
+    .filter((real): real is string => real !== null && isFile(real))
+  /* `3_methods.tex` before `3_methods.bib`: both spell the id, and only one has headings. */
+  return files.find((one) => dialectOf(one) !== null) ?? files[0] ?? null
 }
