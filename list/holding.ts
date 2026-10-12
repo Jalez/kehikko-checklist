@@ -146,9 +146,9 @@ export function showing(input: { ladder: string; selection: string[]; lists: Hol
  * bar, which is not a place — it is several files at once, none of them with a
  * caret in it. So nothing is climbed: every pairing of a list with a target in
  * this paper comes back, a section and the file around it both when a list is
- * held against both, and `list/focus.ts` on the page puts aside the ones the
- * picked parts do not own and counts them. Asking about the picked files alone
- * would leave nothing to count.
+ * held against both, and the page puts aside the ones no picked part has, by
+ * the protocol's rule (`list/focus.ts`). Asking about the picked files alone
+ * would leave an emptied page unable to say the pick emptied it.
  *
  * Like `showing`, it reads what was assigned and assigns nothing.
  */

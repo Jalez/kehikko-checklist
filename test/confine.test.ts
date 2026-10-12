@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { contains, inside, rootOf } from '../file/confine.ts'
-import { placeIn, placeNamed, placeOf } from '../file/open.ts'
+import { filesNamed, placeIn, placeNamed, placeOf } from '../file/open.ts'
 
 /**
  * The file that exists entirely to try to get past the fence.
@@ -180,6 +180,32 @@ describe('a path or an id an agent typed', () => {
       section: '.kehikot:paper:thesis:chapters:3_methods#sec:design',
       other: null,
     })
+  })
+
+  test('the folder an epic’s files are kept in is found by asking the project, whichever program keeps them', () => {
+    /* No module is named: any folder directly under `.kehikot/` that has one for the epic is read. */
+    const other = join(project, '.kehikot', 'sketches', 'thesis')
+    mkdirSync(other, { recursive: true })
+    writeFileSync(join(other, 'only-here.tex'), '\\section{Elsewhere}\\label{sec:elsewhere}\n')
+    expect(placeIn(project, 'thesis', 'only-here.tex', null, null)?.file).toBe('.kehikot/sketches/thesis/only-here.tex')
+    expect(placeNamed(project, 'thesis', 'only-here#sec:elsewhere')).toEqual({
+      section: '.kehikot:sketches:thesis:only-here#sec:elsewhere',
+      other: null,
+    })
+    /* Another epic's folder is not this epic's. */
+    expect(placeIn(project, 'other', 'only-here.tex', null, null)).toBe(null)
+  })
+
+  test('a file id is turned back into the files that spell it, as paths inside the project', () => {
+    expect(filesNamed(project, '.kehikot:paper:thesis:chapters:3_methods')).toEqual(['.kehikot/paper/thesis/chapters/3_methods.tex'])
+    /* The id is the project's own spelling: a shorter one names nothing here. */
+    expect(filesNamed(project, 'chapters:3_methods')).toEqual([])
+    expect(filesNamed(project, '.kehikot:paper:thesis:chapters:9_gone')).toEqual([])
+    /* And the fence holds: out of the project, or through a link that leaves it, is no file. */
+    expect(filesNamed(project, '..:typed-evil')).toEqual([])
+    expect(filesNamed(project, 'link')).toEqual([])
+    expect(filesNamed(project, '.kehikot:paper:thesis:leak')).toEqual([])
+    expect(filesNamed(null, '.kehikot:paper:thesis:chapters:3_methods')).toEqual([])
   })
 
   test('a path that climbs out with `..` is refused, from the project and from the paper’s folder', () => {

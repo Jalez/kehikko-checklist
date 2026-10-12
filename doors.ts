@@ -19,9 +19,9 @@ import {
 } from './list/checklists.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
-import { ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
+import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
-import { placeIn, placeNamed, placeOf } from './file/open.ts'
+import { filesNamed, placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 
 /**
@@ -80,6 +80,9 @@ const MAX_FROM = 80
 const MAX_PROJECT = 4096
 /** How many places one reading-page request may name. The protocol's own bound on what a container shows, plus the reader's passage. */
 const MAX_DOCS = 17
+
+/** How many different files' lists one whole-paper answer names the place of. */
+const MAX_HELD_FILES = 128
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -356,7 +359,7 @@ function aimed(args: Record<string, unknown>, where: string, id: string, minting
   if (!placed) {
     throw new Error(
       `"${path.slice(0, 200)}" is not a file this app can open in this project or in the folder of the paper `
-      + `${named.epic} is aimed at (.kehikot/paper/${named.epic}/), so nothing was held or ticked against it — a `
+      + `${named.epic} is aimed at (a ${named.epic}/ folder under .kehikot/), so nothing was held or ticked against it — a `
       + 'path that is not a file is refused rather than read as the whole paper. Give the path as either folder '
       + 'spells it, or the absolute path; or leave path out to mean the whole paper.',
     )
@@ -1159,9 +1162,9 @@ export function answer(
     const positions = where ? asked.map((at) => placeOf(where, at.path, at.from, at.to)) : []
     /* `whole=1`: every list held against this epic's paper, wherever in it.
        The page asks it while parts of the epic are picked out, and narrows
-       and counts the answer itself — `list/focus.ts`. The places it names
-       then are the picked parts' files, resolved for their names; none of
-       them is where a reader is, so there is no `placed`. */
+       the answer itself — `list/focus.ts`. Nobody is standing anywhere then,
+       so there is no `placed`; `positions` are the files the lists are held
+       against, added below once the lists are known. */
     const whole = query.get('whole') === '1' ? epic : null
     const placed = whole ? null : (positions[0] ?? null)
     /* One ladder per place, and the paper rung once even with no place at
@@ -1175,6 +1178,28 @@ export function answer(
       .map(part)
       .filter((one): one is string => one !== null)
     const { instances, trouble, nowhere } = inFront({ ladders, selection, whole }, where)
+    /*
+     * And for the whole paper, the file each list is held against, as a place.
+     *
+     * A target is stored as a file's ID, and a part of the epic lists
+     * DOCUMENTS, by path. The page ties the two together with the protocol's
+     * rule and nothing of its own (`anchorOf` in `list/focus.ts`), which needs
+     * the path — and an id cannot be turned back into one, so the disk is
+     * asked which file spells it (`filesNamed`). A row is labelled from the
+     * same place. An id no file spells any more has no place, and its list is
+     * in no part.
+     */
+    if (whole && where) {
+      const known = new Set(positions.flatMap((one) => (one ? [one.file] : [])))
+      const ids = [...new Set(instances.flatMap((one) => (one.target?.kind === 'paper' && one.target.section ? [fileOfSection(one.target.section)] : [])))]
+      for (const id of ids.slice(0, MAX_HELD_FILES)) {
+        for (const file of filesNamed(where, id)) {
+          if (known.has(file)) continue
+          known.add(file)
+          positions.push({ file, section: null, title: null })
+        }
+      }
+    }
     return ok({ ok: true, placed, positions, instances, trouble, nowhere, whole: whole !== null })
   }
 

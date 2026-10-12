@@ -3,7 +3,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 import { mailbox } from 'kehikot-module-protocol/client'
 
-import { partsOf } from '../list/focus.ts'
+import { readParts } from '../list/focus.ts'
 
 /**
  * `context.parts`, from a host's message to the value the page reads.
@@ -70,14 +70,14 @@ test('the parts in a greeting reach the page, and so does a later change of focu
   render(<Probe />)
   act(() => greet({ parts: [seam(false)] }))
   expect(seen.where).toBe('hosted')
-  expect(partsOf(seen.parts)).toEqual([seam(false)])
+  expect(readParts(seen.parts)).toEqual([seam(false)])
 
   act(() => context({ parts: [seam(true)] }))
-  expect(partsOf(seen.parts)).toEqual([seam(true)])
+  expect(readParts(seen.parts)).toEqual([seam(true)])
 
   /* Unpicked again, and then a host that stops sending the field: no focus. */
   act(() => context({ parts: [seam(false)] }))
-  expect(partsOf(seen.parts)).toEqual([seam(false)])
+  expect(readParts(seen.parts)).toEqual([seam(false)])
   act(() => context())
   expect(seen.parts).toBe('')
 })

@@ -272,10 +272,25 @@ export function under(target: Target, placed: Placed | null): boolean {
  * about.
  */
 export function placeAmong(target: Target, positions: readonly (Placed | null)[]): Placed | null {
-  if (target.kind !== 'paper' || !target.section) return null
-  const cut = target.section.indexOf('#')
-  const file = cut === -1 ? target.section : target.section.slice(0, cut)
-  return positions.find((one) => one !== null && fileId(one.file) === file) ?? null
+  return placesAmong(target, positions)[0] ?? null
+}
+
+/**
+ * Every place a target is in, among those the server resolved. Usually one;
+ * two when two files share a stem (`3_methods.tex` beside `3_methods.bib`
+ * spell one id), and none for a reference, the whole paper, or a file nobody
+ * resolved. `list/focus.ts` reads the documents a list is about from this.
+ */
+export function placesAmong(target: Target, positions: readonly (Placed | null)[]): Placed[] {
+  if (target.kind !== 'paper' || !target.section) return []
+  const file = fileOfSection(target.section)
+  return positions.filter((one): one is Placed => one !== null && fileId(one.file) === file)
+}
+
+/** The file's id out of a target's `section`, which is that id or `<file>#<heading>`. */
+export function fileOfSection(section: string): string {
+  const cut = section.indexOf('#')
+  return cut === -1 ? section : section.slice(0, cut)
 }
 
 /**

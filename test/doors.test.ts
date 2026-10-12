@@ -204,9 +204,13 @@ describe('reads', () => {
     expect(all.instances.map((one) => one.checklist.id)).toEqual([list, otherId])
     expect(all.instances[0]?.target).toEqual({ kind: 'paper', epic: 'thesis', section: 'chapters:3_methods' })
     expect(all.instances[0]?.done).toBe(1)
-    /* The place named is resolved for its name, and is nobody's position. */
+    /* A place named is resolved for its name, and is nobody's position; after it, the file each
+       list is held against, which is what ties the list to a part of the epic. */
     expect(all.placed).toBeNull()
-    expect((all as Here & { positions: ({ file: string } | null)[] }).positions.map((one) => one?.file)).toEqual(['chapters/1_introduction.tex'])
+    expect((all as Here & { positions: ({ file: string } | null)[] }).positions.map((one) => one?.file)).toEqual([
+      'chapters/1_introduction.tex',
+      'chapters/3_methods.tex',
+    ])
     /* Without an epic there is no paper to be the whole of. */
     expect((answer('GET', '/api/here', asking({ whole: '1' }), null, null)?.body as Here).instances).toEqual([])
   })

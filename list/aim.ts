@@ -46,8 +46,8 @@ import { MODULE_ID, canonicalModuleId } from 'kehikot-module-protocol'
  * the ones held against their files and references. So while a part is picked
  * and no container is picked out, the passage and what the containers show
  * are not what the paper's lists are asked by — `byParts` — and the page asks
- * for every list of the epic's paper and lets `list/focus.ts` narrow and
- * count.
+ * for every list of the epic's paper, and narrows that by the protocol's
+ * rule (`list/focus.ts` has each list's anchor).
  *
  * It used to be the other way round — the passage and the containers first,
  * the parts never — and the page inherited whatever the paper beside it last
@@ -282,7 +282,7 @@ export function nameOf(module: string): string {
  *
  * `aside` is the modules whose lists were put aside, once each, for the
  * sentence the page says about them. With nothing put aside the instances come
- * back as they went in — the same array — as `focusOn` in `list/focus.ts` does.
+ * back as they went in — the same array.
  *
  * Generic over the instance for that file's reason too: this needs to know a
  * list may be for a module and nothing else about one.

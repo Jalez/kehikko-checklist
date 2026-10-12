@@ -362,7 +362,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * parts' references, files and the sections in them and puts the rest aside
    * (saying so only where that leaves the page empty). A list held against
    * the whole paper stays: every part is a part of it. The page is different
-   * afterwards, which is the field's test. `list/focus.ts` is the rule. The
+   * afterwards, which is the field's test. The rule is the protocol's
+   * (`useFocus().narrow`); `list/focus.ts` is each list's anchor. The
    * picking is the host's own control, so nothing is declared in `uses` for it.
    */
   reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions', 'parts'],

@@ -1,7 +1,7 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 
-import { KEHIKOT_DIR, PAPER_MODULE, moduleFolder } from 'kehikot-module-protocol'
+import { KEHIKOT_DIR } from 'kehikot-module-protocol'
 
 import { fileId, sectionId, slug, type Placed } from '../list/scope.ts'
 import { MAX_TARGET_PART } from '../list/targets.ts'
@@ -158,9 +158,40 @@ export function placeOf(
   return { file: rel, section: id, title: here.title }
 }
 
-/** An epic's paper folder, from the project: where `kehikko-paper` keeps the files of the paper the epic is aimed at. */
-function paperFolder(epic: string): string {
-  return `${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${epic}`
+/** How many folders under `.kehikot/` are asked whether they keep something for an epic. */
+const MAX_FOLDERS = 64
+
+/**
+ * The folders an epic's own files may be kept in, from the project: every
+ * `.kehikot/<folder>/<epic>/` there is, in name order.
+ *
+ * This used to be one folder, spelled with another module's name: the place
+ * the paper module keeps an epic's paper. A checklist is held against a
+ * document, and a document is a path in the project whichever program keeps
+ * it, so this app names none of them. It asks the project which of the
+ * folders directly under `.kehikot/` has one for the epic — the same sweep the
+ * protocol's `readHoldings` makes — and a program that starts keeping an
+ * epic's files tomorrow is read the day it does.
+ */
+function epicFolders(root: string, epic: string): string[] {
+  const real = inside(root, KEHIKOT_DIR)
+  if (!real) return []
+  let names: string[]
+  try {
+    names = readdirSync(real).sort().slice(0, MAX_FOLDERS)
+  } catch {
+    return []
+  }
+  return names
+    .map((name) => join(KEHIKOT_DIR, name, epic))
+    .filter((folder) => {
+      const found = inside(root, folder)
+      try {
+        return found !== null && statSync(found).isDirectory()
+      } catch {
+        return false
+      }
+    })
 }
 
 /**
@@ -168,8 +199,8 @@ function paperFolder(epic: string): string {
  *
  * A passage carries an absolute path, because the module that set it knows
  * where its file is. An agent at the MCP door names a file the way the paper
- * does — `chapters/3_methods.tex` — and that is a path inside the epic's paper
- * folder, not inside the project. Read against the project alone it is not
+ * does — `chapters/3_methods.tex` — and that is a path inside the folder the
+ * epic's paper is kept in (`epicFolders`), not inside the project. Read against the project alone it is not
  * found, and a caller that took "not found" for "no narrowing" answered about
  * the whole paper: seven chapters held by their own names became one hold on
  * the paper, and nothing said so.
@@ -192,7 +223,14 @@ export function placeIn(
   to: number | null,
 ): (Placed & { other: string | null }) | null {
   const project = placeOf(projectPath, path, from, to)
-  const paper = isAbsolute(path) ? null : placeOf(projectPath, join(paperFolder(epic), path), from, to)
+  const root = rootOf(projectPath)
+  let paper: Placed | null = null
+  if (root && !isAbsolute(path)) {
+    for (const folder of epicFolders(root, epic)) {
+      paper = placeOf(projectPath, join(folder, path), from, to)
+      if (paper) break
+    }
+  }
   if (!paper) return project && { ...project, other: null }
   return { ...paper, other: project && project.file !== paper.file ? project.file : null }
 }
@@ -275,11 +313,11 @@ export function placeNamed(
   const cut = section.indexOf('#')
   const at = (cut === -1 ? section : section.slice(0, cut)).replace(/:/g, '/')
   if (!at) return null
-  const inPaper = join(paperFolder(epic), at)
+  const inPaper = epicFolders(root, epic).map((folder) => join(folder, at))
   const found: { rel: string; id: string }[] = []
   let miss: NamedPlace | null = null
   const seen = new Set<string>()
-  for (const spelled of first === 'paper' ? [inPaper, at] : [at, inPaper]) {
+  for (const spelled of first === 'paper' ? [...inPaper, at] : [at, ...inPaper]) {
     /* Files of one stem share an id: the file it names is the first of them, a
        heading is in whichever of them has it. */
     for (const real of filesSpelled(root, spelled)) {
@@ -310,6 +348,27 @@ export function placeNamed(
   }
   const [taken, next] = found
   return taken ? { section: taken.id, other: next?.rel ?? null } : miss
+}
+
+/**
+ * The files a file id names, as paths inside the project — with the extension
+ * the id does not have. `[]` for an id that names no file here.
+ *
+ * It is what ties a list held against a file to a part of the epic: a part
+ * lists DOCUMENTS, by path, and a target is stored as an id. The id is this
+ * project's own spelling (`placeOf` mints it from the real path), so it is
+ * read against the project and nowhere else. Names only, like everything in
+ * this file.
+ */
+export function filesNamed(projectPath: string | null | undefined, id: string): string[] {
+  const root = rootOf(projectPath)
+  if (!root || !id) return []
+  const out: string[] = []
+  for (const real of filesSpelled(root, id.replace(/:/g, '/'))) {
+    const rel = relative(root, real)
+    if (rel && !rel.startsWith('..') && fileId(rel) === id && !out.includes(rel)) out.push(rel)
+  }
+  return out
 }
 
 /**
