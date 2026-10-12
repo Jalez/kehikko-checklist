@@ -1,6 +1,18 @@
 import { describe, expect, test } from 'bun:test'
 
-import { AIM, aimOf, aimOffer, forPicked, inFrontOf, nameOf, whyEmpty, type Shown } from '../list/aim.ts'
+import {
+  AIM,
+  aimOf,
+  aimOffer,
+  forPicked,
+  inFrontOf,
+  moduleLabels,
+  moduleNamed,
+  nameOf,
+  whyAside,
+  whyEmpty,
+  type Shown,
+} from '../list/aim.ts'
 
 /**
  * What is in front of the reader once the kehikko can say what each container
@@ -223,5 +235,69 @@ describe('a list for one module’s work follows the container picked out', () =
     )
     /* And with nothing put aside the sentence is the one it was. */
     expect(whyEmpty(picked)).toBe('paper is picked out; no checklist is held against what it shows.')
+  })
+
+  test('what a list says and what the canvas says are compared in one form', () => {
+    /* The short name a row prints, and an id written before the rename. */
+    const short: Row = { checklist: { id: 'e', for: 'screenplay' } }
+    const old: Row = { checklist: { id: 'f', for: 'roadmap.slides' } }
+    const rows = [everyones, short, old]
+    expect(forPicked(rows, front(['kehikot.screenplay']))).toEqual({ instances: [everyones, short], aside: ['kehikot.slides'] })
+    expect(forPicked(rows, front(['kehikot.slides']))).toEqual({ instances: [everyones, old], aside: ['kehikot.screenplay'] })
+    expect(forPicked(rows, front(['kehikot.paper'])).instances).toEqual([everyones])
+    /* And a canvas that still spelled one the old way. */
+    const oldCanvas = { narrowed: true, picked: ['roadmap.slides'], modules: ['kehikot.paper', 'roadmap.slides'] }
+    expect(forPicked([slides, screenplays], oldCanvas).instances).toEqual([slides, screenplays])
+  })
+
+  test('a list for a module that is not on this kehikko is never put aside, so no pick strands it', () => {
+    const stranded: Row[] = [
+      { checklist: { id: 'g', for: 'kehikot.narration' } },
+      { checklist: { id: 'h', for: 'narration' } },
+      { checklist: { id: 'i', for: 'Not A Module' } },
+    ]
+    for (const pick of [['kehikot.paper'], ['kehikot.slides'], ['kehikot.paper', 'kehikot.slides', 'kehikot.screenplay']]) {
+      const out = forPicked(stranded, front(pick))
+      expect(out.instances).toBe(stranded)
+      expect(out.aside).toEqual([])
+    }
+  })
+
+  test('a module is named by its id, its id from before the rename, or the one short name that means it', () => {
+    const here = ['kehikot.paper', 'kehikot.screenplay', 'acme.screenplay', 'roadmap.slides']
+    expect(moduleNamed('kehikot.paper', here)).toBe('kehikot.paper')
+    expect(moduleNamed(' paper ', here)).toBe('kehikot.paper')
+    expect(moduleNamed('roadmap.paper', here)).toBe('kehikot.paper')
+    expect(moduleNamed('slides', here)).toBe('kehikot.slides')
+    /* Two modules share the name, so it means neither: it is kept as it was said. */
+    expect(moduleNamed('screenplay', here)).toBe('screenplay')
+    /* Not here, and shaped like an id: itself. Not shaped like one: nothing. */
+    expect(moduleNamed('kehikot.narration', here)).toBe('kehikot.narration')
+    expect(moduleNamed('the slides', here)).toBeNull()
+    expect(moduleNamed('Kehikot.Paper', here)).toBeNull()
+    expect(moduleNamed('', here)).toBeNull()
+    expect(moduleNamed('x'.repeat(65), here)).toBeNull()
+  })
+
+  test('two modules that share a name are told apart by their ids, and the rest keep the short name', () => {
+    expect(moduleLabels(['kehikot.paper', 'kehikot.screenplay', 'acme.screenplay', 'roadmap.paper'])).toEqual([
+      { id: 'kehikot.paper', label: 'paper' },
+      { id: 'kehikot.screenplay', label: 'screenplay (kehikot.screenplay)' },
+      { id: 'acme.screenplay', label: 'screenplay (acme.screenplay)' },
+    ])
+  })
+
+  test('with lists left in front, the ones put aside are counted and whose they are is said', () => {
+    const picked = front(['kehikot.paper'])
+    const out = forPicked(held, picked)
+    expect(whyAside(held.length - out.instances.length, out.aside)).toBe(
+      '2 more checklists are held here and put aside: they are for screenplay and slides. '
+        + '“everything on this kehikko” under aim in the header shows them.',
+    )
+    expect(whyAside(1, ['kehikot.slides'])).toBe(
+      '1 more checklist is held here and put aside: it is for slides. '
+        + '“everything on this kehikko” under aim in the header shows it.',
+    )
+    expect(whyAside(0, [])).toBeNull()
   })
 })

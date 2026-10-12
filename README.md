@@ -255,7 +255,7 @@ page, because the next thing to do with it is say what it is held against.
 checklists             every list and where each is held, or one of them held against a target
 create_checklist       start one under a name
 hold_checklist         hold it against a ref, a paper, a file or a heading — or release: true
-checklist_for          say which module's work it is for — or, with none, every module's
+checklist_for          say which module's work it is for — or, with module: null, every module's
 add_checklist_item     a line on the end
 check_item             tick it FOR A TARGET, or done: false to take a tick back
 reword_checklist_item  the same item, sharper words, same id and same ticks

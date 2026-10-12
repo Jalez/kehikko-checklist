@@ -105,6 +105,7 @@ export function HereView({
   here,
   somewhere,
   why = null,
+  aside = null,
   onEdit,
   onOpen,
   onAll,
@@ -119,6 +120,8 @@ export function HereView({
   somewhere: boolean
   /** Why the page is empty when the picks emptied it, or null when they did not. See `whyEmpty` in `list/aim.ts`. */
   why?: string | null
+  /** The line about lists put aside while others are drawn, or null. See `whyAside` in `list/aim.ts`. */
+  aside?: string | null
   onEdit: (edit: Edit) => void
   /** Open one checklist's edit page. */
   onOpen: (id: string) => void
@@ -196,6 +199,12 @@ export function HereView({
               : 'Nothing is in front of you: no paper is open and nothing is selected.')}
         </p>
       )}
+
+      {aside && here.instances.length ? (
+        <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-aside>
+          {aside}
+        </p>
+      ) : null}
 
       {trouble ? (
         <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-failed">{trouble}</p>

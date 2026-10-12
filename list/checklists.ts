@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { dataFile, makeDir, oldPapersFile } from '../store.ts'
 import { evidenceSchema, FACT_NAMES, type Evidence, type Fact, FACTS } from './evidence.ts'
 import { everywhere, showing } from './holding.ts'
-import { part, readKey, targetKey, targetName, type Target } from './targets.ts'
+import { moduleNamed } from './aim.ts'
+import { readKey, targetKey, targetName, type Target } from './targets.ts'
 
 /**
  * Every checklist this app holds, and every tick anybody has made on one.
@@ -647,6 +648,11 @@ export const MAX_LISTS = 200
 /** How many targets one checklist may be held against. A thesis is seven chapters; sixty-four is a mistake. */
 export const MAX_TARGETS = 64
 
+/** The ids among what a caller said is here, each in the form `moduleNamed` stores one. */
+function modulesSaid(present: readonly string[]): string[] {
+  return present.flatMap((one) => moduleNamed(one, []) ?? [])
+}
+
 function newId(): string {
   return crypto.randomUUID().replace(/-/g, '').slice(0, 8)
 }
@@ -892,8 +898,13 @@ export function inFront(
 export type Op =
   | { op: 'create'; name: string; by: string; viaMcp?: boolean }
   | { op: 'rename'; id: string; name: string; by: string; viaMcp?: boolean }
-  /** Say which module's work this list is for, or (with null) that it is every module's. */
-  | { op: 'for'; id: string; module: string | null; by: string; viaMcp?: boolean }
+  /**
+   * Say which module's work this list is for, or (with null) that it is every
+   * module's. `present` is the module ids the caller knows to be here, which
+   * this store cannot know: they turn a short name into the id it means, and
+   * are what a refusal offers.
+   */
+  | { op: 'for'; id: string; module: string | null; present?: readonly string[]; by: string; viaMcp?: boolean }
   | { op: 'forget'; id: string; by: string; viaMcp?: boolean }
   /**
    * Copy a checklist out of ANOTHER project into this one.
@@ -1193,26 +1204,36 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
   }
 
   if (input.op === 'for') {
-    /* Bounded like a target's component and not matched against the modules on
-       a canvas: this store has never heard of a canvas, and a list for a module
-       that is not on this kehikko today is an ordinary thing to have. */
-    const module = input.module === null ? null : part(input.module)
+    /* Stored in the one form ids are compared in (`moduleNamed` in
+       `list/aim.ts`), and not REQUIRED to be among the modules the caller says
+       are here: this store has never heard of a canvas, and a list for a
+       module that is not on this kehikko today is an ordinary thing to have.
+       The answer says so when it is not, because such a list is put aside for
+       nobody. */
+    const present = [...new Set(modulesSaid(input.present ?? []))]
+    const module = input.module === null ? null : moduleNamed(input.module, present)
     if (input.module !== null && !module) {
       return {
         ok: false,
         error:
           'that is not a module. A list is for one module’s work by that module’s id, as the host spells it — '
-          + '"kehikot.paper", "kehikot.slides" — or for every module’s, which is said by naming none.',
+          + 'lowercase letters, digits, dots and dashes, like "kehikot.paper" — or for every module’s, which is '
+          + `said with null. ${present.length ? `The modules here are: ${present.join(', ')}.` : 'No other module is known here to offer.'}`,
       }
     }
     if (module) list.for = module
     else delete list.for
+    const unknown =
+      module && !present.includes(module)
+        ? `. No module by that id is ${present.length ? `among the ones here (${present.join(', ')})` : 'known here'}, `
+          + 'so until one is the list stays in front whatever is picked out'
+        : ''
     /* What it is held against and what is ticked on it are untouched: this
        changes which containers the list is in front of, and nothing else. */
     return answer(
       list.id,
       module
-        ? `"${list.name}" is for ${module}’s work: while containers are picked out it is in front only when ${module} is one of them`
+        ? `"${list.name}" is for ${module}’s work: while containers are picked out it is in front only when ${module} is one of them${unknown}`
         : `"${list.name}" is for every module’s work again`,
       null,
     )

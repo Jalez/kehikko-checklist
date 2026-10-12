@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Sheet } from '@/view/sheet.tsx'
 import type { Room } from '@/view/room.ts'
 import { cn } from '@/lib/utils.ts'
+import { nameOf } from '../../list/aim.ts'
 
 /**
  * Every checklist in the project, reached on purpose.
@@ -181,6 +182,7 @@ export function AllView({
                 type="button"
                 disabled={busy}
                 data-checklist={list.id}
+                data-for={list.for}
                 onClick={() => onOpen(list.id)}
                 className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               >
@@ -193,6 +195,8 @@ export function AllView({
                   {list.items}
                   {room.prose ? ` item${list.items === 1 ? '' : 's'}` : ''}
                   {room.prose ? (list.targets ? `, held against ${list.targets}` : ', held against nothing') : ''}
+                  {/* Whose work it is for, as the reading page's row says it. */}
+                  {room.prose && list.for ? `, for ${nameOf(list.for)}` : ''}
                 </span>
               </button>
             </li>

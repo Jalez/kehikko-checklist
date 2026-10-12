@@ -5,7 +5,7 @@ import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-mod
 
 import { ID } from '../manifest.ts'
 
-import { aimOf, aimOffer, forPicked, inFrontOf, whyEmpty } from '../list/aim.ts'
+import { aimOf, aimOffer, forPicked, inFrontOf, moduleLabels, whyAside, whyEmpty } from '../list/aim.ts'
 import { focusOn, partsOf, pickedPlaces, whyUnfocused } from '../list/focus.ts'
 import {
   edit,
@@ -363,7 +363,10 @@ export function App() {
   )
   /** The modules on this kehikko, which is what the edit page offers a list to be for. Never this one. */
   const modules = useMemo(
-    () => [...new Set(shown(containers).map((one) => one.module))].filter((one) => one !== ID),
+    () =>
+      moduleLabels(shown(containers).map((one) => one.module))
+        .map((one) => one.id)
+        .filter((one) => one !== ID),
     [containers],
   )
 
@@ -421,6 +424,9 @@ export function App() {
     why:
       whyUnfocused(focused.focus, focused.instances.length, front.byParts)
       ?? whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
+    /* And with lists left, the ones put aside for another module's work are
+       counted under them, so a list missing from the page has a cause. */
+    aside: whyAside((inFocus?.instances.length ?? 0) - forThese.instances.length, forThese.aside),
   }
   const drawn = useRef(drawnNow)
   if (settled) drawn.current = drawnNow
@@ -717,6 +723,7 @@ export function App() {
       here={drawn.current.here}
       somewhere={Boolean(epic) || front.refs.length > 0 || front.documents.length > 0}
       why={drawn.current.why}
+      aside={drawn.current.aside}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
       onAll={() => setView({ kind: 'all' })}

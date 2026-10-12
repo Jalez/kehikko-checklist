@@ -179,6 +179,89 @@ describe('the reading page under a parts focus', () => {
   })
 })
 
+describe('a list that says whose work it is for (Jalez/kehikko-checklist#15)', () => {
+  const forScreenplay = (over: Partial<Held> = {}): Held => {
+    const base = held(over)
+    return { ...base, checklist: { ...base.checklist, id: 'list2', for: 'kehikot.screenplay' } }
+  }
+
+  test('the reading page says it on the row, beside what the list is held against', () => {
+    const { container } = render(<Reading here={here([held(), forScreenplay()])} room={ROOMY} />)
+    const rows = [...container.querySelectorAll('[data-instance]')].map((one) => one.textContent ?? '')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).not.toContain('· for ')
+    expect(rows[1]).toContain('gh#105 · for screenplay')
+  })
+
+  test('lists put aside while others are drawn get one line under them, and none when nothing is drawn', () => {
+    const aside = '1 more checklist is held here and put aside: it is for slides.'
+    const { container } = render(<Reading here={here([held()])} aside={aside} room={ROOMY} />)
+    expect(container.querySelector('[data-aside]')?.textContent).toBe(aside)
+    expect(container.querySelectorAll('[data-instance]')).toHaveLength(1)
+    cleanup()
+    /* An emptied page has its own sentence, in the empty place. */
+    const empty = render(<Reading here={here([])} why="paper is picked out." aside={aside} room={ROOMY} />)
+    expect(empty.container.querySelector('[data-aside]')).toBeNull()
+    cleanup()
+    expect(render(<Reading here={here([held()])} room={ROOMY} />).container.querySelector('[data-aside]')).toBeNull()
+  })
+
+  test('the edit page offers the modules by name, with the id where two share one, and sends what the host reported', () => {
+    const sent: unknown[] = []
+    const modules = ['kehikot.paper', 'kehikot.screenplay', 'acme.screenplay']
+    const { container } = render(<Editing held={held()} modules={modules} onEdit={(e) => sent.push(e)} room={ROOMY} />)
+    const select = container.querySelector('select[data-for]') as HTMLSelectElement
+    expect(select.value).toBe('')
+    expect([...select.options].map((one) => [one.value, one.textContent])).toEqual([
+      ['', 'every module'],
+      ['kehikot.paper', 'paper'],
+      ['kehikot.screenplay', 'screenplay (kehikot.screenplay)'],
+      ['acme.screenplay', 'screenplay (acme.screenplay)'],
+    ])
+    fireEvent.change(select, { target: { value: 'acme.screenplay' } })
+    fireEvent.change(select, { target: { value: '' } })
+    expect(sent).toEqual([
+      { op: 'for', id: 'list1', module: 'acme.screenplay', present: modules },
+      { op: 'for', id: 'list1', module: null, present: modules },
+    ])
+  })
+
+  test('the edit page shows the module a list is for, whichever way it was stored, and keeps one that is not here', () => {
+    const stored = (module: string) => {
+      const base = held()
+      return { ...base, checklist: { ...base.checklist, for: module } }
+    }
+    const modules = ['kehikot.paper', 'kehikot.slides']
+    const old = render(<Editing held={stored('roadmap.slides')} modules={modules} room={ROOMY} />)
+    const select = old.container.querySelector('select[data-for]') as HTMLSelectElement
+    expect(select.value).toBe('kehikot.slides')
+    expect(select.options).toHaveLength(3)
+    cleanup()
+    const absent = render(<Editing held={stored('kehikot.narration')} modules={modules} room={ROOMY} />)
+    const kept = absent.container.querySelector('select[data-for]') as HTMLSelectElement
+    expect(kept.value).toBe('kehikot.narration')
+    expect([...kept.options].map((one) => one.textContent)).toEqual(['every module', 'paper', 'slides', 'narration'])
+  })
+
+  test('the list of every checklist says it on the row, where there is room for words', () => {
+    const lists = [
+      { id: 'one', name: 'What a change owes', at: '', by: 'a test', items: 3, targets: 2, held: [REF, FILE] },
+      { id: 'two', name: 'What narration owes', at: '', by: 'a test', items: 1, targets: 1, held: [FILE], for: 'kehikot.screenplay' },
+    ]
+    const props = { onOpen: noop, onCreate: noop, onImport: noop, onBack: noop, importing: false, trouble: null, busy: false, said: null }
+    const { container } = render(<AllView lists={lists} {...props} room={ROOMY} />)
+    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual([
+      '3 items, held against 2',
+      '1 item, held against 1, for screenplay',
+    ])
+    expect(container.querySelector('[data-checklist="two"]')?.getAttribute('data-for')).toBe('kehikot.screenplay')
+    expect(container.querySelector('[data-checklist="one"]')?.hasAttribute('data-for')).toBe(false)
+    cleanup()
+    const tight = render(<AllView lists={lists} {...props} room={TIGHT} />)
+    expect([...tight.container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3', '1'])
+  })
+})
+
 describe('the reading page: what is in front of the reader', () => {
   test('claims nothing before the server has answered: the page draws the shared cover for that', () => {
     const { container } = render(<Reading here={null} room={ROOMY} />)

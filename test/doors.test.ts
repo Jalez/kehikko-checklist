@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -27,13 +27,32 @@ function asking(extra: Record<string, string> = {}): URLSearchParams {
   return new URLSearchParams({ project: dir, ...extra })
 }
 
+/**
+ * The registry of modules on this machine, pointed at a folder of the test's
+ * own: the door reads module ids off it, and the real one holds whatever is
+ * installed on the machine these run on.
+ */
+let registry = ''
+const registryBefore = process.env.KEHIKOT_MODULES_DIR
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'checklist-doors-'))
+  registry = mkdtempSync(join(tmpdir(), 'checklist-registry-'))
+  process.env.KEHIKOT_MODULES_DIR = registry
 })
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true })
+  rmSync(registry, { recursive: true, force: true })
+  if (registryBefore === undefined) delete process.env.KEHIKOT_MODULES_DIR
+  else process.env.KEHIKOT_MODULES_DIR = registryBefore
 })
+
+/** Modules registered on this machine, as a host's registry names them: one file each. */
+function registered(...files: string[]): void {
+  mkdirSync(registry, { recursive: true })
+  for (const file of files) writeFileSync(join(registry, file), '{}\n')
+}
 
 /** One tool call, in the shape an MCP client makes it, with the text it answered. */
 async function tool(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
@@ -683,7 +702,8 @@ describe('the agent’s door', () => {
     expect(instances[0]?.checklist.for).toBe('kehikot.screenplay')
     expect(instances[0]?.done).toBe(1)
 
-    const back = await tool('checklist_for', { checklist: list })
+    const back = await tool('checklist_for', { checklist: list, module: null })
+    expect(back.isError).toBe(false)
     expect(back.text).toContain('is for every module’s work again')
     expect((await tool('checklists', {})).text).not.toContain('’s work;')
   })
@@ -694,6 +714,64 @@ describe('the agent’s door', () => {
     expect(out.isError).toBe(true)
     expect(out.text).toContain('that is not a module')
     expect((await tool('checklists', {})).text).not.toContain('’s work;')
+  })
+
+  test('a module is stored in the one form ids are compared in, whichever way it was spelled', async () => {
+    registered('kehikot.screenplay.json', 'roadmap.slides.json', 'kehikot.checklist.json', 'notes.txt', 'Not A Module.json')
+    const { checklists } = await import('../list/checklists.ts')
+    const { list } = await aList()
+    const whose = () => checklists(dir).lists[0]?.for
+
+    /* The short name a row prints, typed back. */
+    expect((await tool('checklist_for', { checklist: list, module: 'screenplay' })).text).toContain('is for kehikot.screenplay’s work')
+    expect(whose()).toBe('kehikot.screenplay')
+    /* An id from before the rename, and a registration still filed under one. */
+    expect((await tool('checklist_for', { checklist: list, module: 'roadmap.slides' })).isError).toBe(false)
+    expect(whose()).toBe('kehikot.slides')
+
+    /* Shaped like an id and not here: kept, and the answer says what follows. */
+    const absent = await tool('checklist_for', { checklist: list, module: 'kehikot.narration' })
+    expect(absent.isError).toBe(false)
+    expect(absent.text).toContain('No module by that id is among the ones here (kehikot.screenplay, kehikot.slides)')
+    expect(absent.text).toContain('the list stays in front whatever is picked out')
+    expect(whose()).toBe('kehikot.narration')
+
+    /* Not shaped like one: refused, with the modules that are here. This app is never one of them. */
+    const refused = await tool('checklist_for', { checklist: list, module: 'Screen_Play' })
+    expect(refused.isError).toBe(true)
+    expect(refused.text).toContain('that is not a module')
+    expect(refused.text).toContain('The modules here are: kehikot.screenplay, kehikot.slides.')
+    expect(whose()).toBe('kehikot.narration')
+  })
+
+  test('only an explicit null clears it: a module left out, empty or not a string is refused, as on the page', async () => {
+    registered('kehikot.slides.json')
+    const { checklists } = await import('../list/checklists.ts')
+    const { list } = await aList()
+    await tool('checklist_for', { checklist: list, module: 'kehikot.slides' })
+    for (const module of [undefined, '', '   ', 42, false, ['kehikot.slides']]) {
+      const out = await tool('checklist_for', { checklist: list, module })
+      expect(out.isError).toBe(true)
+      expect(out.text).toContain('checklist_for needs module')
+      expect(out.text).toContain('The modules here are: kehikot.slides.')
+      expect(checklists(dir).lists[0]?.for).toBe('kehikot.slides')
+    }
+    expect((await tool('checklist_for', { checklist: list, module: null })).isError).toBe(false)
+    expect(checklists(dir).lists[0]?.for).toBeUndefined()
+  })
+
+  test('the page’s door reads a module against what its host reported, and the registry', async () => {
+    registered('kehikot.slides.json')
+    const { answer, TICKET } = await import('../doors.ts')
+    const { list } = await aList()
+    const post = (module: unknown, present?: unknown) =>
+      answer('POST', '/api/checklist', query, { project: dir, op: 'for', id: list, module, present }, TICKET)
+    const whose = (reply: ReturnType<typeof post>) => (reply?.body as { held: { checklist: { for?: string } } }).held.checklist.for
+    expect(whose(post('screenplay', ['kehikot.screenplay', 'kehikot.paper']))).toBe('kehikot.screenplay')
+    expect(whose(post('slides', 'not a list'))).toBe('kehikot.slides')
+    const refused = post('Screen_Play', ['kehikot.paper', 7, 'Nope!'])?.body as { ok: boolean; error: string }
+    expect(refused.ok).toBe(false)
+    expect(refused.error).toContain('The modules here are: kehikot.paper, kehikot.slides.')
   })
 
   test('a list stored before a list could say whose work it is for is every module’s, and its file is not rewritten', async () => {

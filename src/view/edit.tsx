@@ -4,7 +4,7 @@ import type { Edit, Held, Outline, Placed, Target } from '@/store/ask.ts'
 import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun } from '../../list/targets.ts'
 import { FACT_NAMES, FACTS, type Fact } from '../../list/evidence.ts'
-import { nameOf } from '../../list/aim.ts'
+import { moduleLabels, moduleNamed } from '../../list/aim.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Sheet } from '@/view/sheet.tsx'
@@ -113,6 +113,8 @@ export function EditView({
   const [typing, setTyping] = useState('')
   /** Whether the target picker is showing. Held here so only one thing is. */
   const [picking, setPicking] = useState(false)
+  /** The module this list is for, as one of `modules` spells it where one of them is meant, or `''`. */
+  const forNow = held.checklist.for ? (moduleNamed(held.checklist.for, modules) ?? held.checklist.for) : ''
 
   const add = () => {
     const text = typing.trim()
@@ -183,20 +185,21 @@ export function EditView({
           is in front only while that module's container is among the ones
           picked out, or while none is. Once here, for every target, and it
           ticks nothing. A module the list is already for stays offered when it
-          is not on this kehikko, so opening the page cannot change it. */}
+          is not on this kehikko, so opening the page cannot change it. Two
+          modules of one name are told apart by their ids. */}
       <label className="flex shrink-0 items-center gap-1 border-t px-2 py-1 text-[0.65rem] leading-4 text-muted-foreground">
         <span>For the work of</span>
         <select
           data-for={held.checklist.id}
           disabled={busy}
-          value={held.checklist.for ?? ''}
-          onChange={(e) => onEdit({ op: 'for', id: held.checklist.id, module: e.target.value || null })}
+          value={forNow}
+          onChange={(e) => onEdit({ op: 'for', id: held.checklist.id, module: e.target.value || null, present: modules })}
           className="min-w-0 rounded border bg-background px-1 py-px text-[0.65rem] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
         >
           <option value="">every module</option>
-          {[...new Set([...modules, ...(held.checklist.for ? [held.checklist.for] : [])])].map((module) => (
-            <option key={module} value={module}>
-              {nameOf(module)}
+          {moduleLabels(forNow ? [...modules, forNow] : modules).map(({ id, label }) => (
+            <option key={id} value={id}>
+              {label}
             </option>
           ))}
         </select>

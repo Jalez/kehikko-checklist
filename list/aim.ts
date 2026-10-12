@@ -1,3 +1,5 @@
+import { MODULE_ID, canonicalModuleId } from 'kehikot-module-protocol'
+
 /**
  * What is in front of the reader, once the kehikko can say what each of its
  * containers is showing and which of them are picked out.
@@ -144,6 +146,8 @@ export interface InFront {
   byParts: boolean
   /** The picked-out containers, in the canvas's order. Empty when nothing is picked out. */
   picked: string[]
+  /** Every container's module, picked out or not, once each: the modules a list can be put aside FOR. */
+  modules: string[]
   /** Those of them that show nothing at all — refs or documents — and so cannot have a list in front. */
   quiet: string[]
 }
@@ -184,6 +188,7 @@ export function inFrontOf(input: {
     paper: !narrowed || documents.length > 0,
     byParts,
     picked: picked.map((one) => one.module),
+    modules: dedupe(containers.map((one) => one.module)),
     quiet: picked.filter((one) => one.refs.length === 0 && one.documents.length === 0).map((one) => one.module),
   }
 }
@@ -266,21 +271,81 @@ export function nameOf(module: string): string {
  * "nothing picked out" is everything, and the row says whose work each list is
  * for.
  *
- * `aside` is the modules whose lists were put aside, once each, for the one
- * sentence an emptied page says. With nothing put aside the instances come back
- * as they went in — the same array — as `focusOn` in `list/focus.ts` does.
+ * ## A list is put aside FOR a module that is here, and never for a name
+ *
+ * What a list says and what the canvas says are read in one form
+ * (`moduleNamed`): an id stored before the rename, or the short name a row
+ * prints, is the module it means. And a list is put aside only when the module
+ * it is for is ON this kehikko and not picked out. One that is for a module no
+ * container here belongs to — a typo, a module since removed — stays in front
+ * under every pick: put aside, there would be no pick that brought it back.
+ *
+ * `aside` is the modules whose lists were put aside, once each, for the
+ * sentence the page says about them. With nothing put aside the instances come
+ * back as they went in — the same array — as `focusOn` in `list/focus.ts` does.
  *
  * Generic over the instance for that file's reason too: this needs to know a
  * list may be for a module and nothing else about one.
  */
 export function forPicked<T extends { checklist: { for?: string } }>(
   instances: readonly T[],
-  front: Pick<InFront, 'narrowed' | 'picked'>,
+  front: Pick<InFront, 'narrowed' | 'picked' | 'modules'>,
 ): { instances: readonly T[]; aside: string[] } {
   if (!front.narrowed) return { instances, aside: [] }
-  const other = (one: T) => one.checklist.for !== undefined && !front.picked.includes(one.checklist.for)
-  const aside = dedupe(instances.flatMap((one) => (other(one) ? [one.checklist.for as string] : [])))
-  return aside.length ? { instances: instances.filter((one) => !other(one)), aside } : { instances, aside }
+  const here = front.modules.map(canonicalModuleId)
+  const picked = front.picked.map(canonicalModuleId)
+  const whose = (one: T) => {
+    const module = one.checklist.for === undefined ? null : moduleNamed(one.checklist.for, here)
+    return module !== null && here.includes(module) && !picked.includes(module) ? module : null
+  }
+  const aside = dedupe(instances.flatMap((one) => whose(one) ?? []))
+  return aside.length ? { instances: instances.filter((one) => whose(one) === null), aside } : { instances, aside }
+}
+
+/**
+ * The module id somebody meant by `said`, or null when it is not one.
+ *
+ * The one form module ids are stored and compared in. Three spellings arrive:
+ * the id as the host spells it; the id from before the rename, `roadmap.x`,
+ * which a file may still say; and the short name this app prints on a row —
+ * `screenplay` — which is what a person or an agent reads and types back. The
+ * short name is the module it names when exactly one of `present` ends in it.
+ * Anything else has only to be shaped like a module id: a list may be for a
+ * module that is not here today.
+ */
+export function moduleNamed(said: string, present: readonly string[]): string | null {
+  const id = canonicalModuleId(said.trim())
+  const here = present.map(canonicalModuleId)
+  if (here.includes(id)) return id
+  const short = dedupe(here.filter((one) => nameOf(one) === id))
+  if (short.length === 1) return short[0] as string
+  return MODULE_ID.test(id) ? id : null
+}
+
+/**
+ * What each module is called where one is picked from a list: its short name,
+ * and its id beside it when two of them share that name.
+ */
+export function moduleLabels(modules: readonly string[]): { id: string; label: string }[] {
+  const ids = dedupe(modules.map(canonicalModuleId))
+  const shared = (id: string) => ids.filter((one) => nameOf(one) === nameOf(id)).length > 1
+  return ids.map((id) => ({ id, label: shared(id) ? `${nameOf(id)} (${id})` : nameOf(id) }))
+}
+
+/**
+ * The line under the lists that ARE in front, when others were put aside.
+ *
+ * `whyEmpty` speaks only when nothing is left. With some left, a list missing
+ * from among them has no visible cause either, so this says how many and whose,
+ * and where the way to all of them is: the `aim` control in the header.
+ */
+export function whyAside(count: number, aside: readonly string[]): string | null {
+  if (count <= 0 || !aside.length) return null
+  const one = count === 1
+  return (
+    `${count} more checklist${one ? ' is' : 's are'} held here and put aside: ${one ? 'it is' : 'they are'} for `
+    + `${list(aside.map(nameOf))}. “everything on this kehikko” under aim in the header shows ${one ? 'it' : 'them'}.`
+  )
 }
 
 function list(names: readonly string[]): string {

@@ -1,6 +1,8 @@
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
+import { MODULE_ID, canonicalModuleId } from 'kehikot-module-protocol'
+import { establishBuild, mintTicket, refuseTicket, registryDir, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import {
@@ -433,6 +435,38 @@ function settle(named: Target, where: string, id: string, minting: boolean, firs
   )
 }
 
+/** How many module ids one request may say are here, and how many a refusal offers. */
+const MAX_MODULES = 64
+
+/**
+ * The modules on this machine, by id, without this one: what an agent is
+ * offered when it names a module that is not one.
+ *
+ * Read off the registry a host sweeps — one file per module, the file's name
+ * its id — because this door has no canvas to ask. The page has one, and sends
+ * the modules its host reported beside the op (`heard`); both doors add these.
+ * Names only: no registration is opened.
+ */
+function modulesHere(): string[] {
+  let names: string[]
+  try {
+    names = readdirSync(registryDir())
+  } catch {
+    return []
+  }
+  const ids = names
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => canonicalModuleId(name.slice(0, -'.json'.length)))
+    .filter((id) => MODULE_ID.test(id) && id !== canonicalModuleId(ID))
+  return [...new Set(ids)].sort().slice(0, MAX_MODULES)
+}
+
+/** The module ids a page said its host reported, bounded before they are looked at. */
+function heard(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, MAX_MODULES).map((one) => (typeof one === 'string' ? str(one, MAX_TARGET_PART) : '')).filter(Boolean)
+}
+
 /**
  * The nine tools, which are the whole of what an agent can do here.
  *
@@ -537,8 +571,8 @@ function tools() {
     {
       name: 'checklist_for',
       description:
-        'Say which module’s work a checklist is for, or — with no module — that it is for every module’s, which is '
-        + 'what a list is until somebody says. Several modules can show the same place in a paper: Paper the '
+        'Say which module’s work a checklist is for, or — with module: null — that it is for every module’s, which '
+        + 'is what a list is until somebody says. Several modules can show the same place in a paper: Paper the '
         + 'section being read, Slides the section a slide is linked to, Screenplay the chapter its narration is '
         + 'about. A list about narration held against that chapter would be in front of all three. Said to be for '
         + 'one module, it is in front of a PERSON only while that module’s container is among the ones they picked '
@@ -549,12 +583,15 @@ function tools() {
           ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
           module: {
-            type: 'string',
-            description: 'The module’s id as the host spells it, e.g. "kehikot.screenplay". Omit it for every module.',
+            type: ['string', 'null'],
+            description:
+              'The module’s id as the host spells it, e.g. "kehikot.screenplay" — its short name, "screenplay", is '
+              + 'read as that id when one module here has it. Or null, to say the list is for every module’s work '
+              + 'again. Leaving it out is refused, so a call that lost the id cannot clear what a list is for.',
           },
           agent: { type: 'string' },
         },
-        required: ['project', 'checklist'],
+        required: ['project', 'checklist', 'module'],
       },
     },
     {
@@ -780,8 +817,19 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
   }
 
   if (name === 'checklist_for') {
-    const module = str(args.module, MAX_TARGET_PART)
-    const out = change({ op: 'for', id, module: module || null, by, viaMcp: true }, where)
+    /* `null` says every module's, as on the page's door. Anything else has to
+       be a string naming one: left out, empty or not a string is refused
+       rather than read as null, so a call that lost the id clears nothing. */
+    const present = modulesHere()
+    const module = args.module === null ? null : typeof args.module === 'string' ? str(args.module, MAX_TARGET_PART) : ''
+    if (module === '') {
+      throw new Error(
+        'checklist_for needs module: the id of the module whose work the list is for, e.g. "kehikot.screenplay", or '
+        + 'null to say it is for every module’s work again. Nothing was changed. '
+        + (present.length ? `The modules here are: ${present.join(', ')}.` : 'No other module is registered here to offer.'),
+      )
+    }
+    const out = change({ op: 'for', id, module, present, by, viaMcp: true }, where)
     if (!out.ok) throw new Error(out.error)
     return `${out.said}.\n\n${listText(id, null, where)}`
   }
@@ -1308,7 +1356,7 @@ export function answer(
            null, so a page that lost the id cannot quietly clear it. */
         const module = body.module === null ? null : str(body.module, MAX_TARGET_PART)
         if (module === '') return bad('that did not say which module the list is for. It is a module’s id, or null.')
-        return ok(change({ op: 'for', id, module, by }, where))
+        return ok(change({ op: 'for', id, module, present: [...heard(body.present), ...modulesHere()], by }, where))
       }
       if (op === 'add') return ok(change({ op: 'add', id, text, by }, where))
       if (op === 'reword') return ok(change({ op: 'reword', id, item, text, by }, where))
