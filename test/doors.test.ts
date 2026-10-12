@@ -62,6 +62,17 @@ async function aList(name = 'What a change owes'): Promise<{ list: string; item:
   return { list: made.id, item: added.held!.rows[0]!.item.id }
 }
 
+/** A file of a paper, written where `at` says inside the project under test, with one labelled heading. */
+async function aChapter(at: string, label = 'sec:meth-design'): Promise<void> {
+  const { mkdirSync, writeFileSync } = await import('node:fs')
+  const { dirname } = await import('node:path')
+  mkdirSync(dirname(join(dir, at)), { recursive: true })
+  writeFileSync(join(dir, at), `\\section{Research design}\\label{${label}}\n\nWords.\n`)
+}
+
+/** Where in `aChapter`'s file the words under its heading are, in bytes. */
+const WORDS = { from: 45, to: 50 }
+
 describe('reads', () => {
   test('the health check answers with this module’s own name', async () => {
     const { answer } = await import('../doors.ts')
@@ -405,6 +416,7 @@ describe('the agent’s door', () => {
   test('hold_checklist holds a list against a target, and the listing says where every list is held', async () => {
     /* The tool that answers the report from the agent's side: a list is SHOWN
        to a person where it is held, and this is how an agent puts one there. */
+    await aChapter('chapters/3_methods.tex')
     const { list } = await aList()
     const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods' })
     expect(out.isError).toBe(false)
@@ -435,6 +447,89 @@ describe('the agent’s door', () => {
     const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', from: 40, to: 45 })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('chapters:3_methods#sec:meth-design')
+  })
+
+  test('a path spelled from the paper’s own folder is that file, not the whole paper (Jalez/kehikko-checklist#14)', async () => {
+    await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
+    const { list } = await aList()
+    const file = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex' })
+    expect(file.isError).toBe(false)
+    expect(file.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
+    expect(file.text).not.toContain('(the paper)')
+    const heading = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', ...WORDS })
+    expect(heading.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
+  })
+
+  test('a path that is not a file is refused, and nothing is held against the whole paper instead', async () => {
+    const { list, item } = await aList()
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/nowhere.tex' })
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('is not a file this app can open')
+    expect(out.text).toContain('refused rather than read as the whole paper')
+    const tick = await tool('check_item', { checklist: list, item, epic: 'thesis', path: 'chapters/nowhere.tex' })
+    expect(tick.isError).toBe(true)
+    const read = await tool('checklists', { checklist: list, epic: 'thesis', path: 'chapters/nowhere.tex' })
+    expect(read.isError).toBe(true)
+    expect((await tool('checklists', {})).text).toContain('held against nothing yet')
+  })
+
+  test('a section that names no file or heading is refused, so a typo cannot become a target nothing shows', async () => {
+    await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
+    const { list } = await aList()
+    /* The bare label the description used to suggest: it is not the id this app
+       mints for that heading, so no container's `showing` resolves to it. */
+    const bare = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:meth-design' })
+    expect(bare.isError).toBe(true)
+    expect(bare.text).toContain('names no file or heading')
+    expect(bare.text).toContain('A bare label is not one')
+    const typo = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods#sec:design' })
+    expect(typo.isError).toBe(true)
+    expect(typo.text).toContain('has no heading with the id "sec:design"')
+    expect(typo.text).toContain('Its headings are: .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
+    expect((await tool('checklists', {})).text).toContain('held against nothing yet')
+  })
+
+  test('a section spelled from the paper’s folder or from the project’s is one target, the one a reader arrives at', async () => {
+    await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
+    const { list } = await aList()
+    const short = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' })
+    expect(short.isError).toBe(false)
+    expect(short.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
+    const long = await tool('hold_checklist', {
+      checklist: list,
+      epic: 'thesis',
+      section: '.kehikot:paper:thesis:chapters:3_methods#sec:meth-design',
+    })
+    expect(long.text).toContain('is already held against')
+    const walked = await tool('checklists', {
+      checklist: list,
+      epic: 'thesis',
+      path: join(dir, '.kehikot/paper/thesis/chapters/3_methods.tex'),
+      ...WORDS,
+    })
+    expect(walked.text).toContain('held against thesis · .kehikot:paper:thesis:chapters:3_methods#sec:meth-design — 0/1 ticked')
+    expect(walked.text).not.toContain('Also held')
+  })
+
+  test('a target a list is already held against stays nameable when nothing on disk answers to it', async () => {
+    /* A hold made before the refusal existed, or a heading renamed since. The
+       ticks are a record of work done, so it can still be read, unticked and
+       let go by the name it was stored under. */
+    const { change } = await import('../list/checklists.ts')
+    const { list, item } = await aList()
+    const stale = { kind: 'paper' as const, epic: 'thesis', section: 'sec:dependencies' }
+    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test' }, dir)
+    const read = await tool('checklists', { checklist: list, epic: 'thesis', section: 'sec:dependencies' })
+    expect(read.isError).toBe(false)
+    expect(read.text).toContain('1/1 ticked')
+    const untick = await tool('check_item', { checklist: list, item, epic: 'thesis', section: 'sec:dependencies', done: false })
+    expect(untick.isError).toBe(false)
+    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:dependencies', release: true })
+    expect(out.isError).toBe(false)
+    expect(out.text).toContain('is no longer held against thesis · sec:dependencies')
+    /* And once let go it is a new target like any other, and refused. */
+    const again = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:dependencies' })
+    expect(again.isError).toBe(true)
   })
 
   test('hold_checklist with nothing to hold against is refused and told what a target is', async () => {

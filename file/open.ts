@@ -1,5 +1,7 @@
-import { closeSync, openSync, readSync, statSync } from 'node:fs'
-import { relative } from 'node:path'
+import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
+import { dirname, isAbsolute, join, relative } from 'node:path'
+
+import { KEHIKOT_DIR, PAPER_MODULE, moduleFolder } from 'kehikot-module-protocol'
 
 import { fileId, sectionId, type Placed } from '../list/scope.ts'
 import { dialectOf, sectionAt, sectionsIn } from './sections.ts'
@@ -153,4 +155,129 @@ export function placeOf(
      workspace keeps finding. */
   if (!id) return { file: rel, section: null, title: null }
   return { file: rel, section: id, title: here.title }
+}
+
+/** An epic's paper folder, from the project: where `kehikko-paper` keeps the files of the paper the epic is aimed at. */
+function paperFolder(epic: string): string {
+  return `${KEHIKOT_DIR}/${moduleFolder(PAPER_MODULE)}/${epic}`
+}
+
+/**
+ * `placeOf` for a path somebody SPELLED, rather than one a host relayed.
+ *
+ * A passage carries an absolute path, because the module that set it knows
+ * where its file is. An agent at the MCP door names a file the way the paper
+ * does — `chapters/3_methods.tex` — and that is a path inside the epic's paper
+ * folder, not inside the project. Read against the project alone it is not
+ * found, and a caller that took "not found" for "no narrowing" answered about
+ * the whole paper: seven chapters held by their own names became one hold on
+ * the paper, and nothing said so.
+ *
+ * So a relative path the project does not have is looked for in the paper's
+ * folder as well. The project is asked FIRST, which is what keeps every path
+ * that resolved before this resolving to the same place.
+ *
+ * Null still means what the fence means by it, and the caller here is expected
+ * to refuse on it rather than widen. See `aimed` in `doors.ts`.
+ */
+export function placeIn(
+  projectPath: string | null | undefined,
+  epic: string,
+  path: string,
+  from: number | null,
+  to: number | null,
+): Placed | null {
+  const placed = placeOf(projectPath, path, from, to)
+  if (placed || isAbsolute(path)) return placed
+  return placeOf(projectPath, join(paperFolder(epic), path), from, to)
+}
+
+/** How many entries of one directory are looked through for the file an id names. */
+const MAX_ENTRIES = 1024
+
+/** How many of a file's headings a refusal offers back. */
+const MAX_OFFERED = 24
+
+/**
+ * What a section id names: the id as this app spells it — or, for a heading its
+ * file does not have, that file and the headings it does have, which is what
+ * the refusal offers instead.
+ */
+export type NamedPlace = { section: string } | { file: string; headings: string[] }
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+/** Every heading of one file, as the ids `placeOf` and `file/outline.ts` mint for them. */
+function headingsOf(real: string, rel: string, file: string): string[] {
+  const dialect = dialectOf(rel)
+  const buffer = dialect ? readCapped(real) : null
+  if (!dialect || !buffer) return []
+  return sectionsIn(buffer.toString('utf8'), dialect)
+    .map((one) => sectionId(file, one.label, one.title))
+    .filter((id): id is string => id !== null)
+}
+
+/**
+ * The file or the heading a section id names, or null when it names neither.
+ *
+ * `placeOf` goes from a file to an id; this goes back, and it exists for the
+ * one caller that TYPES an id instead of pressing one this app offered. The
+ * essay in `list/targets.ts` refuses a free-form target because it would leave
+ * the app "unable to tell a typo from a new target", and until this an id typed
+ * at the MCP door was exactly that: `sec:dependencies` was accepted, listed as
+ * held, and shown nowhere, because the id this app mints for that heading is
+ * `.kehikot:paper:<epic>:chapters:dependencies#sec:dependencies` and nothing a
+ * container shows resolves to the short one.
+ *
+ * An id is a path with its extension cut and its slashes turned to colons, so
+ * it cannot be turned back into a path — the extension is gone. The directory
+ * it points into is listed instead and `fileId` is asked which entry spells
+ * that id: the one spelling, rather than an extension guessed back on.
+ *
+ * The id may be spelled from the project or from the epic's paper folder, for
+ * the reason `placeIn` gives. What comes back is always the id from the
+ * PROJECT, built from the real path as `placeOf` builds it, because that is the
+ * only spelling a reader walking into the file arrives at.
+ *
+ * Headings and ids, never contents — the bound this file sets for itself at the
+ * top holds here too.
+ */
+export function placeNamed(projectPath: string | null | undefined, epic: string, section: string): NamedPlace | null {
+  const root = rootOf(projectPath)
+  if (!root) return null
+  const cut = section.indexOf('#')
+  const at = (cut === -1 ? section : section.slice(0, cut)).replace(/:/g, '/')
+  if (!at) return null
+  for (const spelled of [at, join(paperFolder(epic), at)]) {
+    const dir = inside(root, dirname(spelled))
+    if (!dir) continue
+    let names: string[]
+    try {
+      names = readdirSync(dir).slice(0, MAX_ENTRIES)
+    } catch {
+      continue
+    }
+    /* The extension is a stand-in for the one that was cut: `fileId` drops it,
+       and what is left is the id this spelling means. */
+    const wanted = fileId(`${spelled}.tex`)
+    const spells = names.filter((name) => wanted !== null && fileId(join(dirname(spelled), name)) === wanted)
+    /* `3_methods.tex` before `3_methods.bib`: both spell the id, and only one has headings. */
+    const name = spells.find((one) => dialectOf(one) !== null) ?? spells[0]
+    const real = name ? inside(root, join(dirname(spelled), name)) : null
+    if (!real || !isFile(real)) continue
+    const rel = relative(root, real)
+    const file = fileId(rel)
+    if (!file) continue
+    if (cut === -1) return { section: file }
+    const headings = headingsOf(real, rel, file)
+    const id = `${file}#${section.slice(cut + 1)}`
+    return headings.includes(id) ? { section: id } : { file: rel, headings: headings.slice(0, MAX_OFFERED) }
+  }
+  return null
 }

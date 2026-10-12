@@ -17,7 +17,7 @@ import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts
 import { announce, since } from './list/outbox.ts'
 import { ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
-import { placeOf } from './file/open.ts'
+import { placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 
 /**
@@ -221,11 +221,13 @@ const TARGET_PROPERTIES = {
   section: {
     type: 'string',
     description:
-      'Optional, and only with an epic: a place inside the paper. Use a name that is stable in the source — a '
-      + "\\label{}, a chapter file's name, an id an outline already uses. NOT a page number and NOT the words of a "
-      + 'heading: both of those move every time somebody edits the document, and ticks keyed to them would end up '
-      + 'describing different prose. Omit it to hold the list against the whole paper, which is a different target '
-      + 'from any section in it.',
+      'Optional, and only with an epic: a file of the paper or one heading in it, by the id this app prints for '
+      + 'it. A file is its path without the extension and with ":" for "/" — "chapters:3_methods" — spelled from '
+      + "the paper's own folder or from the project's. A heading is that, then \"#\", then the heading's "
+      + '\\label{} — "chapters:3_methods#sec:meth-design". A bare label, a page number or the words of a heading '
+      + 'is NOT one: an id that names no file or heading on disk is refused, because a list held against it '
+      + 'would be shown nowhere. If you do not know the id, give path (with from and to) and this app works it '
+      + 'out. Omit it to hold the list against the whole paper, which is a different target from any section in it.',
   },
   /*
    * The passage arguments, which are how an agent asks about the place a person
@@ -245,9 +247,11 @@ const TARGET_PROPERTIES = {
   path: {
     type: 'string',
     description:
-      'Optional, and only with an epic: the file of the paper being looked at, e.g. '
-      + '"chapters/3_methods.tex" or its absolute path. This app opens the file and works out which section '
-      + 'the offsets below fall in, so you do not have to know the section id. Ignored if section is given.',
+      'Optional, and only with an epic: the file of the paper being looked at — "chapters/3_methods.tex" as the '
+      + "paper's own folder spells it, the same file from the project folder, or its absolute path. This app "
+      + 'opens the file and works out which section the offsets below fall in, so you do not have to know the '
+      + 'section id. A path that is not a file of this project is refused; it is never read as the whole paper. '
+      + 'Ignored if section is given.',
   },
   from: {
     type: 'number',
@@ -298,6 +302,80 @@ function resolve(args: Record<string, unknown>, where: string | null): Target | 
   const placed = placeOf(where, path, range?.from ?? null, range?.to ?? null)
   const scope = scopeOf(named.epic, placed)
   return targetOf(scope) ?? named
+}
+
+/**
+ * `resolve` for the agent's door, where a target nothing can show is refused
+ * rather than answered about.
+ *
+ * The page names a target by pressing one this app offered, and a host relays a
+ * passage some module set. An agent TYPES one, and has no page on which to
+ * notice that the list it held never appeared — it reads "is now held against"
+ * and reports the work done. So the two ways a typed target used to go quietly
+ * wrong are both answered here with a sentence instead:
+ *
+ * - **A `path` that is not a file.** `resolve` reads that as "no narrowing" and
+ *   answers about the whole paper, which is right for a passage and wrong for a
+ *   decision: seven chapters held by path became one hold on the paper and six
+ *   "is already held". Here the path is looked for in the paper's own folder as
+ *   well as the project's (`placeIn`), and refused when it is in neither.
+ * - **A `section` that names nothing.** Any string that passed `part()` was a
+ *   new target. Here it has to name a file or a heading that is on disk
+ *   (`placeNamed`), and the target is the id this app mints for that place
+ *   whichever folder it was spelled from.
+ *
+ * ## What is still nameable without being on disk
+ *
+ * A target this list is ALREADY held against. `list/targets.ts` says a stored
+ * target is never checked, "because a target with ticks on it is a record of
+ * work done and not a claim about today's document", and that holds: a heading
+ * renamed since, or a hold made before this refusal existed, can still be read,
+ * unticked and released by the name it was stored under. What is refused is
+ * minting a new one.
+ */
+function aimed(args: Record<string, unknown>, where: string, id: string): Target | null {
+  const named = readTarget(args)
+  if (!named || named.kind === 'ref') return named
+  if (named.section) {
+    const found = placeNamed(where, named.epic, named.section)
+    if (found && 'section' in found) return { kind: 'paper', epic: named.epic, section: found.section }
+    if (targetsOf(id, where).some((row) => targetKey(row.target) === targetKey(named))) return named
+    if (found) {
+      throw new Error(
+        `${found.file} has no heading with the id "${named.section.slice(named.section.indexOf('#') + 1)}", so `
+        + 'nothing was held or ticked against it: a list held against a heading that is not there is shown '
+        + 'nowhere. '
+        + (found.headings.length
+          ? `Its headings are: ${found.headings.join(', ')}. Give one of those as section, or leave the "#" part `
+            + 'off to mean the whole file.'
+          : 'This app found no headings in that file; leave the "#" part off to mean the whole file.'),
+      )
+    }
+    throw new Error(
+      `"${named.section}" names no file or heading of this project or of the paper ${named.epic} is aimed at, so `
+      + 'nothing was held or ticked against it: a list held against a section that is not there is shown nowhere. '
+      + 'A section is the id this app prints — a file is its path without the extension and with ":" for "/", '
+      + 'e.g. "chapters:3_methods", and a heading is that plus "#" and its \\label{}, e.g. '
+      + '"chapters:3_methods#sec:meth-design". A bare label is not one. Or give path (with from and to) instead '
+      + 'and this app works the id out.',
+    )
+  }
+  const path = str(args.path, MAX_PROJECT)
+  if (!path) return named
+  /* A half-range stays on the file rung, exactly as in `resolve`. */
+  const from = typeof args.from === 'number' && Number.isFinite(args.from) ? Math.trunc(args.from) : null
+  const to = typeof args.to === 'number' && Number.isFinite(args.to) ? Math.trunc(args.to) : null
+  const range = from !== null && to !== null && to > from ? { from, to } : null
+  const placed = placeIn(where, named.epic, path, range?.from ?? null, range?.to ?? null)
+  if (!placed) {
+    throw new Error(
+      `"${path.slice(0, 200)}" is not a file this app can open in this project or in the folder of the paper `
+      + `${named.epic} is aimed at (.kehikot/paper/${named.epic}/), so nothing was held or ticked against it — a `
+      + 'path that is not a file is refused rather than read as the whole paper. Give the path as either folder '
+      + 'spells it, or the absolute path; or leave path out to mean the whole paper.',
+    )
+  }
+  return targetOf(scopeOf(named.epic, placed)) ?? named
 }
 
 /**
@@ -608,7 +686,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     /* The same passage resolution as `check_item`, so an agent that was told
        what is owed "here" can hold a list here without spelling the section id
        this program mints. */
-    const target = resolve(args, where)
+    const target = aimed(args, where, id)
     if (!target) {
       throw new Error(
         'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
@@ -667,7 +745,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
        the same passage resolution the reading tool does, so an agent that asked
        "what is owed here" and then ticks something is ticking against the place
        it was answered about rather than against the whole paper. */
-    target = resolve(args, where)
+    target = aimed(args, where, id)
     if (!target) {
       throw new Error(
         'check_item needs to say WHAT is being ticked off: a ref (an issue, merge request or pull request, e.g. '
@@ -790,7 +868,7 @@ function mcp(rpc: Rpc): Reply {
            complaint about a ref nobody sent would be a refusal of the wrong
            thing. */
         const gave = args.ref !== undefined || args.epic !== undefined
-        const target = gave ? resolve(args, where) : null
+        const target = gave ? aimed(args, where, id) : null
         if (gave && !target) {
           return text(
             'checklists was given something that is not a target. It takes a ref like "gh#105" or "!44", or an epic '
