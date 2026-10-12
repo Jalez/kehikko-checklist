@@ -120,7 +120,7 @@ export type Scope =
  * in every `\label{sec:meth-design}` in the owner's thesis, and that reads as a
  * separator rather than as a word.
  */
-function slug(name: string): string {
+export function slug(name: string): string {
   return name
     .trim()
     .replace(/\//g, ':')

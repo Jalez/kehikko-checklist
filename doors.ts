@@ -1,4 +1,8 @@
-import { establishBuild, mintTicket, refuseTicket, type Reply } from 'kehikot-module-protocol/serve'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { MODULE_ID, canonicalModuleId } from 'kehikot-module-protocol'
+import { establishBuild, mintTicket, refuseTicket, registryDir, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
 import {
@@ -17,7 +21,7 @@ import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts
 import { announce, since } from './list/outbox.ts'
 import { ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
-import { placeOf } from './file/open.ts'
+import { placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 
 /**
@@ -221,11 +225,13 @@ const TARGET_PROPERTIES = {
   section: {
     type: 'string',
     description:
-      'Optional, and only with an epic: a place inside the paper. Use a name that is stable in the source — a '
-      + "\\label{}, a chapter file's name, an id an outline already uses. NOT a page number and NOT the words of a "
-      + 'heading: both of those move every time somebody edits the document, and ticks keyed to them would end up '
-      + 'describing different prose. Omit it to hold the list against the whole paper, which is a different target '
-      + 'from any section in it.',
+      'Optional, and only with an epic: a file of the paper or one heading in it, by the id this app prints for '
+      + 'it. A file is its path without the extension and with ":" for "/" — "chapters:3_methods" — spelled from '
+      + "the paper's own folder or from the project's. A heading is that, then \"#\", then the heading's "
+      + '\\label{} — "chapters:3_methods#sec:meth-design". A bare label, a page number or the words of a heading '
+      + 'is NOT one: an id that names no file or heading on disk is refused, because a list held against it '
+      + 'would be shown nowhere. If you do not know the id, give path (with from and to) and this app works it '
+      + 'out. Omit it to hold the list against the whole paper, which is a different target from any section in it.',
   },
   /*
    * The passage arguments, which are how an agent asks about the place a person
@@ -245,9 +251,12 @@ const TARGET_PROPERTIES = {
   path: {
     type: 'string',
     description:
-      'Optional, and only with an epic: the file of the paper being looked at, e.g. '
-      + '"chapters/3_methods.tex" or its absolute path. This app opens the file and works out which section '
-      + 'the offsets below fall in, so you do not have to know the section id. Ignored if section is given.',
+      'Optional, and only with an epic: the file of the paper being looked at — "chapters/3_methods.tex" as the '
+      + "paper's own folder spells it, the same file from the project folder, or its absolute path. This app "
+      + 'opens the file and works out which section the offsets below fall in, so you do not have to know the '
+      + 'section id. A path that is not a file of this project is refused; it is never read as the whole paper. '
+      + "Where the paper's folder and the project both have that relative path, the paper's is taken and the "
+      + 'answer says so. Ignored if section is given.',
   },
   from: {
     type: 'number',
@@ -301,7 +310,165 @@ function resolve(args: Record<string, unknown>, where: string | null): Target | 
 }
 
 /**
- * The eight tools, which are the whole of what an agent can do here.
+ * `resolve` for the agent's door, where a target nothing can show is refused
+ * rather than answered about.
+ *
+ * The page names a target by pressing one this app offered, and a host relays a
+ * passage some module set. An agent TYPES one, and has no page on which to
+ * notice that the list it held never appeared — it reads "is now held against"
+ * and reports the work done. So the two ways a typed target used to go quietly
+ * wrong are both answered here with a sentence instead:
+ *
+ * - **A `path` that is not a file.** `resolve` reads that as "no narrowing" and
+ *   answers about the whole paper, which is right for a passage and wrong for a
+ *   decision: seven chapters held by path became one hold on the paper and six
+ *   "is already held". Here the path is looked for in the paper's own folder as
+ *   well as the project's (`placeIn`), and refused when it is in neither.
+ * - **A `section` that names nothing.** Any string that passed `part()` was a
+ *   new target. Here it has to name a file or a heading that is on disk
+ *   (`placeNamed`), and the target is the id this app mints for that place
+ *   whichever folder it was spelled from.
+ *
+ * ## What is still nameable without being on disk
+ *
+ * A target this list is ALREADY held against. `list/targets.ts` says a stored
+ * target is never checked, "because a target with ticks on it is a record of
+ * work done and not a claim about today's document", and that holds: a heading
+ * renamed since, or a hold made before this refusal existed, can still be read,
+ * ticked, unticked and released by the name it was stored under. So the stored
+ * names are asked FIRST, before the disk: a hold stored as `chapters:3_methods`
+ * beside a file whose id is now `.kehikot:paper:<epic>:chapters:3_methods`
+ * would otherwise resolve to the second and never be nameable again. What is
+ * refused is minting a new one, and `minting` — a hold — is the one call that
+ * asks the disk first, so that spelling held anew lands where a reader arrives.
+ */
+function aimed(args: Record<string, unknown>, where: string, id: string, minting: boolean): Aimed | null {
+  const named = readTarget(args)
+  if (!named) return null
+  if (named.kind === 'ref' || named.section) return settle(named, where, id, minting, 'paper')
+  const path = str(args.path, MAX_PROJECT)
+  if (!path) return { target: named, also: null }
+  /* A half-range stays on the file rung, exactly as in `resolve`. */
+  const from = typeof args.from === 'number' && Number.isFinite(args.from) ? Math.trunc(args.from) : null
+  const to = typeof args.to === 'number' && Number.isFinite(args.to) ? Math.trunc(args.to) : null
+  const range = from !== null && to !== null && to > from ? { from, to } : null
+  const placed = placeIn(where, named.epic, path, range?.from ?? null, range?.to ?? null)
+  if (!placed) {
+    throw new Error(
+      `"${path.slice(0, 200)}" is not a file this app can open in this project or in the folder of the paper `
+      + `${named.epic} is aimed at (.kehikot/paper/${named.epic}/), so nothing was held or ticked against it — a `
+      + 'path that is not a file is refused rather than read as the whole paper. Give the path as either folder '
+      + 'spells it, or the absolute path; or leave path out to mean the whole paper.',
+    )
+  }
+  return {
+    target: targetOf(scopeOf(named.epic, placed)) ?? named,
+    also: placed.other
+      ? `"${path.slice(0, 200)}" is a file both in the folder of the paper ${named.epic} is aimed at and in the `
+        + `project (${placed.other}). The paper’s was taken, because that is the one the paper shows. To mean the `
+        + `project’s instead, give its absolute path: "${join(where, placed.other)}".`
+      : null,
+  }
+}
+
+/** A target, and — where the words that named it name a second file as well — the sentence saying which was taken. */
+interface Aimed {
+  target: Target
+  also: string | null
+}
+
+/**
+ * A named target, held to the one standard both doors keep: a section either
+ * is one this list is already held against, by the exact name it was stored
+ * under, or names a file or a heading on disk. Throws the refusal otherwise.
+ *
+ * A reference and the whole paper pass untouched: neither is a place in a file.
+ * `first` is `placeNamed`'s — the agent's door means the paper's folder, the
+ * page presses an id this app minted from the project.
+ */
+function settle(named: Target, where: string, id: string, minting: boolean, first: 'paper' | 'project'): Aimed {
+  if (named.kind === 'ref' || !named.section) return { target: named, also: null }
+  const stored = targetsOf(id, where).some((row) => targetKey(row.target) === targetKey(named))
+  if (stored && !minting) return { target: named, also: null }
+  const found = placeNamed(where, named.epic, named.section, first)
+  if (found && 'section' in found) {
+    return {
+      target: { kind: 'paper', epic: named.epic, section: found.section },
+      also:
+        found.other && first === 'paper'
+          ? `"${named.section}" names a file in the folder of the paper ${named.epic} is aimed at and one in the `
+            + `project (${found.other}). The paper’s was taken, as ${found.section}, because that is the one the `
+            + `paper shows. To mean the project’s instead, give path: "${join(where, found.other)}".`
+          : null,
+    }
+  }
+  if (stored) return { target: named, also: null }
+  if (found && 'long' in found) {
+    throw new Error(
+      `"${named.section}" is on disk, but the id this app mints for it is spelled from the project folder `
+      + `("${found.long}") and does not fit: a target’s name is at most ${MAX_TARGET_PART} characters, with no `
+      + 'space or slash. So nothing was held or ticked against it. Leave the "#" part off to mean the file, or '
+      + 'leave section out to mean the whole paper.',
+    )
+  }
+  if (found) {
+    throw new Error(
+      `${found.file} has no heading with the id "${named.section.slice(named.section.indexOf('#') + 1)}", so `
+      + 'nothing was held or ticked against it: a list held against a heading that is not there is shown '
+      + 'nowhere. '
+      + (found.headings.length
+        ? `Its headings are: ${found.headings.join(', ')}`
+          + (found.total > found.headings.length
+            ? ` — the first ${found.headings.length} of ${found.total}, the rest are not listed here`
+            : '')
+          + '. Give one of those as section, or leave the "#" part off to mean the whole file.'
+        : 'This app found no headings in that file; leave the "#" part off to mean the whole file.'),
+    )
+  }
+  throw new Error(
+    `"${named.section}" names no file or heading of this project or of the paper ${named.epic} is aimed at, so `
+    + 'nothing was held or ticked against it: a list held against a section that is not there is shown nowhere. '
+    + 'A section is the id this app prints — a file is its path without the extension and with ":" for "/", '
+    + 'e.g. "chapters:3_methods", and a heading is that plus "#" and its \\label{}, e.g. '
+    + '"chapters:3_methods#sec:meth-design". A bare label is not one. Or give path (with from and to) instead '
+    + 'and this app works the id out.',
+  )
+}
+
+/** How many module ids one request may say are here, and how many a refusal offers. */
+const MAX_MODULES = 64
+
+/**
+ * The modules on this machine, by id, without this one: what an agent is
+ * offered when it names a module that is not one.
+ *
+ * Read off the registry a host sweeps — one file per module, the file's name
+ * its id — because this door has no canvas to ask. The page has one, and sends
+ * the modules its host reported beside the op (`heard`); both doors add these.
+ * Names only: no registration is opened.
+ */
+function modulesHere(): string[] {
+  let names: string[]
+  try {
+    names = readdirSync(registryDir())
+  } catch {
+    return []
+  }
+  const ids = names
+    .filter((name) => name.endsWith('.json'))
+    .map((name) => canonicalModuleId(name.slice(0, -'.json'.length)))
+    .filter((id) => MODULE_ID.test(id) && id !== canonicalModuleId(ID))
+  return [...new Set(ids)].sort().slice(0, MAX_MODULES)
+}
+
+/** The module ids a page said its host reported, bounded before they are looked at. */
+function heard(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, MAX_MODULES).map((one) => (typeof one === 'string' ? str(one, MAX_TARGET_PART) : '')).filter(Boolean)
+}
+
+/**
+ * The nine tools, which are the whole of what an agent can do here.
  *
  * Streamable HTTP, one request one answer — no sessions and no stream, because
  * nothing here pushes.
@@ -400,6 +567,35 @@ function tools() {
         },
         required: ['project', 'checklist'],
       },
+    },
+    {
+      name: 'checklist_for',
+      description:
+        'Say which module’s work a checklist is for, or — with module: null — that it is for every module’s, which '
+        + 'is what a list is until somebody says. Several modules can show the same place in a paper: Paper the '
+        + 'section being read, Slides the section a slide is linked to, Screenplay the chapter its narration is '
+        + 'about. A list about narration held against that chapter would be in front of all three. Said to be for '
+        + 'one module, it is in front of a PERSON only while that module’s container is among the ones they picked '
+        + 'out, or while they have picked none. What the list is held against and every tick on it are untouched.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTY,
+          checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
+          module: {
+            type: ['string', 'null'],
+            description:
+              'The module’s id as the host spells it, e.g. "kehikot.screenplay" — its short name, "screenplay", is '
+              + 'read as that id when one module here has it. Or null, to say the list is for every module’s work '
+              + 'again. Leaving it out is refused, so a call that lost the id cannot clear what a list is for.',
+          },
+          agent: { type: 'string' },
+        },
+        required: ['project', 'checklist', 'module'],
+      },
+      /* It writes — one property of one list — and takes nothing away: no target, no tick, no item. Saying the
+         same module twice is saying it once. */
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'add_checklist_item',
@@ -518,6 +714,7 @@ function listsText(where: string): string {
     ...lists.map(
       (list) =>
         `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
+        + (list.for ? `for ${list.for}’s work; ` : '')
         + (list.held.length
           ? `held against ${list.held.map(targetName).join(', ')})`
           : 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'),
@@ -608,16 +805,34 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     /* The same passage resolution as `check_item`, so an agent that was told
        what is owed "here" can hold a list here without spelling the section id
        this program mints. */
-    const target = resolve(args, where)
-    if (!target) {
+    const aim = aimed(args, where, id, args.release !== true)
+    if (!aim) {
       throw new Error(
         'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
         + 'e.g. "gh#105") or an epic whose paper this is, optionally with a section of it or a path into it. What a '
         + 'list is held against is where a person sees it, so there is nothing to do without one.',
       )
     }
-    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target, by, viaMcp: true }
+    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target: aim.target, by, viaMcp: true }
     const out = change(op, where)
+    if (!out.ok) throw new Error(out.error)
+    return `${out.said}.${aim.also ? `\n\n${aim.also}` : ''}\n\n${listText(id, null, where)}`
+  }
+
+  if (name === 'checklist_for') {
+    /* `null` says every module's, as on the page's door. Anything else has to
+       be a string naming one: left out, empty or not a string is refused
+       rather than read as null, so a call that lost the id clears nothing. */
+    const present = modulesHere()
+    const module = args.module === null ? null : typeof args.module === 'string' ? str(args.module, MAX_TARGET_PART) : ''
+    if (module === '') {
+      throw new Error(
+        'checklist_for needs module: the id of the module whose work the list is for, e.g. "kehikot.screenplay", or '
+        + 'null to say it is for every module’s work again. Nothing was changed. '
+        + (present.length ? `The modules here are: ${present.join(', ')}.` : 'No other module is registered here to offer.'),
+      )
+    }
+    const out = change({ op: 'for', id, module, present, by, viaMcp: true }, where)
     if (!out.ok) throw new Error(out.error)
     return `${out.said}.\n\n${listText(id, null, where)}`
   }
@@ -632,6 +847,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
 
   let op: Op
   let target: Target | null = null
+  let also: string | null = null
 
   if (name === 'add_checklist_item') {
     const text = str(args.text, MAX_TEXT)
@@ -667,8 +883,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
        the same passage resolution the reading tool does, so an agent that asked
        "what is owed here" and then ticks something is ticking against the place
        it was answered about rather than against the whole paper. */
-    target = resolve(args, where)
-    if (!target) {
+    const aim = aimed(args, where, id, false)
+    if (!aim) {
       throw new Error(
         'check_item needs to say WHAT is being ticked off: a ref (an issue, merge request or pull request, e.g. '
         + '"gh#105") or an epic whose paper this is, optionally with a section of it. A tick belongs to the '
@@ -677,6 +893,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         + `${MAX_TARGET_PART} characters, or contain a space or a slash.`,
       )
     }
+    target = aim.target
+    also = aim.also
     op = {
       op: 'tick',
       id,
@@ -691,7 +909,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
 
   const out = change(op, where)
   if (!out.ok) throw new Error(out.error)
-  return `${out.said}.\n\n${listText(id, target, where)}`
+  return `${out.said}.${also ? `\n\n${also}` : ''}\n\n${listText(id, target, where)}`
 }
 
 /* A status and a document — the protocol's `Reply`. Nothing here writes bytes; `doors()` does that. */
@@ -790,8 +1008,8 @@ function mcp(rpc: Rpc): Reply {
            complaint about a ref nobody sent would be a refusal of the wrong
            thing. */
         const gave = args.ref !== undefined || args.epic !== undefined
-        const target = gave ? resolve(args, where) : null
-        if (gave && !target) {
+        const aim = gave ? aimed(args, where, id, false) : null
+        if (gave && !aim) {
           return text(
             'checklists was given something that is not a target. It takes a ref like "gh#105" or "!44", or an epic '
             + `slug with an optional section — no spaces, no slashes, no more than ${MAX_TARGET_PART} characters — or `
@@ -799,11 +1017,12 @@ function mcp(rpc: Rpc): Reply {
             true,
           )
         }
-        return text(listText(id, target, where))
+        return text(`${aim?.also ? `${aim.also}\n\n` : ''}${listText(id, aim?.target ?? null, where)}`)
       }
       if (
         name === 'create_checklist'
         || name === 'hold_checklist'
+        || name === 'checklist_for'
         || name === 'add_checklist_item'
         || name === 'check_item'
         || name === 'reword_checklist_item'
@@ -1134,6 +1353,14 @@ export function answer(
       if (!id) return bad('that edit did not say which checklist it was about.')
       if (op === 'rename') return ok(change({ op: 'rename', id, name: str(body.name, MAX_NAME), by }, where))
       if (op === 'forget') return ok(change({ op: 'forget', id, by }, where))
+      if (op === 'for') {
+        /* `null` says the list is every module's again. Anything else has to
+           be a module's id, and an empty one is refused rather than read as
+           null, so a page that lost the id cannot quietly clear it. */
+        const module = body.module === null ? null : str(body.module, MAX_TARGET_PART)
+        if (module === '') return bad('that did not say which module the list is for. It is a module’s id, or null.')
+        return ok(change({ op: 'for', id, module, present: [...heard(body.present), ...modulesHere()], by }, where))
+      }
       if (op === 'add') return ok(change({ op: 'add', id, text, by }, where))
       if (op === 'reword') return ok(change({ op: 'reword', id, item, text, by }, where))
       if (op === 'drop') return ok(change({ op: 'drop', id, item, by }, where))
@@ -1152,23 +1379,45 @@ export function answer(
         if (to === null) return bad('a move needs a position to move to, and nothing was moved.')
         return ok(change({ op: 'move', id, item, to, by }, where))
       }
+      /*
+       * The page's targets meet the agent's standard (`settle`): a file or a
+       * heading has to be one this list is already held against or one that is
+       * on disk, so this door cannot mint a target the other refuses. The page
+       * makes three kinds — a reference, the whole paper, and a file or heading
+       * off the outline, which was read off disk — so its own presses pass. A
+       * release is not held to it: letting go of a name mints nothing.
+       */
       if (op === 'hold' || op === 'release') {
-        const target = readTarget(body)
-        if (!target) {
+        const named = readTarget(body)
+        if (!named) {
           return bad(
             `that ${op} did not say which target. A checklist is held against an issue, a merge request, a pull `
             + 'request, or a paper, one of its files or one heading in it.',
           )
         }
+        let target = named
+        if (op === 'hold') {
+          try {
+            target = settle(named, where, id, true, 'project').target
+          } catch (refusal) {
+            return bad(refusal instanceof Error ? refusal.message : String(refusal))
+          }
+        }
         return ok(change({ op, id, target, by }, where))
       }
       if (op === 'tick') {
-        const target = readTarget(body)
-        if (!target) {
+        const named = readTarget(body)
+        if (!named) {
           return bad(
             'that tick did not say what it was against. A tick belongs to a checklist, an item and a target '
             + 'together — the same list held against two pieces of work keeps two separate sets of ticks.',
           )
+        }
+        let target = named
+        try {
+          target = settle(named, where, id, false, 'project').target
+        } catch (refusal) {
+          return bad(refusal instanceof Error ? refusal.message : String(refusal))
         }
         return ok(
           change(
@@ -1193,7 +1442,7 @@ export function answer(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, hold, release, add, reword, cite, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, import, rename, for, forget, hold, release, add, reword, cite, move, drop or tick.`,
       )
     }
   }

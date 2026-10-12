@@ -296,6 +296,8 @@ export type Edit =
   | { op: 'move'; id: string; item: string; to: number }
   | { op: 'drop'; id: string; item: string }
   | { op: 'cite'; id: string; item: string; fact: Fact | null }
+  /* `present` is the modules the host says are on this kehikko, which the server has no way to see. */
+  | { op: 'for'; id: string; module: string | null; present?: string[] }
   /* `evidence` is what the tracker's fact said as the reader pressed — see
      `list/evidence.ts`. Sent as it is; the server parses it or drops it. */
   | { op: 'tick'; id: string; item: string; target: Target; done: boolean; evidence?: Evidence }

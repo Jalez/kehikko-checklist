@@ -4,6 +4,7 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
+import { nameOf } from '../../list/aim.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -104,6 +105,7 @@ export function HereView({
   here,
   somewhere,
   why = null,
+  aside = null,
   onEdit,
   onOpen,
   onAll,
@@ -118,6 +120,8 @@ export function HereView({
   somewhere: boolean
   /** Why the page is empty when the picks emptied it, or null when they did not. See `whyEmpty` in `list/aim.ts`. */
   why?: string | null
+  /** What is said about lists put aside while others are drawn, or null: a hint on "All checklists", never a row. See `whyAside` in `list/aim.ts`. */
+  aside?: string | null
   onEdit: (edit: Edit) => void
   /** Open one checklist's edit page. */
   onOpen: (id: string) => void
@@ -165,7 +169,13 @@ export function HereView({
                 key={key}
                 held={held}
                 target={target}
-                label={labelOf(target, placeAmong(target, here.positions) ?? here.placed, null)}
+                /* Whose work the list is for rides on the target's label, so two
+                   lists held against one chapter — what a chapter owes, what its
+                   narration owes — say which is about which. */
+                label={
+                  labelOf(target, placeAmong(target, here.positions) ?? here.placed, null)
+                  + (held.checklist.for ? ` · for ${nameOf(held.checklist.for)}` : '')
+                }
                 open={open}
                 foldable={several}
                 onFold={() => setTurned((was) => ({ ...was, [key]: !open }))}
@@ -195,7 +205,18 @@ export function HereView({
       ) : null}
 
       <div className="flex shrink-0 items-center gap-1.5 border-t bg-muted/40 px-2 py-1.5">
-        <Button type="button" variant="ghost" size="container" data-all onClick={onAll}>
+        {/* Lists put aside for another module's work get no line of their own: a row about what is
+            not drawn costs the room the drawn lists need. What says it is the hint on the control
+            that leads to every list, which is there anyway and is where the remedy is. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="container"
+          data-all
+          data-aside={aside && here.instances.length ? '' : undefined}
+          title={aside && here.instances.length ? aside : undefined}
+          onClick={onAll}
+        >
           All checklists
         </Button>
       </div>
