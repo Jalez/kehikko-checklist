@@ -157,7 +157,18 @@ export function HereView({
     >
       {here.instances.length ? (
         <div
-          className={cn(room.pinned && 'min-h-0 flex-1 overflow-y-auto', room.snap && 'snap-y snap-proximity')}
+          /* `before:` is a snap area of no height at the very start, so the
+             top of the scroller is a place it can rest. With only the rows
+             snapping, the first snap position was the first ROW, 48 pixels
+             down, and WebKit would not rest above it: the first list's name,
+             label and Edit press could not be scrolled back to (issue #16;
+             `dev/scroll.probe.mjs` reads it). It is the scroller's own and not
+             the first header's, so a list arriving above the first one — a
+             part picked — is drawn at the top instead of being scrolled past. */
+          className={cn(
+            room.pinned && 'min-h-0 flex-1 overflow-y-auto',
+            room.snap && "snap-y snap-proximity before:block before:h-0 before:snap-start before:content-['']",
+          )}
           data-scroller={room.pinned ? 'instances' : undefined}
         >
           {here.instances.map((held) => {
@@ -265,7 +276,9 @@ function Instance({
       data-target={targetKey(target)}
       data-open={open ? 'yes' : 'no'}
     >
-      <div className="flex items-start gap-1.5 px-2 py-1.5">
+      {/* A snap area like the rows under it, so every list has a place the
+          scroller can rest with its name at the top edge — not only its rows. */}
+      <div className={cn('flex items-start gap-1.5 px-2 py-1.5', room.snap && 'snap-start')}>
         {foldable ? (
           <Button
             type="button"
