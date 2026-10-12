@@ -120,7 +120,7 @@ export function HereView({
   somewhere: boolean
   /** Why the page is empty when the picks emptied it, or null when they did not. See `whyEmpty` in `list/aim.ts`. */
   why?: string | null
-  /** The line about lists put aside while others are drawn, or null. See `whyAside` in `list/aim.ts`. */
+  /** What is said about lists put aside while others are drawn, or null: a hint on "All checklists", never a row. See `whyAside` in `list/aim.ts`. */
   aside?: string | null
   onEdit: (edit: Edit) => void
   /** Open one checklist's edit page. */
@@ -200,18 +200,23 @@ export function HereView({
         </p>
       )}
 
-      {aside && here.instances.length ? (
-        <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-aside>
-          {aside}
-        </p>
-      ) : null}
-
       {trouble ? (
         <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-failed">{trouble}</p>
       ) : null}
 
       <div className="flex shrink-0 items-center gap-1.5 border-t bg-muted/40 px-2 py-1.5">
-        <Button type="button" variant="ghost" size="container" data-all onClick={onAll}>
+        {/* Lists put aside for another module's work get no line of their own: a row about what is
+            not drawn costs the room the drawn lists need. What says it is the hint on the control
+            that leads to every list, which is there anyway and is where the remedy is. */}
+        <Button
+          type="button"
+          variant="ghost"
+          size="container"
+          data-all
+          data-aside={aside && here.instances.length ? '' : undefined}
+          title={aside && here.instances.length ? aside : undefined}
+          onClick={onAll}
+        >
           All checklists
         </Button>
       </div>

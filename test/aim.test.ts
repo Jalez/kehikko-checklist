@@ -292,11 +292,11 @@ describe('a list for one module’s work follows the container picked out', () =
     const out = forPicked(held, picked)
     expect(whyAside(held.length - out.instances.length, out.aside)).toBe(
       '2 more checklists are held here and put aside: they are for screenplay and slides. '
-        + '“everything on this kehikko” under aim in the header shows them.',
+        + 'This lists them with every other checklist.',
     )
     expect(whyAside(1, ['kehikot.slides'])).toBe(
       '1 more checklist is held here and put aside: it is for slides. '
-        + '“everything on this kehikko” under aim in the header shows it.',
+        + 'This lists it with every other checklist.',
     )
     expect(whyAside(0, [])).toBeNull()
   })

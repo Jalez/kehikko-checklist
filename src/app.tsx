@@ -425,7 +425,7 @@ export function App() {
       whyUnfocused(focused.focus, focused.instances.length, front.byParts)
       ?? whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
     /* And with lists left, the ones put aside for another module's work are
-       counted under them, so a list missing from the page has a cause. */
+       counted in the hint on "All checklists": no row is drawn for them. */
     aside: whyAside((inFocus?.instances.length ?? 0) - forThese.instances.length, forThese.aside),
   }
   const drawn = useRef(drawnNow)

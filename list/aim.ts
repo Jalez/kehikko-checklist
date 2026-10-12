@@ -333,18 +333,20 @@ export function moduleLabels(modules: readonly string[]): { id: string; label: s
 }
 
 /**
- * The line under the lists that ARE in front, when others were put aside.
+ * What is said about lists put aside while others ARE in front.
  *
- * `whyEmpty` speaks only when nothing is left. With some left, a list missing
- * from among them has no visible cause either, so this says how many and whose,
- * and where the way to all of them is: the `aim` control in the header.
+ * `whyEmpty` speaks only when nothing is left, in the pane that would
+ * otherwise be blank. With lists left there is no blank pane and so no line:
+ * a row about what is not drawn takes the room from what is. This is the hint
+ * on the page's "All checklists" control instead — how many, whose, and that
+ * the control leads to them — which costs no space at all.
  */
 export function whyAside(count: number, aside: readonly string[]): string | null {
   if (count <= 0 || !aside.length) return null
   const one = count === 1
   return (
     `${count} more checklist${one ? ' is' : 's are'} held here and put aside: ${one ? 'it is' : 'they are'} for `
-    + `${list(aside.map(nameOf))}. “everything on this kehikko” under aim in the header shows ${one ? 'it' : 'them'}.`
+    + `${list(aside.map(nameOf))}. This lists ${one ? 'it' : 'them'} with every other checklist.`
   )
 }
 

@@ -593,6 +593,9 @@ function tools() {
         },
         required: ['project', 'checklist', 'module'],
       },
+      /* It writes — one property of one list — and takes nothing away: no target, no tick, no item. Saying the
+         same module twice is saying it once. */
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'add_checklist_item',

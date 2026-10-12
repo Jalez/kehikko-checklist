@@ -319,6 +319,15 @@ describe('the agent’s door', () => {
     expect(out.text).toContain('is ticked for ref:gh#105')
   })
 
+  test('checklist_for says what it does in MCP’s own form: it writes, and destroys nothing', async () => {
+    const { answer } = await import('../doors.ts')
+    const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
+    const tools = (reply?.body as { result: { tools: { name: string; annotations?: Record<string, boolean> }[] } }).result.tools
+    expect(tools.find((one) => one.name === 'checklist_for')?.annotations).toEqual({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false })
+    /* And no tool here that writes claims to only read. */
+    for (const one of tools) if (one.name !== 'checklists') expect(one.annotations?.readOnlyHint).not.toBe(true)
+  })
+
   test('lists exactly the nine tools this app now has', async () => {
     const { answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)

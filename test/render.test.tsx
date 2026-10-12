@@ -193,17 +193,23 @@ describe('a list that says whose work it is for (Jalez/kehikko-checklist#15)', (
     expect(rows[1]).toContain('gh#105 · for screenplay')
   })
 
-  test('lists put aside while others are drawn get one line under them, and none when nothing is drawn', () => {
-    const aside = '1 more checklist is held here and put aside: it is for slides.'
-    const { container } = render(<Reading here={here([held()])} aside={aside} room={ROOMY} />)
-    expect(container.querySelector('[data-aside]')?.textContent).toBe(aside)
-    expect(container.querySelectorAll('[data-instance]')).toHaveLength(1)
-    cleanup()
-    /* An emptied page has its own sentence, in the empty place. */
+  test('lists put aside while others are drawn get no row: the hint on “All checklists” says it, and nothing does when nothing is drawn', () => {
+    const aside = '1 more checklist is held here and put aside: it is for slides. This lists it with every other checklist.'
+    const plain = render(<Reading here={here([held()])} room={ROOMY} />)
+    const said = render(<Reading here={here([held()])} aside={aside} room={ROOMY} />)
+    /* Not one element more, and not a word more on the page, than with nothing put aside. */
+    expect(said.container.querySelectorAll('*').length).toBe(plain.container.querySelectorAll('*').length)
+    expect(said.container.textContent).toBe(plain.container.textContent)
+    expect(said.container.textContent).not.toContain('put aside')
+    const all = said.container.querySelector('[data-all]')
+    expect(all?.getAttribute('title')).toBe(aside)
+    expect(all?.hasAttribute('data-aside')).toBe(true)
+    expect(plain.container.querySelector('[data-all]')?.hasAttribute('title')).toBe(false)
+    /* With nothing drawn the one sentence in the empty pane says whose the lists were, and the hint is not there too. */
     const empty = render(<Reading here={here([])} why="paper is picked out." aside={aside} room={ROOMY} />)
     expect(empty.container.querySelector('[data-aside]')).toBeNull()
-    cleanup()
-    expect(render(<Reading here={here([held()])} room={ROOMY} />).container.querySelector('[data-aside]')).toBeNull()
+    expect(empty.container.querySelector('[data-all]')?.hasAttribute('title')).toBe(false)
+    expect(empty.container.querySelector('[data-none]')?.textContent).toBe('paper is picked out.')
   })
 
   test('the edit page offers the modules by name, with the id where two share one, and sends what the host reported', () => {
