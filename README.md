@@ -434,7 +434,7 @@ to anybody, and the ticket is unreadable from outside. Measured:
 $ curl -sI -H 'Origin: https://evil.example' http://127.0.0.1:7860/app | grep -i access-control
                                                        # nothing at all
 
-$ curl -s -X POST -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/checklist
+$ curl -s -X POST -H 'content-type: application/json' -d '{"op":"create","name":"x"}' http://127.0.0.1:7860/api/checklist
 { "ok": false, "error": "that press did not come from this app’s own page" }
 ```
 
