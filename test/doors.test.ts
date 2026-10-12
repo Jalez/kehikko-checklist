@@ -302,7 +302,7 @@ describe('the agent’s door', () => {
     expect(out.text).toContain('is ticked for ref:gh#105')
   })
 
-  test('lists exactly the eight tools this app now has', async () => {
+  test('lists exactly the nine tools this app now has', async () => {
     const { answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const names = (reply?.body as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)
@@ -310,6 +310,7 @@ describe('the agent’s door', () => {
       'checklists',
       'create_checklist',
       'hold_checklist',
+      'checklist_for',
       'add_checklist_item',
       'check_item',
       'reword_checklist_item',
@@ -537,6 +538,57 @@ describe('the agent’s door', () => {
     const out = await tool('hold_checklist', { checklist: list })
     expect(out.isError).toBe(true)
     expect(out.text).toContain('needs to say WHAT to hold the list against')
+  })
+
+  test('checklist_for says whose work a list is for, and touches neither its targets nor its ticks (Jalez/kehikko-checklist#15)', async () => {
+    const { list, item } = await aList('What a screenplay owes its learner')
+    await tool('check_item', { checklist: list, item, ref: 'gh#105' })
+    const out = await tool('checklist_for', { checklist: list, module: 'kehikot.screenplay' })
+    expect(out.isError).toBe(false)
+    expect(out.text).toContain('is for kehikot.screenplay’s work')
+    expect((await tool('checklists', {})).text).toContain('for kehikot.screenplay’s work; held against gh#105')
+    expect((await tool('checklists', { checklist: list, ref: 'gh#105' })).text).toContain('1/1 ticked')
+
+    const { answer } = await import('../doors.ts')
+    const here = answer('GET', '/api/here', asking({ refs: 'gh#105' }), null, null)
+    const instances = (here?.body as { instances: { checklist: { for?: string }; done: number }[] }).instances
+    expect(instances).toHaveLength(1)
+    expect(instances[0]?.checklist.for).toBe('kehikot.screenplay')
+    expect(instances[0]?.done).toBe(1)
+
+    const back = await tool('checklist_for', { checklist: list })
+    expect(back.text).toContain('is for every module’s work again')
+    expect((await tool('checklists', {})).text).not.toContain('’s work;')
+  })
+
+  test('a module that is not a name is refused, and the list stays every module’s', async () => {
+    const { list } = await aList()
+    const out = await tool('checklist_for', { checklist: list, module: 'the slides' })
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('that is not a module')
+    expect((await tool('checklists', {})).text).not.toContain('’s work;')
+  })
+
+  test('a list stored before a list could say whose work it is for is every module’s, and its file is not rewritten', async () => {
+    const { readFileSync } = await import('node:fs')
+    const { checklists, checklistsFile } = await import('../list/checklists.ts')
+    const { list } = await aList()
+    const file = checklistsFile(dir)!
+    const before = readFileSync(file, 'utf8')
+    expect(before).not.toContain('"for"')
+    const [summary] = checklists(dir).lists
+    expect(summary?.id).toBe(list)
+    expect(summary?.for).toBeUndefined()
+    expect(readFileSync(file, 'utf8')).toBe(before)
+  })
+
+  test('the page’s door sets and clears it, and refuses an empty module rather than clearing', async () => {
+    const { answer, TICKET } = await import('../doors.ts')
+    const { list } = await aList()
+    const post = (module: unknown) => answer('POST', '/api/checklist', query, { project: dir, op: 'for', id: list, module }, TICKET)
+    expect((post('kehikot.slides')?.body as { held: { checklist: { for?: string } } }).held.checklist.for).toBe('kehikot.slides')
+    expect(post('')?.status).toBe(400)
+    expect((post(null)?.body as { held: { checklist: { for?: string } } }).held.checklist.for).toBeUndefined()
   })
 
   test('a tick against a target the list is not held against holds it, and the agent is told', async () => {

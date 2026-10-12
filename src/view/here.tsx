@@ -4,6 +4,7 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
+import { nameOf } from '../../list/aim.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -165,7 +166,13 @@ export function HereView({
                 key={key}
                 held={held}
                 target={target}
-                label={labelOf(target, placeAmong(target, here.positions) ?? here.placed, null)}
+                /* Whose work the list is for rides on the target's label, so two
+                   lists held against one chapter — what a chapter owes, what its
+                   narration owes — say which is about which. */
+                label={
+                  labelOf(target, placeAmong(target, here.positions) ?? here.placed, null)
+                  + (held.checklist.for ? ` · for ${nameOf(held.checklist.for)}` : '')
+                }
                 open={open}
                 foldable={several}
                 onFold={() => setTurned((was) => ({ ...was, [key]: !open }))}

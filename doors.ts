@@ -379,7 +379,7 @@ function aimed(args: Record<string, unknown>, where: string, id: string): Target
 }
 
 /**
- * The eight tools, which are the whole of what an agent can do here.
+ * The nine tools, which are the whole of what an agent can do here.
  *
  * Streamable HTTP, one request one answer — no sessions and no stream, because
  * nothing here pushes.
@@ -474,6 +474,29 @@ function tools() {
           checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
           ...TARGET_PROPERTIES,
           release: { type: 'boolean', description: 'true to stop holding it against this target. Defaults to false.' },
+          agent: { type: 'string' },
+        },
+        required: ['project', 'checklist'],
+      },
+    },
+    {
+      name: 'checklist_for',
+      description:
+        'Say which module’s work a checklist is for, or — with no module — that it is for every module’s, which is '
+        + 'what a list is until somebody says. Several modules can show the same place in a paper: Paper the '
+        + 'section being read, Slides the section a slide is linked to, Screenplay the chapter its narration is '
+        + 'about. A list about narration held against that chapter would be in front of all three. Said to be for '
+        + 'one module, it is in front of a PERSON only while that module’s container is among the ones they picked '
+        + 'out, or while they have picked none. What the list is held against and every tick on it are untouched.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTY,
+          checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
+          module: {
+            type: 'string',
+            description: 'The module’s id as the host spells it, e.g. "kehikot.screenplay". Omit it for every module.',
+          },
           agent: { type: 'string' },
         },
         required: ['project', 'checklist'],
@@ -596,6 +619,7 @@ function listsText(where: string): string {
     ...lists.map(
       (list) =>
         `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
+        + (list.for ? `for ${list.for}’s work; ` : '')
         + (list.held.length
           ? `held against ${list.held.map(targetName).join(', ')})`
           : 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'),
@@ -696,6 +720,13 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     }
     const op: Op = { op: args.release === true ? 'release' : 'hold', id, target, by, viaMcp: true }
     const out = change(op, where)
+    if (!out.ok) throw new Error(out.error)
+    return `${out.said}.\n\n${listText(id, null, where)}`
+  }
+
+  if (name === 'checklist_for') {
+    const module = str(args.module, MAX_TARGET_PART)
+    const out = change({ op: 'for', id, module: module || null, by, viaMcp: true }, where)
     if (!out.ok) throw new Error(out.error)
     return `${out.said}.\n\n${listText(id, null, where)}`
   }
@@ -882,6 +913,7 @@ function mcp(rpc: Rpc): Reply {
       if (
         name === 'create_checklist'
         || name === 'hold_checklist'
+        || name === 'checklist_for'
         || name === 'add_checklist_item'
         || name === 'check_item'
         || name === 'reword_checklist_item'
@@ -1212,6 +1244,14 @@ export function answer(
       if (!id) return bad('that edit did not say which checklist it was about.')
       if (op === 'rename') return ok(change({ op: 'rename', id, name: str(body.name, MAX_NAME), by }, where))
       if (op === 'forget') return ok(change({ op: 'forget', id, by }, where))
+      if (op === 'for') {
+        /* `null` says the list is every module's again. Anything else has to
+           be a module's id, and an empty one is refused rather than read as
+           null, so a page that lost the id cannot quietly clear it. */
+        const module = body.module === null ? null : str(body.module, MAX_TARGET_PART)
+        if (module === '') return bad('that did not say which module the list is for. It is a module’s id, or null.')
+        return ok(change({ op: 'for', id, module, by }, where))
+      }
       if (op === 'add') return ok(change({ op: 'add', id, text, by }, where))
       if (op === 'reword') return ok(change({ op: 'reword', id, item, text, by }, where))
       if (op === 'drop') return ok(change({ op: 'drop', id, item, by }, where))
@@ -1271,7 +1311,7 @@ export function answer(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, import, rename, forget, hold, release, add, reword, cite, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, import, rename, for, forget, hold, release, add, reword, cite, move, drop or tick.`,
       )
     }
   }

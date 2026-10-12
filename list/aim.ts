@@ -226,11 +226,17 @@ export function aimOffer(containers: readonly Shown[]): { id: string; label: str
  * something. Names are module ids' last words — `journeys`, `paper` — which is
  * what the ids look like in practice, with nothing invented.
  */
-export function whyEmpty(front: InFront): string | null {
+export function whyEmpty(front: InFront, aside: readonly string[] = []): string | null {
   if (!front.narrowed) return null
   const names = front.picked.map(nameOf)
   const quiet = front.quiet.map(nameOf)
   const who = list(names)
+  /* A third absence, with a third remedy: lists ARE held against what is shown,
+     and they are about another module's work. `aside` is `forPicked`'s. */
+  if (aside.length) {
+    const others = list(aside.map(nameOf))
+    return `${who} ${names.length === 1 ? 'is' : 'are'} picked out; the checklists held against what ${names.length === 1 ? 'it shows' : 'they show'} are for ${others}.`
+  }
   if (quiet.length === front.picked.length) {
     return `${who} ${names.length === 1 ? 'is' : 'are'} picked out and ${names.length === 1 ? 'shows' : 'show'} nothing a checklist can be held against.`
   }
@@ -242,6 +248,39 @@ export function whyEmpty(front: InFront): string | null {
 export function nameOf(module: string): string {
   const cut = module.lastIndexOf('.')
   return cut === -1 ? module : module.slice(cut + 1)
+}
+
+/**
+ * The lists left in front once the picked-out containers say whose work is
+ * being looked at.
+ *
+ * A list may say which module's work it is for (`for` in `list/checklists.ts`).
+ * Several modules show the same place in a paper, so the place cannot say which
+ * of their lists a person means; the container they picked out can. While
+ * containers are picked out and followed, a list for one module's work is in
+ * front only if that module is among them.
+ *
+ * A list that names no module is every module's and is never put aside here,
+ * which is every list written before a list could say. And with nothing picked
+ * out nothing is put aside either, for the reason at the top of this file:
+ * "nothing picked out" is everything, and the row says whose work each list is
+ * for.
+ *
+ * `aside` is the modules whose lists were put aside, once each, for the one
+ * sentence an emptied page says. With nothing put aside the instances come back
+ * as they went in — the same array — as `focusOn` in `list/focus.ts` does.
+ *
+ * Generic over the instance for that file's reason too: this needs to know a
+ * list may be for a module and nothing else about one.
+ */
+export function forPicked<T extends { checklist: { for?: string } }>(
+  instances: readonly T[],
+  front: Pick<InFront, 'narrowed' | 'picked'>,
+): { instances: readonly T[]; aside: string[] } {
+  if (!front.narrowed) return { instances, aside: [] }
+  const other = (one: T) => one.checklist.for !== undefined && !front.picked.includes(one.checklist.for)
+  const aside = dedupe(instances.flatMap((one) => (other(one) ? [one.checklist.for as string] : [])))
+  return aside.length ? { instances: instances.filter((one) => !other(one)), aside } : { instances, aside }
 }
 
 function list(names: readonly string[]): string {

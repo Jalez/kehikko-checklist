@@ -296,6 +296,7 @@ export type Edit =
   | { op: 'move'; id: string; item: string; to: number }
   | { op: 'drop'; id: string; item: string }
   | { op: 'cite'; id: string; item: string; fact: Fact | null }
+  | { op: 'for'; id: string; module: string | null }
   /* `evidence` is what the tracker's fact said as the reader pressed — see
      `list/evidence.ts`. Sent as it is; the server parses it or drops it. */
   | { op: 'tick'; id: string; item: string; target: Target; done: boolean; evidence?: Evidence }

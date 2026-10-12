@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { AIM, aimOf, aimOffer, inFrontOf, nameOf, whyEmpty, type Shown } from '../list/aim.ts'
+import { AIM, aimOf, aimOffer, forPicked, inFrontOf, nameOf, whyEmpty, type Shown } from '../list/aim.ts'
 
 /**
  * What is in front of the reader once the kehikko can say what each container
@@ -165,5 +165,63 @@ describe('the control in the header', () => {
   test('a module is named by the last word of its id, and an id with no dot by itself', () => {
     expect(nameOf('kehikot.journeys')).toBe('journeys')
     expect(nameOf('journeys')).toBe('journeys')
+  })
+})
+
+/**
+ * Paper, Slides and Screenplay each showing the same chapter, and three lists
+ * held against it: one for nobody in particular, one for the screenplay's work,
+ * one for the slides' (Jalez/kehikko-checklist#15).
+ */
+describe('a list for one module’s work follows the container picked out', () => {
+  const three = (picked: string[] = []): Shown[] =>
+    ['kehikot.paper', 'kehikot.slides', 'kehikot.screenplay'].map((module) => ({
+      module,
+      selected: picked.includes(module),
+      refs: [],
+      documents: [CHAPTER],
+    }))
+  const front = (picked: string[], aim: 'follow' | 'all' = 'follow') =>
+    inFrontOf({ passage: null, selection: [], containers: three(picked), aim })
+  type Row = { checklist: { id: string; for?: string } }
+  const everyones: Row = { checklist: { id: 'a' } }
+  const screenplays: Row = { checklist: { id: 'b', for: 'kehikot.screenplay' } }
+  const slides: Row = { checklist: { id: 'c', for: 'kehikot.slides' } }
+  const held: Row[] = [everyones, screenplays, slides]
+
+  test('nothing picked out is everything, and the same array comes back', () => {
+    const out = forPicked(held, front([]))
+    expect(out.instances).toBe(held)
+    expect(out.aside).toEqual([])
+  })
+
+  test('picking a module out leaves its own lists and every module’s, and names whose were put aside', () => {
+    const screenplay = forPicked(held, front(['kehikot.screenplay']))
+    expect(screenplay.instances).toEqual([everyones, screenplays])
+    expect(screenplay.aside).toEqual(['kehikot.slides'])
+    const paper = forPicked(held, front(['kehikot.paper']))
+    expect(paper.instances).toEqual([everyones])
+    expect(paper.aside).toEqual(['kehikot.screenplay', 'kehikot.slides'])
+    expect(forPicked(held, front(['kehikot.slides', 'kehikot.screenplay'])).instances).toBe(held)
+  })
+
+  test('a list that names no module is never put aside, which is every list written before one could', () => {
+    const old: Row[] = [everyones, { checklist: { id: 'd' } }]
+    expect(forPicked(old, front(['kehikot.paper'])).instances).toBe(old)
+  })
+
+  test('turning the narrowing off puts nothing aside', () => {
+    expect(forPicked(held, front(['kehikot.paper'], 'all')).instances).toBe(held)
+  })
+
+  test('a page the pick emptied says whose work the lists held there are for', () => {
+    const picked = front(['kehikot.paper'])
+    const out = forPicked([screenplays, slides], picked)
+    expect(out.instances).toEqual([])
+    expect(whyEmpty(picked, out.aside)).toBe(
+      'paper is picked out; the checklists held against what it shows are for screenplay and slides.',
+    )
+    /* And with nothing put aside the sentence is the one it was. */
+    expect(whyEmpty(picked)).toBe('paper is picked out; no checklist is held against what it shows.')
   })
 })

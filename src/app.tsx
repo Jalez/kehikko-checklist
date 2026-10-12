@@ -5,7 +5,7 @@ import { Cover, coverFor, useServerStanding, type CoverState } from 'kehikot-mod
 
 import { ID } from '../manifest.ts'
 
-import { aimOf, aimOffer, inFrontOf, whyEmpty } from '../list/aim.ts'
+import { aimOf, aimOffer, forPicked, inFrontOf, whyEmpty } from '../list/aim.ts'
 import { focusOn, partsOf, pickedPlaces, whyUnfocused } from '../list/focus.ts'
 import {
   edit,
@@ -350,6 +350,22 @@ export function App() {
     () => (here && focused.focus ? { ...here, instances: [...focused.instances] } : here),
     [here, focused],
   )
+  /*
+   * And then by whose work a list is for, while containers are picked out:
+   * Paper, Slides and Screenplay can all be showing one chapter, and the list
+   * about narration belongs in front of one of them. `forPicked` in
+   * `list/aim.ts` is the rule. Like the focus it writes nothing.
+   */
+  const forThese = useMemo(() => forPicked(inFocus?.instances ?? [], front), [inFocus, front])
+  const inSight = useMemo(
+    () => (inFocus && forThese.aside.length ? { ...inFocus, instances: [...forThese.instances] } : inFocus),
+    [inFocus, forThese],
+  )
+  /** The modules on this kehikko, which is what the edit page offers a list to be for. Never this one. */
+  const modules = useMemo(
+    () => [...new Set(shown(containers).map((one) => one.module))].filter((one) => one !== ID),
+    [containers],
+  )
 
   /** Which list the edit page is on, or null. A string, so the fetch keys on it by value. */
   /*
@@ -368,10 +384,10 @@ export function App() {
    */
   const refsKey = useMemo(
     () =>
-      [...new Set((inFocus?.instances ?? []).flatMap((one) => (one.target?.kind === 'ref' ? [one.target.ref] : [])))]
+      [...new Set((inSight?.instances ?? []).flatMap((one) => (one.target?.kind === 'ref' ? [one.target.ref] : [])))]
         .sort()
         .join(' '),
-    [inFocus],
+    [inSight],
   )
   const [tracker, setTracker] = useState<TrackerReading | null>(null)
   useEffect(() => {
@@ -399,10 +415,12 @@ export function App() {
    */
   const settled = !here || here.whole === front.byParts
   const drawnNow = {
-    here: inFocus,
+    here: inSight,
     /* The focus first: when it put lists aside and none is left, that is the
        cause, whatever the picked-out containers were also doing. */
-    why: whyUnfocused(focused.focus, focused.instances.length, front.byParts) ?? whyEmpty(front),
+    why:
+      whyUnfocused(focused.focus, focused.instances.length, front.byParts)
+      ?? whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
   }
   const drawn = useRef(drawnNow)
   if (settled) drawn.current = drawnNow
@@ -657,6 +675,7 @@ export function App() {
       <EditView
         held={opened.held}
         targets={opened.targets}
+        modules={modules}
         epic={epic}
         /* Every reference in front — the canvas's selection and whatever the
            containers show — offered as targets, for the reason the selection
