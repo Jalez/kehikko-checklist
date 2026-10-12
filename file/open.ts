@@ -1,9 +1,9 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 
 import { KEHIKOT_DIR, PAPER_MODULE, moduleFolder } from 'kehikot-module-protocol'
 
-import { fileId, sectionId, type Placed } from '../list/scope.ts'
+import { fileId, sectionId, slug, type Placed } from '../list/scope.ts'
 import { MAX_TARGET_PART } from '../list/targets.ts'
 import { dialectOf, sectionAt, sectionsIn } from './sections.ts'
 import { inside, rootOf } from './confine.ts'
@@ -280,57 +280,73 @@ export function placeNamed(
   let miss: NamedPlace | null = null
   const seen = new Set<string>()
   for (const spelled of first === 'paper' ? [inPaper, at] : [at, inPaper]) {
-    const real = fileSpelled(root, spelled)
-    const rel = real ? relative(root, real) : ''
-    if (!real || !rel || rel.startsWith('..') || seen.has(rel)) continue
-    seen.add(rel)
-    const file = fileId(rel)
-    if (!file) {
-      miss ??= { long: rel }
-      continue
+    /* Files of one stem share an id: the file it names is the first of them, a
+       heading is in whichever of them has it. */
+    for (const real of filesSpelled(root, spelled)) {
+      const rel = relative(root, real)
+      if (!rel || rel.startsWith('..') || seen.has(rel)) continue
+      seen.add(rel)
+      const file = fileId(rel)
+      if (!file) {
+        miss ??= { long: rel }
+        continue
+      }
+      if (cut === -1) {
+        found.push({ rel, id: file })
+        break
+      }
+      const id = `${file}#${section.slice(cut + 1)}`
+      if (id.length > MAX_TARGET_PART) {
+        miss ??= { long: id }
+        continue
+      }
+      const headings = headingsOf(real, rel, file)
+      if (headings.includes(id)) {
+        found.push({ rel, id })
+        break
+      }
+      miss ??= { file: rel, headings: headings.slice(0, MAX_OFFERED), total: headings.length }
     }
-    if (cut === -1) {
-      found.push({ rel, id: file })
-      continue
-    }
-    const id = `${file}#${section.slice(cut + 1)}`
-    if (id.length > MAX_TARGET_PART) {
-      miss ??= { long: id }
-      continue
-    }
-    const headings = headingsOf(real, rel, file)
-    if (headings.includes(id)) found.push({ rel, id })
-    else miss ??= { file: rel, headings: headings.slice(0, MAX_OFFERED), total: headings.length }
   }
   const [taken, next] = found
   return taken ? { section: taken.id, other: next?.rel ?? null } : miss
 }
 
 /**
- * The file a path without its extension spells, or null.
+ * The files a path without its extension spells.
  *
- * Matched on the last name only — the directory was listed by that very
- * spelling — so a path too long to be an id is still found, and is refused for
- * its length rather than as a file that is not there. Files only: `notes/`
- * beside `notes.txt` spells the same id and is nothing a list is held against.
+ * An id is `slug` over the whole path, so every name on the way is matched by
+ * its slug against a listing of the directory it is in: `My Thesis/ch/1.tex`
+ * is `My-Thesis:ch:1`, and no folder is called `My-Thesis`. One name at a
+ * time, so a path too long to be an id is still found, and is refused for its
+ * length rather than as a file that is not there. Files only: `notes/` beside
+ * `notes.txt` spells the same id and is nothing a list is held against.
  */
-function fileSpelled(root: string, spelled: string): string | null {
-  const dir = inside(root, dirname(spelled))
-  if (!dir) return null
-  let names: string[]
-  try {
-    names = readdirSync(dir).slice(0, MAX_ENTRIES)
-  } catch {
-    return null
+function filesSpelled(root: string, spelled: string): string[] {
+  const found: string[] = []
+  const look = (dir: string, rest: string): void => {
+    const real = inside(root, dir)
+    if (!real) return
+    let names: string[]
+    try {
+      names = readdirSync(real).slice(0, MAX_ENTRIES)
+    } catch {
+      return
+    }
+    /* The extension is a stand-in for the one that was cut: `fileId` drops it,
+       and what is left is the id this spelling means. */
+    const wanted = fileId(`${rest}.tex`)
+    const files = names
+      .filter((name) => wanted !== null && fileId(name) === wanted)
+      .map((name) => inside(root, join(dir, name)))
+      .filter((one): one is string => one !== null && isFile(one))
+    /* `3_methods.tex` before `3_methods.bib`: both spell the id, and only one has headings. */
+    found.push(...files.filter((one) => dialectOf(one) !== null), ...files.filter((one) => dialectOf(one) === null))
+    for (const name of names) {
+      const own = slug(name)
+      if (own && rest.startsWith(`${own}:`)) look(join(dir, name), rest.slice(own.length + 1))
+    }
   }
-  /* The extension is a stand-in for the one that was cut: `fileId` drops it,
-     and what is left is the id this spelling means. */
-  const wanted = fileId(`${basename(spelled)}.tex`)
-  if (!wanted) return null
-  const files = names
-    .filter((name) => fileId(name) === wanted)
-    .map((name) => inside(root, join(dirname(spelled), name)))
-    .filter((real): real is string => real !== null && isFile(real))
-  /* `3_methods.tex` before `3_methods.bib`: both spell the id, and only one has headings. */
-  return files.find((one) => dialectOf(one) !== null) ?? files[0] ?? null
+  look('.', slug(spelled))
+  return found
 }

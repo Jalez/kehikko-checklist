@@ -566,6 +566,9 @@ describe('the agent’s door', () => {
     const untick = await tool('check_item', { ...named, item, done: false })
     expect(untick.isError).toBe(false)
     expect(untick.text).toContain('held against thesis · chapters:3_methods — 0/1 ticked')
+    const tick = await tool('check_item', { ...named, item, done: true })
+    expect(tick.isError).toBe(false)
+    expect(tick.text).toContain('held against thesis · chapters:3_methods — 1/1 ticked')
 
     /* A NEW hold by that spelling is the one call that asks the disk first. */
     const held = await tool('hold_checklist', named)
@@ -677,6 +680,68 @@ describe('the agent’s door', () => {
     expect(targetsOf(list, dir).find((row) => row.target.kind === 'paper' && row.target.section === 'sec:dependencies')?.done).toBe(1)
     expect((post({ op: 'release', section: 'sec:dependencies' })?.body as { ok: boolean }).ok).toBe(true)
     expect(targetsOf(list, dir).some((row) => row.target.kind === 'paper' && row.target.section === 'sec:dependencies')).toBe(false)
+  })
+
+  test('an id names its file through folders whose names the id respells', async () => {
+    await aChapter('My Thesis/ch/1.tex')
+    await aChapter('My Thesis/Part One/2.tex')
+    const { list } = await aList()
+    const file = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'My-Thesis:ch:1' })
+    expect(file.isError).toBe(false)
+    expect(file.text).toContain('is now held against thesis · My-Thesis:ch:1')
+    const heading = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'My-Thesis:ch:1#sec:meth-design' })
+    expect(heading.text).toContain('is now held against thesis · My-Thesis:ch:1#sec:meth-design')
+    const nested = await tool('hold_checklist', {
+      checklist: list,
+      epic: 'thesis',
+      section: 'My-Thesis:Part-One:2#sec:meth-design',
+    })
+    expect(nested.isError).toBe(false)
+    expect(nested.text).toContain('is now held against thesis · My-Thesis:Part-One:2#sec:meth-design')
+    const typo = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'My-Thesis:Part-Two:2' })
+    expect(typo.isError).toBe(true)
+  })
+
+  test('a heading is found in whichever of two files of one stem has it', async () => {
+    const { writeFileSync } = await import('node:fs')
+    await aChapter('pair.tex', 'sec:in-tex')
+    writeFileSync(join(dir, 'pair.md'), '# Aims\n\nWords.\n')
+    const { list } = await aList()
+    for (const section of ['pair#sec:in-tex', 'pair#Aims']) {
+      const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section })
+      expect(out.isError).toBe(false)
+      expect(out.text).toContain(`is now held against thesis · ${section}`)
+    }
+    const neither = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'pair#sec:nope' })
+    expect(neither.isError).toBe(true)
+    const whole = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'pair' })
+    expect(whole.text).toContain('is now held against thesis · pair')
+    expect(whole.text).not.toContain('was taken')
+  })
+
+  test('the page’s door holds what the outline offers in a folder with a space, and in either file of one stem', async () => {
+    const { writeFileSync } = await import('node:fs')
+    const { TICKET, answer } = await import('../doors.ts')
+    const { targetsOf } = await import('../list/checklists.ts')
+    const { list } = await aList()
+    await aChapter('My Thesis/ch/1.tex')
+    await aChapter('My Thesis/Part One/2.tex')
+    await aChapter('pair.tex', 'sec:in-tex')
+    writeFileSync(join(dir, 'pair.md'), '# Aims\n\nWords.\n')
+    const pressed = [
+      'My-Thesis:ch:1',
+      'My-Thesis:ch:1#sec:meth-design',
+      'My-Thesis:Part-One:2#sec:meth-design',
+      'pair#sec:in-tex',
+      'pair#Aims',
+    ]
+    for (const section of pressed) {
+      const held = answer('POST', '/api/checklist', query, { op: 'hold', project: dir, id: list, epic: 'thesis', section }, TICKET)
+      expect((held?.body as { ok: boolean }).ok).toBe(true)
+    }
+    expect(targetsOf(list, dir).map((row) => (row.target.kind === 'paper' ? row.target.section : null)).sort()).toEqual(
+      [...pressed].sort(),
+    )
   })
 
   test('hold_checklist with nothing to hold against is refused and told what a target is', async () => {
