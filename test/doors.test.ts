@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { toolEffect } from 'kehikot-module-protocol'
+
 /**
  * The doors, tested without a socket.
  *
@@ -330,6 +332,28 @@ describe('the agent’s door', () => {
     expect(tools.find((one) => one.name === 'checklist_for')?.annotations).toEqual({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false })
     /* And no tool here that writes claims to only read. */
     for (const one of tools) if (one.name !== 'checklists') expect(one.annotations?.readOnlyHint).not.toBe(true)
+  })
+
+  test('every tool says what it does: one reads, and what removes or overwrites says so', async () => {
+    const { answer } = await import('../doors.ts')
+    const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
+    const tools = (reply?.body as { result: { tools: { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema: { properties: Record<string, unknown> } }[] } }).result.tools
+    expect(Object.fromEntries(tools.map((one) => [one.name, toolEffect(one)]))).toEqual({
+      checklists: 'reads',
+      create_checklist: 'writes',
+      hold_checklist: 'destroys',
+      checklist_for: 'writes',
+      add_checklist_item: 'writes',
+      check_item: 'destroys',
+      reword_checklist_item: 'destroys',
+      move_checklist_item: 'writes',
+      drop_checklist_item: 'destroys',
+    })
+    /* The context arguments are spelled the one way, and no tool advertises the old one. */
+    for (const one of tools) {
+      expect(Object.keys(one.inputSchema.properties)).toContain('project')
+      expect(Object.keys(one.inputSchema.properties)).not.toContain('projectPath')
+    }
   })
 
   test('lists exactly the nine tools this app now has', async () => {
