@@ -512,7 +512,30 @@ function heard(value: unknown): string[] {
  * tool: it is a way for a person to hand over the second path, which is what
  * `projects.pick` already is for the page.
  */
+/**
+ * What each tool says it does, in MCP's own hints. Destructive is where something is removed or
+ * overwritten: a tick taken back, an item's words replaced or dropped, a hold released. Adding and
+ * reordering lose nothing.
+ */
+const ANNOTATIONS: Record<string, Record<string, boolean>> = {
+  checklists: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  create_checklist: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  /* With release: true it stops holding the list against a target, so it can remove one. Every tick is kept. */
+  hold_checklist: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  checklist_for: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  add_checklist_item: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  /* With done: false it takes a tick back, and the tick's record goes with it. */
+  check_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  reword_checklist_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  move_checklist_item: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  drop_checklist_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+}
+
 function tools() {
+  return listed().map((tool) => ({ ...tool, annotations: ANNOTATIONS[tool.name] }))
+}
+
+function listed() {
   return [
     {
       name: 'checklists',
@@ -596,9 +619,6 @@ function tools() {
         },
         required: ['project', 'checklist', 'module'],
       },
-      /* It writes — one property of one list — and takes nothing away: no target, no tick, no item. Saying the
-         same module twice is saying it once. */
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     {
       name: 'add_checklist_item',
