@@ -50,6 +50,12 @@
  * on its release. On a snap position the browser follows the snapped row and
  * nothing in view moves. It is the same before and after this change.
  *
+ * (Since then, `HereView` keeps the instance at the scroller's top edge where it
+ * was when the SET of drawn instances changes, and starts a wholly different set
+ * at its top. Re-read in WebKit: a list arriving above already held; a list
+ * leaving above, and a part pick that replaced every list, moved the view and
+ * no longer do.)
+ *
  * And at 220×120 the edit page's box to type in is not in the frame — that
  * page's strip above its list is taller than the frame. Also unchanged.
  *

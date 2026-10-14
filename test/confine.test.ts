@@ -78,9 +78,18 @@ describe('the fence', () => {
      * refuses every file in the project it was pointed at with the same sentence
      * it uses for `/etc/shadow`.
      */
-    const real = realpathSync(root)
-    expect(real).not.toBe(root)
-    expect(inside(real, join(root, 'main.tex'))).toBe(realpathSync(join(root, 'main.tex')))
+    /*
+     * The symlink is made here rather than assumed from `tmpdir()`: under a plain `TMPDIR` the
+     * temporary root has no symlink in it, and the case this guards would not be exercised at all.
+     * `spelled` is the host's spelling of the project, a link to it; the real path is what
+     * `rootOf` hands the fence.
+     */
+    const spelled = join(tmp, 'spelled')
+    symlinkSync(root, spelled)
+    const real = realpathSync(spelled)
+    expect(real).toBe(realpathSync(root))
+    expect(real).not.toBe(spelled)
+    expect(inside(real, join(spelled, 'main.tex'))).toBe(realpathSync(join(root, 'main.tex')))
   })
 
   test('refuses a traversal, without touching the disk to find out', () => {

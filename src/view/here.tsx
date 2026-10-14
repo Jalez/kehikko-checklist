@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
@@ -140,6 +140,64 @@ export function HereView({
      from this. */
   const [turned, setTurned] = useState<Record<string, boolean>>({})
 
+  /*
+   * Which instance was at the scroller's top edge, and how far below the edge it sat, kept
+   * across a change in WHICH instances are drawn. WebKit does no scroll anchoring of its own, so a
+   * list arriving above the reader's place moved what was in view, and a part picked or released
+   * (the whole set changing) left the old offset in a different list, at a place nobody had been.
+   * When the instance the reader was on is still drawn it is put back where it was; when the set
+   * is another set altogether the reader starts at its top. Nothing is done while the same
+   * instances are drawn, so a tick, a fold or a context repeating itself moves nothing.
+   * `dev/scroll.probe.mjs` reads it (`PART`).
+   */
+  const scroller = useRef<HTMLDivElement>(null)
+  const anchor = useRef<{ key: string; offset: number } | null>(null)
+  const drawn = useRef<string | null>(null)
+  const keys = (here?.instances ?? []).map((held) => `${held.checklist.id}|${targetKey(held.target as Target)}`)
+  const marked = keys.join('\n')
+  const pinned = room.pinned
+  const mark = () => {
+    const root = scroller.current
+    if (!root) return null
+    const top = pinned ? root.getBoundingClientRect().top : 0
+    const places = [...root.querySelectorAll('[data-instance]')]
+    for (let at = 0; at < places.length; at += 1) {
+      const box = places[at]!.getBoundingClientRect()
+      if (box.bottom > top + 0.5) return { key: keys[at] ?? '', offset: box.top - top }
+    }
+    return null
+  }
+  /* Flowing, the document is the scroller and the element's own scroll event never fires. */
+  const latest = useRef(mark)
+  latest.current = mark
+  useEffect(() => {
+    const note = () => {
+      anchor.current = latest.current()
+    }
+    window.addEventListener('scroll', note, { passive: true })
+    return () => window.removeEventListener('scroll', note)
+  }, [])
+  useLayoutEffect(() => {
+    const root = scroller.current
+    const was = anchor.current
+    if (root && was && drawn.current !== null && drawn.current !== marked) {
+      const at = keys.indexOf(was.key)
+      const place = at >= 0 ? root.querySelectorAll('[data-instance]')[at] : undefined
+      if (place) {
+        const top = pinned ? root.getBoundingClientRect().top : 0
+        const delta = place.getBoundingClientRect().top - top - was.offset
+        if (Math.abs(delta) >= 1) {
+          if (pinned) root.scrollTop += delta
+          else window.scrollBy(0, delta)
+        }
+      } else if (pinned) {
+        root.scrollTop = 0
+      }
+    }
+    drawn.current = marked
+    anchor.current = mark()
+  })
+
   /* Not read yet. `App` draws the shared cover for that — waiting for a host, loading, or this
      app's own server not answering — so there is nothing of this screen's to draw. */
   if (!here) return null
@@ -170,6 +228,10 @@ export function HereView({
             room.snap && "snap-y snap-proximity before:block before:h-0 before:snap-start before:content-['']",
           )}
           data-scroller={room.pinned ? 'instances' : undefined}
+          ref={scroller}
+          onScroll={() => {
+            anchor.current = mark()
+          }}
         >
           {here.instances.map((held) => {
             const target = held.target as Target
