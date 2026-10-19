@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { AskFailed, resetServerStanding, serverStanding } from 'kehikot-module-protocol/client'
 
-import { TICKET, answer } from '../doors.ts'
+import { TICKET, answerAt as answer } from '../doors.ts'
 import { edit, everyChecklist, openChecklist, unanswered, whatIsHere } from '../src/store/ask.ts'
 
 /* The page's store against the real doors, with `fetch` as the only thing faked. */

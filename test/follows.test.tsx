@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 import { mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
 
-import { TICKET, answer as door } from '../doors.ts'
+import { TICKET, answerAt as door } from '../doors.ts'
 
 /**
  * The whole page against the real doors and the real wire, walked through the
