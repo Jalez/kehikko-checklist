@@ -5,6 +5,7 @@ import { MODULE_ID } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, registryDir, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
+import { resolveProject } from './project.ts'
 import {
   MAX_ID,
   MAX_NAME,
@@ -1077,7 +1078,77 @@ function mcp(rpc: Rpc): Reply {
  * which is how the page, the client module and Vite's own hot-reload socket keep
  * working without being enumerated here.
  */
-export function answer(
+/**
+ * The door. Every project path in a request — `project` in the query, in the body or in a
+ * tool's arguments, and the `from` of an import — is put to the host first
+ * (`resolveProject`); what is worked on is the path it gives back, never the one that was
+ * sent, and a folder the host does not vouch for is refused before anything is read or made.
+ * A move that was followed is said in the answer.
+ */
+export async function answer(
+  method: string,
+  path: string,
+  query: URLSearchParams,
+  body: Record<string, unknown> | null,
+  ticket: string | null,
+): Promise<Reply | null> {
+  const notes: string[] = []
+  const refuse = (why: string): Reply =>
+    path === '/mcp' ? mcpRefusal(body, why) : bad(why)
+  const resolve = async (named: unknown): Promise<{ path: unknown } | Reply> => {
+    if (typeof named !== 'string' || !named.trim()) return { path: named }
+    const at = await resolveProject(named)
+    if (!at.ok) return refuse(at.error)
+    if (at.followed) notes.push(at.followed)
+    return { path: at.path }
+  }
+
+  let asked = query
+  let sent = body
+  if (path.startsWith('/api/') && query.has('project')) {
+    const got = await resolve(query.get('project'))
+    if (!('path' in got)) return got
+    asked = new URLSearchParams(query)
+    asked.set('project', got.path as string)
+  }
+  if (path.startsWith('/api/') && sent) {
+    for (const key of ['project', 'from']) {
+      if (!(key in sent)) continue
+      const got = await resolve(sent[key])
+      if (!('path' in got)) return got
+      sent = { ...sent, [key]: got.path }
+    }
+  }
+  if (path === '/mcp' && method === 'POST' && sent?.method === 'tools/call') {
+    const params = (sent.params ?? {}) as { arguments?: Record<string, unknown> }
+    if (params.arguments && 'project' in params.arguments) {
+      const got = await resolve(params.arguments.project)
+      if (!('path' in got)) return got
+      sent = { ...sent, params: { ...params, arguments: { ...params.arguments, project: got.path } } }
+    }
+  }
+
+  const reply = answerAt(method, path, asked, sent, ticket)
+  if (!reply || notes.length === 0) return reply
+  const said = reply.body as Record<string, unknown> | null
+  if (path === '/mcp' && said && typeof said === 'object') {
+    const result = said.result as { content?: { type: string; text: string }[] } | undefined
+    if (result?.content) result.content = [...result.content, ...notes.map((text) => ({ type: 'text', text }))]
+  } else if (said && typeof said === 'object' && !Array.isArray(said)) {
+    said.movedFrom = notes
+  }
+  return reply
+}
+
+function mcpRefusal(body: Record<string, unknown> | null, why: string): Reply {
+  return {
+    status: 200,
+    body: { jsonrpc: '2.0', id: (body?.id as number | string | undefined) ?? null, result: { content: [{ type: 'text', text: why }], isError: true } },
+  }
+}
+
+/** The door below the check: `where` and `from` are already paths the host vouched for. Tests of what the doors DO start here. */
+export function answerAt(
   method: string,
   path: string,
   query: URLSearchParams,

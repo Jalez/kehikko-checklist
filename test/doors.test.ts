@@ -58,7 +58,7 @@ function registered(...files: string[]): void {
 
 /** One tool call, in the shape an MCP client makes it, with the text it answered. */
 async function tool(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }> {
-  const { answer } = await import('../doors.ts')
+  const { answerAt: answer } = await import('../doors.ts')
   const reply = answer(
     'POST',
     '/mcp',
@@ -96,21 +96,21 @@ const WORDS = { from: 45, to: 50 }
 
 describe('reads', () => {
   test('the health check answers with this module’s own name', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('GET', '/healthz', query, null, null)
     expect(reply?.status).toBe(200)
     expect((reply?.body as { id: string }).id).toBe('kehikot.checklist')
   })
 
   test('a fresh store holds no checklists, because nothing here ships one', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('GET', '/api/checklists', asking(), null, null)
     expect(reply?.status).toBe(200)
     expect((reply?.body as { lists: unknown[] }).lists).toEqual([])
   })
 
   test('the checklists are readable with no ticket, because a checklist is not a secret', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     await aList()
     const reply = answer('GET', '/api/checklists', asking(), null, null)
     expect((reply?.body as { lists: { name: string }[] }).lists[0]?.name).toBe('What a change owes')
@@ -120,17 +120,17 @@ describe('reads', () => {
     /* `null` is how the middleware knows to call `next()`, which is what keeps
        the page, the client module and the hot-reload socket working without being
        enumerated in this file. */
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     expect(answer('GET', '/src/main.tsx', query, null, null)).toBeNull()
   })
 
   test('an unknown path under /api is ours to refuse, not Vite’s to serve as source', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     expect(answer('GET', '/api/nothing', query, null, null)?.status).toBe(404)
   })
 
   test('a checklist read with no target comes back with nothing ticked, and says so is not an error', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const { list } = await aList()
     const reply = answer('GET', '/api/checklist', asking({ id: list }), null, null)
     const body = reply?.body as { ok: boolean; held: { target: unknown; rows: { done: unknown }[] } }
@@ -145,7 +145,7 @@ describe('reads', () => {
    * pairing — a list is in front of the reader only where somebody held it.
    */
   test('/api/here answers with every list held against where the reader is, and nothing else', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list, item } = await aList()
     const other = answer('POST', '/api/checklist', query, { op: 'create', name: 'What the thesis owes', project: dir }, TICKET)
     const otherId = (other?.body as { id: string }).id
@@ -218,7 +218,7 @@ describe('reads', () => {
   })
 
   test('the page can hold and release through its own door, and a release with no target is refused', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list } = await aList()
     const held = answer('POST', '/api/checklist', query, { op: 'hold', id: list, ref: 'gh#105', project: dir }, TICKET)
     expect((held?.body as { ok: boolean }).ok).toBe(true)
@@ -235,7 +235,7 @@ describe('reads', () => {
     /* The failure this refuses is silent: a ref with a space in it, quietly
        dropped, would show the list with no ticks at all — which looks exactly
        like a target nobody has worked on yet. */
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const { list } = await aList()
     const reply = answer('GET', '/api/checklist', asking({ id: list, ref: 'gh# 105' }), null, null)
     expect(reply?.status).toBe(400)
@@ -245,13 +245,13 @@ describe('reads', () => {
 
 describe('writes', () => {
   test('are refused without the ticket this process handed out with the page', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/api/checklist', query, { op: 'create', name: 'Mine', project: dir }, 'not-the-ticket')
     expect(reply?.status).toBe(403)
   })
 
   test('with the ticket, a checklist can be created and read back', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const made = answer('POST', '/api/checklist', query, { op: 'create', name: 'What a paper owes', project: dir }, TICKET)
     const body = made?.body as { ok: boolean; id: string }
     expect(body.ok).toBe(true)
@@ -260,7 +260,7 @@ describe('writes', () => {
   })
 
   test('an op this door does not know is named rather than shrugged at', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list } = await aList()
     const reply = answer('POST', '/api/checklist', query, { op: 'sort', id: list, project: dir }, TICKET)
     expect(reply?.status).toBe(400)
@@ -268,7 +268,7 @@ describe('writes', () => {
   })
 
   test('a tick with no target is refused, because a tick without one is about nothing', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list, item } = await aList()
     const reply = answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, project: dir }, TICKET)
     expect(reply?.status).toBe(400)
@@ -276,7 +276,7 @@ describe('writes', () => {
   })
 
   test('a move with no position is refused, and nothing is moved', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list, item } = await aList()
     const reply = answer('POST', '/api/checklist', query, { op: 'move', id: list, item, project: dir }, TICKET)
     expect((reply?.body as { error: string }).error).toContain('nothing was moved')
@@ -285,7 +285,7 @@ describe('writes', () => {
   test('the same list held against two targets keeps two independent sets of ticks', async () => {
     /* The whole model, in one test. This is what the ref-scoped machinery was
        actually giving anybody, and it is what survived its deletion. */
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list, item } = await aList()
     answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, ref: 'gh#105', done: true, project: dir }, TICKET)
 
@@ -296,7 +296,7 @@ describe('writes', () => {
   })
 
   test('a paper section is its own target, distinct from the whole paper', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list, item } = await aList()
     await aChapter('chapters/bridge.tex', 'ch:bridge')
     const section = 'chapters:bridge#ch:bridge'
@@ -326,7 +326,7 @@ describe('the agent’s door', () => {
   })
 
   test('checklist_for says what it does in MCP’s own form: it writes, and destroys nothing', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const tools = (reply?.body as { result: { tools: { name: string; annotations?: Record<string, boolean> }[] } }).result.tools
     expect(tools.find((one) => one.name === 'checklist_for')?.annotations).toEqual({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false })
@@ -335,7 +335,7 @@ describe('the agent’s door', () => {
   })
 
   test('every tool says what it does: one reads, and what removes or overwrites says so', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const tools = (reply?.body as { result: { tools: { name: string; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean }; inputSchema: { properties: Record<string, unknown> } }[] } }).result.tools
     expect(Object.fromEntries(tools.map((one) => [one.name, toolEffect(one)]))).toEqual({
@@ -357,7 +357,7 @@ describe('the agent’s door', () => {
   })
 
   test('lists exactly the nine tools this app now has', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const names = (reply?.body as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)
     expect(names).toEqual([
@@ -390,7 +390,7 @@ describe('the agent’s door', () => {
    * folder they will never open.
    */
   test('an agent that did not say which project is refused, and told what to pass', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer(
       'POST',
       '/mcp',
@@ -405,7 +405,7 @@ describe('the agent’s door', () => {
   })
 
   test('a write with no project writes nothing, rather than into a guessed folder', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer(
       'POST',
       '/mcp',
@@ -426,7 +426,7 @@ describe('the agent’s door', () => {
   })
 
   test('every tool says project is required, so an agent finds out before it calls', async () => {
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { required?: string[] } }[] } }).result
       .tools
@@ -434,7 +434,7 @@ describe('the agent’s door', () => {
   })
 
   test('the page’s own door refuses a write with no project too', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/api/checklist', query, { op: 'create', name: 'Mine' }, TICKET)
     expect(reply?.status).toBe(400)
     expect((reply?.body as { error: string }).error).toContain('needs project')
@@ -444,7 +444,7 @@ describe('the agent’s door', () => {
     /* `nowhere` beside the lists, and a 200: the page draws its own screen for
        it, and a 400 would make an ordinary state — no project open — look like
        the page had asked something wrong. */
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('GET', '/api/checklists', query, null, null)
     expect(reply?.status).toBe(200)
     expect((reply?.body as { nowhere: boolean; lists: unknown[] }).nowhere).toBe(true)
@@ -682,7 +682,7 @@ describe('the agent’s door', () => {
   })
 
   test('the page’s door holds to the same standard: a new hold names something on disk, a stored one stays usable', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { change, targetsOf } = await import('../list/checklists.ts')
     const { list, item } = await aList()
     const post = (body: Record<string, unknown>) =>
@@ -758,7 +758,7 @@ describe('the agent’s door', () => {
 
   test('the page’s door holds what the outline offers in a folder with a space, and in either file of one stem', async () => {
     const { writeFileSync } = await import('node:fs')
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { targetsOf } = await import('../list/checklists.ts')
     const { list } = await aList()
     await aChapter('My Thesis/ch/1.tex')
@@ -797,7 +797,7 @@ describe('the agent’s door', () => {
     expect((await tool('checklists', {})).text).toContain('for kehikot.screenplay’s work; held against gh#105')
     expect((await tool('checklists', { checklist: list, ref: 'gh#105' })).text).toContain('1/1 ticked')
 
-    const { answer } = await import('../doors.ts')
+    const { answerAt: answer } = await import('../doors.ts')
     const here = answer('GET', '/api/here', asking({ refs: 'gh#105' }), null, null)
     const instances = (here?.body as { instances: { checklist: { for?: string }; done: number }[] }).instances
     expect(instances).toHaveLength(1)
@@ -864,7 +864,7 @@ describe('the agent’s door', () => {
 
   test('the page’s door reads a module against what its host reported, and the registry', async () => {
     registered('kehikot.slides.json')
-    const { answer, TICKET } = await import('../doors.ts')
+    const { answerAt: answer, TICKET } = await import('../doors.ts')
     const { list } = await aList()
     const post = (module: unknown, present?: unknown) =>
       answer('POST', '/api/checklist', query, { project: dir, op: 'for', id: list, module, present }, TICKET)
@@ -890,7 +890,7 @@ describe('the agent’s door', () => {
   })
 
   test('the page’s door sets and clears it, and refuses an empty module rather than clearing', async () => {
-    const { answer, TICKET } = await import('../doors.ts')
+    const { answerAt: answer, TICKET } = await import('../doors.ts')
     const { list } = await aList()
     const post = (module: unknown) => answer('POST', '/api/checklist', query, { project: dir, op: 'for', id: list, module }, TICKET)
     expect((post('kehikot.slides')?.body as { held: { checklist: { for?: string } } }).held.checklist.for).toBe('kehikot.slides')
@@ -1030,7 +1030,7 @@ describe('the agent’s door', () => {
 
 describe('the page’s door, for a tracker fact (Jalez/kehikko-checklist#1)', () => {
   test('cite names one of the facts, or none, and refuses a word that is not one', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { list, item } = await aList()
     const bad = answer('POST', '/api/checklist', query, { op: 'cite', id: list, item, fact: 'vibes', project: dir }, TICKET)
     expect(bad?.status).toBe(400)
@@ -1041,7 +1041,7 @@ describe('the page’s door, for a tracker fact (Jalez/kehikko-checklist#1)', ()
   })
 
   test('a tick keeps well-formed evidence and is not refused for a malformed one', async () => {
-    const { TICKET, answer } = await import('../doors.ts')
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
     const { held } = await import('../list/checklists.ts')
     const { list, item } = await aList()
     answer('POST', '/api/checklist', query, { op: 'cite', id: list, item, fact: 'labels', project: dir }, TICKET)
