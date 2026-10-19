@@ -178,7 +178,7 @@ export const BUILD = establishBuild({ version: VERSION, dir: import.meta.dirname
 const OWNER = 'the owner, on this app’s own page'
 
 /** What an agent is called when it does not say. */
-const AGENT = process.env.CHECKLIST_AGENT ?? process.env.KEHIKOT_AGENT ?? process.env.ROADMAP_AGENT ?? 'an agent'
+const AGENT = process.env.CHECKLIST_AGENT ?? process.env.KEHIKOT_AGENT ?? 'an agent'
 
 /* ------------------------------------------------------------------ *
  * The agent's door
