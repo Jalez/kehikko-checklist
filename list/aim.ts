@@ -1,4 +1,4 @@
-import { MODULE_ID, canonicalModuleId } from 'kehikot-module-protocol'
+import { MODULE_ID } from 'kehikot-module-protocol'
 
 /**
  * What is in front of the reader, once the kehikko can say what each of its
@@ -292,8 +292,8 @@ export function forPicked<T extends { checklist: { for?: string } }>(
   front: Pick<InFront, 'narrowed' | 'picked' | 'modules'>,
 ): { instances: readonly T[]; aside: string[] } {
   if (!front.narrowed) return { instances, aside: [] }
-  const here = front.modules.map(canonicalModuleId)
-  const picked = front.picked.map(canonicalModuleId)
+  const here = front.modules
+  const picked = front.picked
   const whose = (one: T) => {
     const module = one.checklist.for === undefined ? null : moduleNamed(one.checklist.for, here)
     return module !== null && here.includes(module) && !picked.includes(module) ? module : null
@@ -305,17 +305,16 @@ export function forPicked<T extends { checklist: { for?: string } }>(
 /**
  * The module id somebody meant by `said`, or null when it is not one.
  *
- * The one form module ids are stored and compared in. Three spellings arrive:
- * the id as the host spells it; the id from before the rename, `roadmap.x`,
- * which a file may still say; and the short name this app prints on a row —
+ * The one form module ids are stored and compared in. Two spellings arrive:
+ * the id as the host spells it, and the short name this app prints on a row —
  * `screenplay` — which is what a person or an agent reads and types back. The
  * short name is the module it names when exactly one of `present` ends in it.
  * Anything else has only to be shaped like a module id: a list may be for a
  * module that is not here today.
  */
 export function moduleNamed(said: string, present: readonly string[]): string | null {
-  const id = canonicalModuleId(said.trim())
-  const here = present.map(canonicalModuleId)
+  const id = said.trim()
+  const here = present
   if (here.includes(id)) return id
   const short = dedupe(here.filter((one) => nameOf(one) === id))
   if (short.length === 1) return short[0] as string
@@ -327,7 +326,7 @@ export function moduleNamed(said: string, present: readonly string[]): string | 
  * and its id beside it when two of them share that name.
  */
 export function moduleLabels(modules: readonly string[]): { id: string; label: string }[] {
-  const ids = dedupe(modules.map(canonicalModuleId))
+  const ids = dedupe(modules)
   const shared = (id: string) => ids.filter((one) => nameOf(one) === nameOf(id)).length > 1
   return ids.map((id) => ({ id, label: shared(id) ? `${nameOf(id)} (${id})` : nameOf(id) }))
 }
