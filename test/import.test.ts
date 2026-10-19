@@ -318,7 +318,7 @@ describe('a source that is not what was hoped', () => {
  * --------------------------------------------------------------------- */
 
 const REAL = [
-  '/Users/jaakkorajala/Projects/roadmap',
+  '/Users/jaakkorajala/Projects/kehikko',
   '/Users/jaakkorajala/Projects/hippos_kotisivut/hippos-portal',
 ]
 

@@ -819,7 +819,7 @@ describe('the agent’s door', () => {
   })
 
   test('a module is stored in the one form ids are compared in, whichever way it was spelled', async () => {
-    registered('kehikot.screenplay.json', 'roadmap.slides.json', 'kehikot.checklist.json', 'notes.txt', 'Not A Module.json')
+    registered('kehikot.screenplay.json', 'kehikot.slides.json', 'kehikot.checklist.json', 'notes.txt', 'Not A Module.json')
     const { checklists } = await import('../list/checklists.ts')
     const { list } = await aList()
     const whose = () => checklists(dir).lists[0]?.for
@@ -827,8 +827,8 @@ describe('the agent’s door', () => {
     /* The short name a row prints, typed back. */
     expect((await tool('checklist_for', { checklist: list, module: 'screenplay' })).text).toContain('is for kehikot.screenplay’s work')
     expect(whose()).toBe('kehikot.screenplay')
-    /* An id from before the rename, and a registration still filed under one. */
-    expect((await tool('checklist_for', { checklist: list, module: 'roadmap.slides' })).isError).toBe(false)
+    /* A full id. */
+    expect((await tool('checklist_for', { checklist: list, module: 'kehikot.slides' })).isError).toBe(false)
     expect(whose()).toBe('kehikot.slides')
 
     /* Shaped like an id and not here: kept, and the answer says what follows. */

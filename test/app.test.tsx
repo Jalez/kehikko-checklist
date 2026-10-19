@@ -250,11 +250,11 @@ describe('the not-ready moments, each as the one shared cover', () => {
     expect(document.querySelector('[data-cover]')?.querySelectorAll('button')).toHaveLength(0)
     unmount()
 
-    wire = { where: 'hosted', project: 'Roadmap' }
+    wire = { where: 'hosted', project: 'Notes' }
     render(<App />)
     await settle()
     expect(cover()).toBe('no-project')
-    expect(document.body.textContent).toContain('“Roadmap”')
+    expect(document.body.textContent).toContain('“Notes”')
   })
 
   test('a project open: the first read is "loading", then the page', async () => {

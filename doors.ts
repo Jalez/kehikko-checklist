@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { MODULE_ID, canonicalModuleId } from 'kehikot-module-protocol'
+import { MODULE_ID } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, registryDir, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
@@ -459,8 +459,8 @@ function modulesHere(): string[] {
   }
   const ids = names
     .filter((name) => name.endsWith('.json'))
-    .map((name) => canonicalModuleId(name.slice(0, -'.json'.length)))
-    .filter((id) => MODULE_ID.test(id) && id !== canonicalModuleId(ID))
+    .map((name) => name.slice(0, -'.json'.length))
+    .filter((id) => MODULE_ID.test(id) && id !== ID)
   return [...new Set(ids)].sort().slice(0, MAX_MODULES)
 }
 

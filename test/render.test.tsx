@@ -238,7 +238,7 @@ describe('a list that says whose work it is for (Jalez/kehikko-checklist#15)', (
       return { ...base, checklist: { ...base.checklist, for: module } }
     }
     const modules = ['kehikot.paper', 'kehikot.slides']
-    const old = render(<Editing held={stored('roadmap.slides')} modules={modules} room={ROOMY} />)
+    const old = render(<Editing held={stored('kehikot.slides')} modules={modules} room={ROOMY} />)
     const select = old.container.querySelector('select[data-for]') as HTMLSelectElement
     expect(select.value).toBe('kehikot.slides')
     expect(select.options).toHaveLength(3)
