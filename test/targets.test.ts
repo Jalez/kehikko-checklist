@@ -131,7 +131,7 @@ describe('holding and releasing', () => {
     const out = change({ op: 'hold', id: list, target: paper('thesis', 'chapters:3_methods'), by: 'a test' }, dir)
     expect(out.ok && out.said).toContain('is now held against')
     expect(targetsOf(list, dir)).toEqual([{ target: paper('thesis', 'chapters:3_methods'), done: 0 }])
-    const raw = JSON.parse(readFileSync(file(), 'utf8')) as Raw
+    const raw = (await store()).snapshot(dir)! as unknown as Raw
     expect(raw.checklists[list]!.targets).toEqual(['paper:thesis/chapters:3_methods'])
   })
 
@@ -169,7 +169,7 @@ describe('holding and releasing', () => {
     expect(released.ok && released.said).toContain('kept')
     expect(targetsOf(list, dir)).toEqual([])
     /* The tick is still in the file. */
-    const raw = JSON.parse(readFileSync(file(), 'utf8')) as Raw
+    const raw = (await store()).snapshot(dir)! as unknown as Raw
     expect(raw.ticks[list]![targetKey(target)]![item]).toBeTruthy()
     change({ op: 'hold', id: list, target, by: 'a test' }, dir)
     expect(held(list, target, dir).held!.done).toBe(1)
@@ -248,7 +248,7 @@ describe('a file written before targets were stored', () => {
     expect(checklists(dir).trouble).toBeNull()
     expect(targetsOf('abc', dir).map((one) => targetKey(one.target))).toEqual(['ref:gh#105', 'paper:thesis/chapters:3_methods'])
     expect(targetsOf('def', dir)).toEqual([])
-    const raw = JSON.parse(readFileSync(file(), 'utf8')) as Raw
+    const raw = (await store()).snapshot(dir)! as unknown as Raw
     expect(raw.ticks).toEqual(yesterday.ticks)
     expect(raw.checklists.abc!.targets).toEqual(['ref:gh#105', 'paper:thesis/chapters:3_methods'])
     expect(raw.checklists.def!.targets).toEqual([])
@@ -284,7 +284,7 @@ describe('a file written before targets were stored', () => {
       expect(now.checklist.name).toBe(was.name)
       expect(now.rows.map((row) => row.item)).toEqual(was.items)
     }
-    const after = JSON.parse(readFileSync(file(), 'utf8')) as Raw
+    const after = (await store()).snapshot(dir)! as unknown as Raw
     expect(after.ticks).toEqual(before.ticks)
   })
 
@@ -294,7 +294,7 @@ describe('a file written before targets were stored', () => {
     copyFileSync(REAL, file())
     const { checklists } = await store()
     for (const list of checklists(dir).lists) expect(list.targets).toBe(0)
-    const after = JSON.parse(readFileSync(file(), 'utf8')) as Raw
+    const after = (await store()).snapshot(dir)! as unknown as Raw
     for (const list of Object.values(after.checklists)) expect(list.targets).toEqual([])
   })
 

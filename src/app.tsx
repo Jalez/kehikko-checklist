@@ -23,7 +23,9 @@ import {
   type Summary,
 } from '@/store/ask.ts'
 import type { TrackerReading } from 'kehikot-module-protocol'
-import { marksOf, useKehikot, type GotoHandler } from '@/wire/use-kehikot.ts'
+import { marksOf, useKehikot, type GotoHandler, type PressHandler } from '@/wire/use-kehikot.ts'
+import { headerFor, viewPressed } from '@/wire/header.ts'
+import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
 import { AllView } from '@/view/all.tsx'
 import { EditView } from '@/view/edit.tsx'
@@ -96,7 +98,7 @@ import { cn } from '@/lib/utils.ts'
  * ## A null projectPath stops the page, and a null kehikko does not
  *
  * `projectPath` decides where the checklists ARE — the store lives at
- * `<projectPath>/.kehikot/checklist/checklists.json` — so without one there is
+ * `<projectPath>/.kehikot/checklist/` (`lists.json` and `targets/`, see `list/book.ts`) — so without one there is
  * no file to read and nowhere to write, and the page says so and offers
  * nothing to press (the shared cover, below). `kehikko` decided where a pick
  * was remembered, and nothing is remembered any more, so a host with no
@@ -119,7 +121,11 @@ import { cn } from '@/lib/utils.ts'
 const framed = typeof window !== 'undefined' && window.parent !== window
 
 /** Which of the three screens is showing, and for the edit page, which list and where Done leads. */
-type View = { kind: 'here' } | { kind: 'all' } | { kind: 'edit'; id: string; back: 'here' | 'all' }
+type View =
+  | { kind: 'here' }
+  | { kind: 'all' }
+  | { kind: 'storage' }
+  | { kind: 'edit'; id: string; back: 'here' | 'all' }
 
 export function App() {
   const [lists, setLists] = useState<Summary[]>([])
@@ -178,6 +184,14 @@ export function App() {
     )
   }, [])
 
+  /* A press in the host's View menu: the same three screens the page's own buttons reach. */
+  const onPress = useCallback<PressHandler>((press) => {
+    const wanted = viewPressed(press)
+    if (wanted !== 'here' && wanted !== 'all' && wanted !== 'storage') return wanted
+    setView({ kind: wanted })
+    return undefined
+  }, [])
+
   const {
     where,
     epic,
@@ -196,7 +210,9 @@ export function App() {
     marks,
     parts,
     readTracker,
-  } = useKehikot(ID, onGoto, bump)
+    readProject,
+    header,
+  } = useKehikot(ID, onGoto, bump, onPress)
 
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.
@@ -281,6 +297,12 @@ export function App() {
   useEffect(() => {
     if (where === 'hosted') filters(aimOffer(shown(containers)))
   }, [where, filters, containers])
+
+  /* The header says which screen is showing; the edit page counts as the one it was opened from. */
+  const showing = view.kind === 'edit' ? view.back : view.kind
+  useEffect(() => {
+    if (where === 'hosted') header(headerFor(showing))
+  }, [where, header, showing])
 
   /* Every checklist that exists. This app's own material, read at load, after
      every change, and on the doorbell. */
@@ -703,6 +725,7 @@ export function App() {
       <EditView
         held={opened.held}
         targets={opened.targets}
+        heldTotal={opened.heldTotal}
         modules={modules}
         kehikko={kehikko}
         epic={epic}
@@ -725,6 +748,8 @@ export function App() {
         {trouble ?? 'Reading that checklist.'}
       </p>
     )
+  ) : view.kind === 'storage' ? (
+    <StorageView projectPath={projectPath} readProject={readProject} onBack={() => setView({ kind: 'here' })} onChanged={bump} room={room} />
   ) : view.kind === 'all' ? (
     <AllView
       lists={lists}
@@ -735,6 +760,7 @@ export function App() {
         setGone(null)
         setView({ kind: 'here' })
       }}
+      onStorage={() => setView({ kind: 'storage' })}
       importing={choosing}
       trouble={trouble}
       busy={busy}

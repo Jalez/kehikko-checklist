@@ -32,6 +32,8 @@ mock.module('../src/wire/use-kehikot.ts', () => ({
     marks: '',
     parts: '',
     readTracker: async () => null,
+    readProject: async () => null,
+    header: () => {},
     ...wire,
   }),
   marksOf: () => [],
@@ -88,7 +90,7 @@ test('a late read of every checklist for the previous project does not replace t
  */
 test('a parts focus asks for the whole paper, puts aside what is outside the picked parts, prints no line about it, and follows a change of focus', async () => {
   const instance = (id: string, target: unknown) => ({
-    checklist: { id, name: `list ${id}`, at: '', by: '', origin: null, items: [], targets: [] },
+    checklist: { id, name: `list ${id}`, at: '', by: '', origin: null, items: [], holds: 0, next: 0 },
     target,
     rows: [],
     done: 0,

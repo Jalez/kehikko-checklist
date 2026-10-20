@@ -37,7 +37,7 @@ describe('a project that moved', () => {
     const reply = await create(old)
     expect(reply?.status).toBe(200)
     expect(JSON.stringify(reply?.body)).toContain(`has moved to ${now}`)
-    expect(existsSync(join(now, '.kehikot', 'checklist', 'checklists.json'))).toBe(true)
+    expect(existsSync(join(now, '.kehikot', 'checklist', 'lists.json'))).toBe(true)
     expect(existsSync(old)).toBe(false)
   })
 

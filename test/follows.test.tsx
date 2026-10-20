@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { fingerprint } from './disk.ts'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -76,7 +77,7 @@ beforeEach(() => {
   aList('Main', { epic: EPIC, section: `${AT}:main` })
   aList('Thesis', { epic: EPIC })
   aList('Change', { ref: 'gh#105' }, true)
-  store = readFileSync(join(dir, '.kehikot', 'checklist', 'checklists.json'), 'utf8')
+  store = fingerprint(join(dir, '.kehikot', 'checklist'))
 
   const island = document.createElement('script')
   island.id = 'ticket'
@@ -93,7 +94,7 @@ beforeEach(() => {
 
 afterEach(() => {
   /* Whatever was walked, nothing was ticked, unticked, moved, held, released or dropped. */
-  expect(readFileSync(join(dir, '.kehikot', 'checklist', 'checklists.json'), 'utf8')).toBe(store)
+  expect(fingerprint(join(dir, '.kehikot', 'checklist'))).toBe(store)
   cleanup()
   mailbox.forget?.()
   globalThis.fetch = realFetch
@@ -247,7 +248,7 @@ for (const sent of SHAPES) describe(`the checklists follow the picked parts, wha
   test('a part that owns nothing a list is held against says so, rather than showing the last part’s lists', async () => {
     /* No whole-paper list in this project, so the pick leaves nothing. */
     door('POST', '/api/checklist', new URLSearchParams(), { op: 'release', id: ids.Thesis, epic: EPIC, project: dir }, TICKET)
-    store = readFileSync(join(dir, '.kehikot', 'checklist', 'checklists.json'), 'utf8')
+    store = fingerprint(join(dir, '.kehikot', 'checklist'))
     render(<App />)
     const empty = canvas('main.tex', ['main.tex'], ['methods'])
     empty.parts = [{ id: 'appendices', heading: 'Appendices', refs: [], picked: true, ...has('chapters/appendix.tex') }]

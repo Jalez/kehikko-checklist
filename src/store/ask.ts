@@ -6,6 +6,7 @@ import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
 import type { Evidence, Fact } from '../../list/evidence.ts'
 import type { Shown } from '../../list/aim.ts'
+import type { Finished, Plan, Report, Scope } from '../../list/storage.ts'
 
 /**
  * Talking to this app's own server, which is the same origin this page came
@@ -63,7 +64,7 @@ export type { Held, Outline, OutlineFile, OutlineSection, Placed, Shown, Summary
  * ## Why it is on the wire at all, when the server is on this machine too
  *
  * Because the server cannot know it. This app's store moved into the project —
- * `<projectPath>/.kehikot/checklist/checklists.json` — and the only thing that says which
+ * `<projectPath>/.kehikot/checklist/` (`lists.json` and `targets/`, see `list/book.ts`) — and the only thing that says which
  * project a container is showing is `kehikot.context.projectPath`, which arrives at
  * THIS page over the frame. The server has no host, no canvas and no way to ask;
  * a server that guessed would be answering about some other folder.
@@ -230,8 +231,10 @@ export function shown(containers: string): Shown[] {
 export interface Opened {
   /** The list on its own: `target` null, nothing ticked, because the edit page ticks nothing. */
   held: Held
-  /** Every target this list is held against, with how much is ticked on each. */
+  /** The targets this list is held against, with how much is ticked on each — the most recent ones, past a few hundred. */
   targets: { target: Target; done: number }[]
+  /** How many it is held against in all. */
+  heldTotal: number
 }
 
 /**
@@ -244,7 +247,7 @@ export interface Opened {
  */
 export async function openChecklist(id: string, projectPath: string | null): Promise<Opened | { error: string }> {
   const body = replied(
-    await ask<{ ok?: unknown; held?: unknown; targets?: unknown; error?: unknown }>('/api/checklist', {
+    await ask<{ ok?: unknown; held?: unknown; targets?: unknown; heldTotal?: unknown; error?: unknown }>('/api/checklist', {
       query: { id, project: projectPath || null },
     }),
   )
@@ -252,6 +255,7 @@ export async function openChecklist(id: string, projectPath: string | null): Pro
     return {
       held: body.held as Held,
       targets: Array.isArray(body.targets) ? (body.targets as { target: Target; done: number }[]) : [],
+      heldTotal: typeof body.heldTotal === 'number' ? body.heldTotal : Array.isArray(body.targets) ? body.targets.length : 0,
     }
   }
   return { error: typeof body.error === 'string' ? body.error : 'this app could not read that checklist.' }
@@ -353,5 +357,50 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
     id: typeof body.id === 'string' ? body.id : '',
     lists: Array.isArray(body.lists) ? (body.lists as Summary[]) : [],
     held: (body.held as Held | null) ?? null,
+  }
+}
+
+export type { Finished, Plan, Report, Scope }
+
+/** What the store says back about storage: the report, a plan, or the sentence a refusal carries. */
+export type StorageAnswer =
+  | { ok: true; report: Report; said: string | null; plan: Plan | null }
+  | { ok: false; error: string }
+
+const noReport = (body: Record<string, unknown>): Report => ({
+  lists: Array.isArray(body.lists) ? (body.lists as Report['lists']) : [],
+  total: typeof body.total === 'number' ? body.total : 0,
+  listsFile: typeof body.listsFile === 'number' ? body.listsFile : 0,
+  backups: Array.isArray(body.backups) ? (body.backups as Report['backups']) : [],
+  other: typeof body.other === 'number' ? body.other : 0,
+  trouble: typeof body.trouble === 'string' ? body.trouble : null,
+  nowhere: body.nowhere === true,
+})
+
+/**
+ * Storage's one door, `POST /api/storage`: usage with the tracker's reading, a purge's preview,
+ * the purge itself, and a backup put back or deleted. A POST because it carries the reading and
+ * because a purge is a write — and so it carries this page's ticket, which no agent holds.
+ */
+export async function storage(
+  projectPath: string | null,
+  request:
+    | { op: 'usage' }
+    | { op: 'preview'; scope: Scope; days: number }
+    | { op: 'purge'; scope: Scope; days: number; digest: string; keep: boolean; confirm: true }
+    | { op: 'restore' | 'discard'; name: string },
+  finished: Finished[] | null,
+): Promise<StorageAnswer> {
+  const asked = await ask<Record<string, unknown>>('/api/storage', {
+    body: { ...request, project: projectPath, ...(finished ? { finished } : {}) },
+  })
+  if (!asked.ok) return { ok: false, error: asked.kind === 'stale' ? PAGE_STALE : asked.error }
+  const body = asked.body ?? {}
+  if (body.ok === false) return { ok: false, error: typeof body.error === 'string' ? body.error : 'that could not be done.' }
+  return {
+    ok: true,
+    report: noReport(body),
+    said: typeof body.said === 'string' ? body.said : null,
+    plan: (body.plan as Plan | undefined) ?? null,
   }
 }

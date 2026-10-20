@@ -7,8 +7,8 @@ here ships a list.**
 
 An app first. It holds every checklist a person or an agent has made, what each
 is held against, and every tick anybody has filed on one — **inside the project
-those checklists are about**, at `<project>/.kehikot/checklist/checklists.json`,
-as plain JSON beside the work.
+those checklists are about**, under `<project>/.kehikot/checklist/`, as plain
+JSON beside the work (see [Storage](#storage-and-purge)).
 It has its own page, its own port and its own MCP door. A host may frame it, and
 then it learns which project is open, where in a paper the reader is, and what
 the canvas has picked out.
@@ -42,11 +42,12 @@ are), for every epic, and each epic's run keeps its own ticks
 kehikko it is on; an agent passes `kehikko` and `module` to `hold_checklist`,
 and the epic as well to tick or read one epic's run.
 
-A checklist **is held against** one or more targets — up to 10,000, a bound on
-the file and not on how a list is used, so a list for every issue or merge
-request can be held against each of them. That is a stored property of
-the list — `targets`, a list of keys in the file — set on the list's edit page or
-through `hold_checklist`, and by nothing else.
+A checklist **is held against** one or more targets — **as many as it needs; there
+is no limit**, so a list for every issue or merge request can be held against
+each of them. That is a stored property of the list — one entry per target under
+`targets/<list>/` — set on the list's edit page or through `hold_checklist`, and by
+nothing else. When the folder grows, a person sees it and decides what to purge
+(View → Storage).
 
 ## A list's targets are assigned, and the reading page shows what is in front
 
@@ -218,6 +219,13 @@ item removed takes every tick on it with it. The sentence explaining how ticks
 are KEYED lives here, beside the targets it is about. `Done` goes back to where
 the reader came from.
 
+**Storage** is the fourth: what every list takes up, and Purge — see
+[Storage and Purge](#storage-and-purge). A host draws a **View** menu in the
+container header (`kehikot.header`) with *In front*, *All checklists* and
+*Storage*; the option id `storage` is the one a host's own Storage overview
+presses to open this page's. Unframed, *Storage* is a press on the list of every
+checklist.
+
 **Every checklist** is the third screen, reached on purpose from the reading
 page and never in front of it: every list by name, how many targets each is held
 against — a list held against nothing is shown nowhere on the reading page, and
@@ -232,9 +240,9 @@ page, because the next thing to do with it is say what it is held against.
   lists a person assigned to where they are, which may be none, and says so in
   one line. The screen that lists every checklist is one press away.
 - **A store inside the project.**
-  `<projectPath>/.kehikot/checklist/checklists.json` holds every list, every item
-  and every tick for that project, with the `papers.json` it migrates from beside
-  it. The folder names, the joins and the `.gitignore` text are
+  `<projectPath>/.kehikot/checklist/` holds every list, every item, every hold
+  and every tick for that project (`lists.json` and `targets/`), with the
+  `papers.json` it migrates from beside it. The folder names, the joins and the `.gitignore` text are
   `kehikot-module-protocol`'s, so four modules cannot spell them four ways.
 
   `.kehikot` is the app; a *kehikko* is one canvas. Both words appear in this
@@ -432,6 +440,86 @@ something this module should ask to widen for one dialog. `confirm` returns
 `false`, the handler returns early, the button does nothing at all, and there is
 nothing on screen saying why. So the second press is asked for in the row, where
 it can be seen, and it says the same sentence the dialog used to.
+
+## Storage and Purge
+
+### The layout, and why the one file was split
+
+Up to layout 1 the folder held one file, `checklists.json`, read whole on every
+context a canvas sent and written whole on every tick — which is why a list was
+capped at 10,000 targets. Layout 2 (`list/book.ts`) removes the cap by making a
+read pay only for what is in front:
+
+```
+.kehikot/checklist/
+  lists.json                   what every list SAYS: name, items, whose work,
+                               how many targets it is held against
+  targets/<list>/<00..ff>.json one list's holds and ticks, in 256 buckets
+  purged/<when>.json           what a purge took out, kept 30 days
+  papers.json                  the old paper store, read once, never written
+```
+
+A target's bucket is a hash of its **group**: a ref on its own, a paper by its
+epic, a module's container by (kehikko, module). So a context opens, per list,
+one bucket per reference in front plus one for the paper and one per container,
+and a tick rewrites only the bucket it lands in. Every write is atomic (written
+beside itself and renamed over), and `lists.json` is written only when what a
+list says, or how many targets it is held against, changed. Everything is under
+`.kehikot/checklist/`, so what this module takes up is that folder's size.
+
+**Migration** runs on the first read of a layout-1 folder, once: the old file is
+renamed `checklists.v1.json` (the backup), the buckets are written, then
+`lists.json` last — its presence is what says layout 2 is in force. The new
+layout is read back and compared with the old file (every list, every hold in
+order, every tick count); only then is the backup removed. A failed comparison
+takes out what was written and puts the old file back. Idempotent: an
+interrupted migration starts again from the backup. A hold migrated from layout
+1 takes its list's `at` as `since`, the earliest it can have been made.
+
+**Measured** (`test/storage.test.ts`): one list held
+against 50,000 references with 5,000 ticks — a 1.1 MB layout-1 file — migrates
+in ~120 ms; then a context asking about two references takes ~0.4 ms, the list
+of every checklist ~0.1 ms, a tick ~0.8 ms and a hold ~0.6 ms, and a tick
+changes exactly one bucket file. The same data as one file costs ~9 ms just to
+parse and serialise on every tick, before the 1.9 MB write.
+
+### Storage
+
+View → Storage shows, per checklist: the bytes it takes (its bucket files and
+its share of `lists.json`), how many targets it is held against, released
+targets whose ticks are kept, ticks, the last activity (last tick, hold,
+release or edit), and — from the host's shared tracker reading
+(`tracker.get` with `project: true`) — how many of its targets are finished
+(closed or merged). Then the project total, and any purge backups. Without a
+tracker reading, *finished* is not counted rather than guessed.
+
+An agent reads the same with the **`storage`** tool (read-only).
+
+### Purge: choose, preview, confirm
+
+Choose a scope and an age, in days or months:
+
+- **Kept ticks of released targets** with no activity for more than N;
+- **Finished issues and changes**, finished more than N ago — released, and
+  their ticks removed (needs the tracker reading);
+- **Whole checklists** with no activity for more than N.
+
+**Preview** says which lists, how many targets and ticks, and the bytes it frees,
+and writes nothing. **Purge…** arms and a second press confirms. The preview
+carries a digest of exactly what it would remove; if the folder no longer plans
+the same (somebody ticked in between), the purge is refused and asks for a new
+preview. Changing any choice drops the preview.
+
+**A backup is kept for 30 days by default**, in `purged/<when>.json`, listed in
+Storage with its size and expiry, with *Put back* (restores what is not there
+now; what was made since wins) and *Delete* (now, for good). Expired backups are
+removed by the next purge. The reason it is the default: ticks are records of
+work done, and an age is easy to get wrong once. Untick *Keep a backup* and the
+page says, before the confirm, that the purge is permanent.
+
+**Purging is a person's.** No MCP tool purges, restores or deletes a backup (a
+call asking for one is answered with why), the `/api/storage` POST is behind
+this page's ticket, and the View switch is not marked `agents`.
 
 ## Prompts
 

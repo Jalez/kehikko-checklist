@@ -94,9 +94,7 @@ describe('what the store holds', () => {
     const id = second.held!.rows[1]!.item.id
     change({ op: 'move', id: made.id, item: id, to: 0, by: 'a test' }, dir)
 
-    const raw = JSON.parse(readFileSync(file(), 'utf8')) as {
-      checklists: Record<string, { items: { text: string; order?: number }[] }>
-    }
+    const raw = (await store()).snapshot(dir)!
     expect(raw.checklists[made.id]!.items.map((i) => i.text)).toEqual(['second', 'first'])
     expect(raw.checklists[made.id]!.items[0]).not.toHaveProperty('order')
     expect(held(made.id, null, dir).held!.rows.map((r) => r.item.text)).toEqual(['second', 'first'])
@@ -156,7 +154,7 @@ describe('ticks belong to a checklist, a target and an item together', () => {
     expect(targetsOf(list, dir)).toEqual([{ target: { kind: 'ref', ref: 'gh#1' }, done: 1 }])
     change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: false, by: 'a test' }, dir)
     expect(targetsOf(list, dir)).toEqual([{ target: { kind: 'ref', ref: 'gh#1' }, done: 0 }])
-    const raw = JSON.parse(readFileSync(file(), 'utf8')) as { ticks: Record<string, unknown> }
+    const raw = (await store()).snapshot(dir)!
     expect(raw.ticks[list]).toBeUndefined()
   })
 
@@ -173,7 +171,7 @@ describe('ticks belong to a checklist, a target and an item together', () => {
     const { list, item } = await aList()
     change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'a test' }, dir)
     change({ op: 'forget', id: list, by: 'a test' }, dir)
-    const raw = JSON.parse(readFileSync(file(), 'utf8')) as { ticks: Record<string, unknown> }
+    const raw = (await store()).snapshot(dir)!
     expect(raw.ticks[list]).toBeUndefined()
   })
 })

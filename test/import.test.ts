@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { KEHIKOT_DIR, moduleFolder } from 'kehikot-module-protocol'
 
 import { ID } from '../manifest.ts'
-import { MAX_NAME, change, checklists } from '../list/checklists.ts'
+import { MAX_NAME, change, checklists, snapshot } from '../list/checklists.ts'
+import { Book } from '../list/book.ts'
 
 /**
  * Copying a checklist out of one project into another.
@@ -59,24 +60,9 @@ function storeFile(project: string): string {
   return join(project, KEHIKOT_DIR, moduleFolder(ID), 'checklists.json')
 }
 
-function onDisk(project: string): {
-  checklists: Record<
-    string,
-    /* The stored shape, not a convenient subset of it: `at` and `by` are on a
-       checklist as well as on an item, and a helper that omitted them made a
-       test about exactly that distinction fail to compile. */
-    {
-      id: string
-      name: string
-      at: string
-      by: string
-      origin: string | null
-      items: { id: string; text: string; by: string; at: string }[]
-    }
-  >
-  ticks: Record<string, Record<string, Record<string, unknown>>>
-} {
-  return JSON.parse(readFileSync(storeFile(project), 'utf8'))
+function onDisk(project: string) {
+  /* The stored shape, in layout 1's spelling, read through the store's own snapshot. */
+  return snapshot(project)!
 }
 
 /**
@@ -170,9 +156,9 @@ describe('what crosses, and what does not', () => {
        shape the app writes, and then file its ticks under the SOURCE's id —
        which is what a store that lost a list without its ticks looks like. */
     aTickedList(dest, 'Something else entirely')
-    const held = onDisk(dest)
-    held.ticks = { [list]: { 'ref:gh#1': { [items[0]!]: { at: 'then', by: 'nobody', viaMcp: false } } } }
-    Bun.write(storeFile(dest), `${JSON.stringify(held, null, 2)}\n`)
+    const book = Book.open(join(dest, KEHIKOT_DIR, moduleFolder(ID)), realpathSync(dest))
+    book.set(list, 'ref:gh#1', { ticks: { [items[0]!]: { at: 'then', by: 'nobody', viaMcp: false } } })
+    book.save()
 
     const done = change({ op: 'import', from: source, id: list, by: 'the importer' }, dest)
     expect(done.ok).toBe(true)

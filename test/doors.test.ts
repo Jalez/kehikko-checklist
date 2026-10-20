@@ -331,7 +331,7 @@ describe('the agent’s door', () => {
     const tools = (reply?.body as { result: { tools: { name: string; annotations?: Record<string, boolean> }[] } }).result.tools
     expect(tools.find((one) => one.name === 'checklist_for')?.annotations).toEqual({ readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false })
     /* And no tool here that writes claims to only read. */
-    for (const one of tools) if (one.name !== 'checklists') expect(one.annotations?.readOnlyHint).not.toBe(true)
+    for (const one of tools) if (one.name !== 'checklists' && one.name !== 'storage') expect(one.annotations?.readOnlyHint).not.toBe(true)
   })
 
   test('every tool says what it does: one reads, and what removes or overwrites says so', async () => {
@@ -348,6 +348,7 @@ describe('the agent’s door', () => {
       reword_checklist_item: 'destroys',
       move_checklist_item: 'writes',
       drop_checklist_item: 'destroys',
+      storage: 'reads',
     })
     /* The context arguments are spelled the one way, and no tool advertises the old one. */
     for (const one of tools) {
@@ -356,7 +357,7 @@ describe('the agent’s door', () => {
     }
   })
 
-  test('lists exactly the nine tools this app now has', async () => {
+  test('lists exactly the ten tools this app now has, and none of them purges', async () => {
     const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const names = (reply?.body as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)
@@ -370,7 +371,9 @@ describe('the agent’s door', () => {
       'reword_checklist_item',
       'move_checklist_item',
       'drop_checklist_item',
+      'storage',
     ])
+    expect(names.filter((name) => /purge|restore|discard/.test(name))).toEqual([])
     /* The old names are gone rather than aliased. They named a merge request
        because the list they read was hardcoded to one; a tool named after a list
        that no longer exists is a tool about nothing. */
@@ -877,10 +880,10 @@ describe('the agent’s door', () => {
   })
 
   test('a list stored before a list could say whose work it is for is every module’s, and its file is not rewritten', async () => {
-    const { readFileSync } = await import('node:fs')
-    const { checklists, checklistsFile } = await import('../list/checklists.ts')
+    const { readFileSync, realpathSync } = await import('node:fs')
+    const { checklists } = await import('../list/checklists.ts')
     const { list } = await aList()
-    const file = checklistsFile(dir)!
+    const file = join(realpathSync(dir), '.kehikot', 'checklist', 'lists.json')
     const before = readFileSync(file, 'utf8')
     expect(before).not.toContain('"for"')
     const [summary] = checklists(dir).lists

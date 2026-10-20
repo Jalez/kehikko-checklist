@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { checklistsFile } from '../list/checklists.ts'
 import { makeDir } from '../store.ts'
@@ -128,7 +128,18 @@ export function plan(dataDir: string, projectPath: string): Plan {
   /* A destination that already holds checklists is left alone. Merging two
      stores would need a rule for what happens when both hold an id, and there is
      no rule that does not silently prefer one person's wording over another's —
-     so this refuses and says which file to look at. */
+     so this refuses and says which file to look at. Since layout 2 the
+     project's checklists are `lists.json` beside `targets/`, and a project that
+     has them is refused the same way: a layout-1 file written beside them would
+     never be read. */
+  const split = join(dirname(to), 'lists.json')
+  if (existsSync(split)) {
+    return {
+      ...count(store),
+      to,
+      refused: `${split} already holds this project's checklists, and they are not merged with ${from}. Nothing was moved.`,
+    }
+  }
   if (existsSync(to)) {
     let already: Store
     try {

@@ -26,7 +26,7 @@ import { ID } from './manifest.ts'
  * > "I think it'd be best if each module has their own folder inside the
  * > .kehikot folder."
  *
- * So: `<projectPath>/.kehikot/checklist/checklists.json`, with this app's other
+ * So: `<projectPath>/.kehikot/checklist/` (`lists.json` and `targets/`, see `list/book.ts`), with this app's other
  * file — the `papers.json` it migrates from — beside it in the same folder. The
  * folder names and the joins belong to `kehikot-module-protocol` rather than to
  * this file, deliberately, because four modules answering "where does my data
@@ -187,6 +187,54 @@ export function dataFile(projectPath: string | null | undefined): { path: string
     if (escaped) return { path: null, trouble: escaped }
   }
   return { path, trouble: null }
+}
+
+/**
+ * The names this module keeps directly inside its folder, since the store was
+ * split (`list/book.ts`). Constants, never arguments: nothing from a request
+ * becomes a name here, and the names under `targets/` are a list id that is
+ * spelled safe and a bucket number (`list/book.ts`).
+ */
+export const NAMES = {
+  /** What every list says: its name, its items, who it is for. Small, read on every request. */
+  lists: 'lists.json',
+  /** One folder per list, each holding that list's targets and ticks in up to 256 bucket files. */
+  targets: 'targets',
+  /** What Purge took out, kept as a backup for a while (`list/storage.ts`). */
+  purged: 'purged',
+  /** The single file of layout 1, read only to migrate it. */
+  legacy: `${FILE}.json`,
+  /** That file, set aside while it is being migrated, and removed once the migration is proved. */
+  legacyBackup: `${FILE}.v1.json`,
+} as const
+
+/**
+ * This module's folder in a project, fenced — or null for "no project", or a
+ * sentence for a refusal. The three answers `dataFile` gives, for the folder
+ * rather than for one file in it.
+ *
+ * Every name in `NAMES` that is already there is checked as well, after
+ * resolution, because the folder being inside the project says nothing about
+ * a `lists.json` or a `targets/` inside it that is a symlink to somewhere
+ * else. `root` is the project, resolved, for `fenced()` to check a list's
+ * own folder against when it is first opened.
+ */
+export function dataDir(projectPath: string | null | undefined): { dir: string | null; root: string | null; trouble: string | null } {
+  const root = projectRoot(projectPath)
+  if (root === null) return { dir: null, root: null, trouble: null }
+  if ('trouble' in root) return { dir: null, root: null, trouble: root.trouble }
+  const dir = ours(root.path)
+  for (const check of [join(root.path, KEHIKOT_DIR), dir, ...Object.values(NAMES).map((name) => join(dir, name))]) {
+    if (!existsSync(check)) continue
+    const escaped = escapes(root.path, check)
+    if (escaped) return { dir: null, root: null, trouble: escaped }
+  }
+  return { dir, root: root.path, trouble: null }
+}
+
+/** The fence, for a path below this module's folder: a sentence if it resolves outside `root`, null if it does not. */
+export function fenced(root: string, path: string): string | null {
+  return escapes(root, path)
 }
 
 /**
