@@ -75,7 +75,9 @@ describe('the migration from one file to layout 2', () => {
     ])
     /* A released target's ticks came across too, and stay released. */
     expect(held('abc', { kind: 'ref', ref: 'gh#9' }, dir).held!.done).toBe(1)
-    expect(snapshot(dir)!.ticks.abc).toEqual({ 'ref:gh#1': { i1: tick }, 'ref:gh#9': { i1: tick } })
+    /* An old tick has no state; once read it says passed, which is what it meant. */
+    const read = { ...tick, state: 'passed' as const }
+    expect(snapshot(dir)!.ticks.abc).toEqual({ 'ref:gh#1': { i1: read }, 'ref:gh#9': { i1: read } })
   })
 
   test('is idempotent: a second read writes nothing', () => {

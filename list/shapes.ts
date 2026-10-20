@@ -12,6 +12,10 @@ import { evidenceSchema, FACTS } from './evidence.ts'
  * both import them without importing each other.
  */
 
+/** The three things a tick can say. No tick at all is a fourth, `unchecked`. */
+export const TICK_STATES = ['passed', 'failed', 'na'] as const
+export type TickState = (typeof TICK_STATES)[number]
+
 /**
  * One tick, and WHO made it.
  *
@@ -74,6 +78,14 @@ import { evidenceSchema, FACTS } from './evidence.ts'
  * judgement that changes per item, per agent and per day.
  */
 export const tickSchema = z.object({
+  /**
+   * What the person or agent found: `passed`, `failed`, or `na` (not applicable).
+   *
+   * A tick written before states existed has none and reads as `passed`, which
+   * is what every one of them meant. An item with no tick is unchecked, which
+   * is the absence of a tick and never a value here.
+   */
+  state: z.enum(TICK_STATES).default('passed'),
   at: z.string(),
   /** The agent's own name, or the owner as this app's page files them. */
   by: z.string(),
@@ -100,6 +112,11 @@ export const tickSchema = z.object({
   evidence: evidenceSchema.optional(),
 })
 export type Tick = z.infer<typeof tickSchema>
+
+/** What an item says for a target: its tick's state, or `unchecked` when there is none. */
+export function stateOf(tick: { state?: TickState } | null | undefined): TickState | 'unchecked' {
+  return tick ? (tick.state ?? 'passed') : 'unchecked'
+}
 
 export const itemSchema = z.object({
   /**

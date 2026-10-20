@@ -773,6 +773,7 @@ describe('what the tracker says, beside a ref’s lists (Jalez/kehikko-checklist
 
   test('a tick whose ref has moved on since says it is stale, and stays ticked', () => {
     const done = {
+      state: 'passed' as const,
       at: '2026-10-05T10:00:00Z',
       by: 'the owner',
       viaMcp: false,

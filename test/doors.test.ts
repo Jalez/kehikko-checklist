@@ -576,7 +576,7 @@ describe('the agent’s door', () => {
     const { change } = await import('../list/checklists.ts')
     const { list, item } = await aList()
     const stale = { kind: 'paper' as const, epic: 'thesis', section: 'sec:dependencies' }
-    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test', viaMcp: true }, dir)
     const read = await tool('checklists', { checklist: list, epic: 'thesis', section: 'sec:dependencies' })
     expect(read.isError).toBe(false)
     expect(read.text).toContain('1/1 ticked')
@@ -598,7 +598,7 @@ describe('the agent’s door', () => {
     const { list, item } = await aList()
     await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
     const stale = { kind: 'paper' as const, epic: 'thesis', section: 'chapters:3_methods' }
-    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test', viaMcp: true }, dir)
     const named = { checklist: list, epic: 'thesis', section: 'chapters:3_methods' }
 
     const read = await tool('checklists', named)

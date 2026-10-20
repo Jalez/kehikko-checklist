@@ -249,7 +249,10 @@ describe('a file written before targets were stored', () => {
     expect(targetsOf('abc', dir).map((one) => targetKey(one.target))).toEqual(['ref:gh#105', 'paper:thesis/chapters:3_methods'])
     expect(targetsOf('def', dir)).toEqual([])
     const raw = (await store()).snapshot(dir)! as unknown as Raw
-    expect(raw.ticks).toEqual(yesterday.ticks)
+    /* No tick is lost or altered; one with no state now says what it always meant. */
+    const stated = JSON.parse(JSON.stringify(yesterday.ticks)) as Record<string, Record<string, Record<string, Record<string, unknown>>>>
+    for (const targets of Object.values(stated)) for (const items of Object.values(targets)) for (const tick of Object.values(items)) tick.state = 'passed'
+    expect(raw.ticks).toEqual(stated as typeof raw.ticks)
     expect(raw.checklists.abc!.targets).toEqual(['ref:gh#105', 'paper:thesis/chapters:3_methods'])
     expect(raw.checklists.def!.targets).toEqual([])
   })
