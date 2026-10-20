@@ -113,6 +113,7 @@ export function HereView({
   busy,
   room,
   facts = null,
+  kehikko = null,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
@@ -132,6 +133,8 @@ export function HereView({
   room: Room
   /** What the host's tracker reading says about the refs in front, or null when there is none. See `facts.tsx`. */
   facts?: Facts | null
+  /** The kehikko this page is on, whose name a list held against a container on it is labelled with. */
+  kehikko?: { key?: string; name: string } | null
 }) {
   /* Which instances a person folded or unfolded, keyed by list and target, so
      the same list against two targets folds separately. Only what was pressed
@@ -246,7 +249,7 @@ export function HereView({
                    lists held against one chapter — what a chapter owes, what its
                    narration owes — say which is about which. */
                 label={
-                  labelOf(target, placeAmong(target, here.positions) ?? here.placed, null)
+                  labelOf(target, placeAmong(target, here.positions) ?? here.placed, null, kehikko)
                   + (held.checklist.for ? ` · for ${nameOf(held.checklist.for)}` : '')
                 }
                 open={open}

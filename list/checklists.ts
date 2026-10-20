@@ -4,9 +4,9 @@ import { z } from 'zod'
 
 import { dataFile, makeDir, oldPapersFile } from '../store.ts'
 import { evidenceSchema, FACT_NAMES, type Evidence, type Fact, FACTS } from './evidence.ts'
-import { everywhere, showing } from './holding.ts'
+import { everywhere, following, showing } from './holding.ts'
 import { moduleNamed } from './aim.ts'
-import { readKey, targetKey, targetName, type Target } from './targets.ts'
+import { heldAs, readKey, targetKey, targetName, type Target } from './targets.ts'
 
 /**
  * Every checklist this app holds, and every tick anybody has made on one.
@@ -645,8 +645,34 @@ export const MAX_ID = 64
  */
 export const MAX_ITEMS = 200
 export const MAX_LISTS = 200
-/** How many targets one checklist may be held against. A thesis is seven chapters; sixty-four is a mistake. */
-export const MAX_TARGETS = 64
+/**
+ * How many targets one checklist may be held against.
+ *
+ * A bound on the file, like the two above, and not a guess at how many
+ * targets a list should have. It used to be one — 64, sized for a thesis of
+ * seven chapters — and a list about what every issue or every merge request
+ * owes is the opposite case: it is held against every ref it applies to, and
+ * a busy project has far more than 64 (Jalez/kehikko-checklist#23). An agent
+ * holding such a list against a new issue was told to release one somebody
+ * else had assigned, which is a judgement nobody asked it to make.
+ *
+ * What it guards is that the whole store is read on every context a canvas
+ * sends, and a caller with no rate limit can hold. A key is at most 88
+ * characters (`ref:` and an 80-character name, with its quotes), so ten
+ * thousand of them is about a megabyte for one list: past what a project's
+ * issues and changes come to in years of normal use, and well short of a file
+ * this app would struggle to read.
+ */
+export const MAX_TARGETS = 10_000
+
+/** The refusal for a list already held against `MAX_TARGETS` targets: what the bound is for, and what to do. */
+function tooMany(list: { name: string }, count: number): string {
+  return (
+    `"${list.name}" is already held against ${count} targets, which is the most one list is held against here: `
+    + 'the bound keeps the file this app reads on every move a size it can read, and normal use does not reach '
+    + 'it. Release the targets whose work is long finished first; their ticks are kept.'
+  )
+}
 
 /** The ids among what a caller said is here, each in the form `moduleNamed` stores one. */
 function modulesSaid(present: readonly string[]): string[] {
@@ -862,7 +888,18 @@ export function inFront(
    * what the page asks while parts of the epic are picked out — see
    * `everywhere` in `list/holding.ts`.
    */
-  input: { ladders: readonly string[]; selection: string[]; whole?: string | null },
+  /**
+   * `following` is the kehikko the reader is on, the modules whose containers
+   * are in front there, and the open epic: what a list held against one
+   * module's container on one kehikko is asked by (`following` in
+   * `list/holding.ts`, Jalez/kehikko-checklist#27).
+   */
+  input: {
+    ladders: readonly string[]
+    selection: string[]
+    whole?: string | null
+    following?: { kehikko: string; modules: readonly string[]; epic: string | null } | null
+  },
   projectPath: string | null | undefined,
 ): { instances: Held[]; trouble: string | null; nowhere: boolean } {
   const { store, where, trouble } = read(projectPath)
@@ -871,9 +908,12 @@ export function inFront(
     .sort((a, b) => a.name.localeCompare(b.name))
   const ladders = input.ladders.length ? input.ladders : ['']
   const seen = new Set<string>()
-  const found = input.whole
-    ? everywhere({ epic: input.whole, selection: input.selection, lists })
-    : ladders.flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))
+  const found = [
+    ...(input.whole
+      ? everywhere({ epic: input.whole, selection: input.selection, lists })
+      : ladders.flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))),
+    ...(input.following ? following({ ...input.following, lists }) : []),
+  ]
   const instances = found
     .filter((one) => {
       const key = `${one.id}|${targetKey(one.target)}`
@@ -1251,23 +1291,18 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
   }
 
   if (input.op === 'hold' || input.op === 'release') {
-    const key = targetKey(input.target)
+    /* One epic's run of a container is held as the container: see `heldAs`. */
+    const target = heldAs(input.target)
+    const key = targetKey(target)
     const targets = list.targets ?? []
     const has = targets.includes(key)
     if (input.op === 'hold') {
-      if (has) return answer(list.id, `"${list.name}" is already held against ${targetName(input.target)}`, null)
-      if (targets.length >= MAX_TARGETS) {
-        return {
-          ok: false,
-          error:
-            `"${list.name}" is already held against ${targets.length} targets, which is the most one list is held `
-            + 'against here. Release one first.',
-        }
-      }
+      if (has) return answer(list.id, `"${list.name}" is already held against ${targetName(target)}`, null)
+      if (targets.length >= MAX_TARGETS) return { ok: false, error: tooMany(list, targets.length) }
       list.targets = [...targets, key]
-      return answer(list.id, `"${list.name}" is now held against ${targetName(input.target)}`, null)
+      return answer(list.id, `"${list.name}" is now held against ${targetName(target)}`, null)
     }
-    if (!has) return answer(list.id, `"${list.name}" was not held against ${targetName(input.target)}`, null)
+    if (!has) return answer(list.id, `"${list.name}" was not held against ${targetName(target)}`, null)
     list.targets = targets.filter((one) => one !== key)
     const kept = Object.keys(store.ticks[list.id]?.[key] ?? {}).length
     /* The ticks stay, and the sentence says so: a person releasing a chapter
@@ -1275,7 +1310,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
        starting it over. */
     return answer(
       list.id,
-      `"${list.name}" is no longer held against ${targetName(input.target)}`
+      `"${list.name}" is no longer held against ${targetName(target)}`
       + (kept
         ? `; the ${kept === 1 ? 'tick' : `${kept} ticks`} made there ${kept === 1 ? 'is' : 'are'} kept and come back if it is held again`
         : ''),
@@ -1400,9 +1435,27 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
    * opposite of that, and the sentence it gets back says what it just did.
    * An untick holds nothing: taking a tick back is not a claim about the work.
    */
+  /*
+   * A tick on a module's container on a kehikko is a tick on one epic's run of
+   * it, and has to say which: the ticks for one epic's run say nothing about
+   * another's, and a tick filed under no epic would be in front of every epic
+   * at once — the opposite of a list that follows the open one.
+   */
+  if (input.target.kind === 'kehikko' && !input.target.epic) {
+    return {
+      ok: false,
+      error:
+        `"${list.name}" is held against ${targetName(input.target)}, and a tick there is for one epic's run of it. `
+        + 'Name the epic the tick is for — the one open on that kehikko.',
+    }
+  }
   const targets = list.targets ?? []
-  const newlyHeld = input.done && !targets.includes(key)
-  if (newlyHeld) list.targets = [...targets, key]
+  /* What a tick holds is what a hold would: the container, for a run of one. */
+  const holds = heldAs(input.target)
+  const holdKey = targetKey(holds)
+  const newlyHeld = input.done && !targets.includes(holdKey)
+  if (newlyHeld && targets.length >= MAX_TARGETS) return { ok: false, error: tooMany(list, targets.length) }
+  if (newlyHeld) list.targets = [...targets, holdKey]
   const forList = (store.ticks[list.id] ??= {})
   const forTarget = (forList[key] ??= {})
   if (input.done) {
@@ -1434,7 +1487,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     list.id,
     input.done
       ? `${item.id} on "${list.name}" is ticked for ${key}, by ${by}`
-        + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(input.target)}` : '')
+        + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(holds)}` : '')
       : `${item.id} on "${list.name}" is no longer ticked for ${key}`,
     input.target,
   )

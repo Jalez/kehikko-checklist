@@ -164,6 +164,39 @@ export function everywhere(input: { epic: string; selection: string[]; lists: Ho
 }
 
 /**
+ * Every instance held against a module's container on this kehikko, for the
+ * epic that is open (Jalez/kehikko-checklist#27).
+ *
+ * `modules` is the containers in front, as `list/aim.ts` reads them: every
+ * module on the kehikko while nothing is picked out, and only the picked-out
+ * ones while some are and the reader follows them. So a list held against
+ * Flows on the Journey kehikko is in front on that kehikko whenever Flows is,
+ * whichever epic the kehikko is showing — and is put aside, like every other
+ * list, when a person picks out containers that are not Flows.
+ *
+ * No epic open is no instance: the ticks belong to one epic's run, and with
+ * none open there is nothing for a tick to be about. Like the two above, it
+ * reads what was assigned and assigns nothing.
+ */
+export function following(input: {
+  kehikko: string
+  modules: readonly string[]
+  epic: string | null
+  lists: Holding[]
+}): Instance[] {
+  const { kehikko, modules, epic, lists } = input
+  if (!epic) return []
+  const out: Instance[] = []
+  for (const list of lists) {
+    for (const module of modules) {
+      if (!list.targets.includes(targetKey({ kind: 'kehikko', kehikko, module, epic: null }))) continue
+      out.push({ id: list.id, target: { kind: 'kehikko', kehikko, module, epic } })
+    }
+  }
+  return out
+}
+
+/**
  * The keys of a list as targets, for the edit page — which draws them and
  * offers to release each one. A key this version cannot read is left out of
  * the drawing and left in the file, which is the rule `readKey` sets for every

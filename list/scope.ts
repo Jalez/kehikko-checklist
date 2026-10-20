@@ -1,3 +1,4 @@
+import { nameOf } from './aim.ts'
 import { MAX_TARGET_PART, part, type Target } from './targets.ts'
 
 /**
@@ -259,7 +260,7 @@ export function targetOf(scope: Scope): Target | null {
  * own, because then nothing is nearer than anything else.
  */
 export function under(target: Target, placed: Placed | null): boolean {
-  if (target.kind === 'ref' || !target.section || !placed) return true
+  if (target.kind !== 'paper' || !target.section || !placed) return true
   return target.section === placed.section || target.section === fileId(placed.file)
 }
 
@@ -438,8 +439,18 @@ export interface Named {
  * are known. Then the id, printed as honestly as `briefOf` can — a target from
  * another paper, or one whose heading has been renamed since, is what it is.
  */
-export function labelOf(target: Target, placed: Placed | null, outline: Named | null): string {
+export function labelOf(
+  target: Target,
+  placed: Placed | null,
+  outline: Named | null,
+  /** The kehikko the page is on, whose name a container on it is called by. Its key is never shown when this names it. */
+  kehikko: { key?: string; name: string } | null = null,
+): string {
   if (target.kind === 'ref') return target.ref
+  if (target.kind === 'kehikko') {
+    const on = kehikko?.key === target.kehikko && kehikko.name ? kehikko.name : `kehikko ${target.kehikko}`
+    return `${nameOf(target.module)} on ${on}${target.epic ? ` · ${target.epic}` : ''}`
+  }
   if (!target.section) return 'the whole paper'
   if (outline) {
     for (const file of outline.files) {

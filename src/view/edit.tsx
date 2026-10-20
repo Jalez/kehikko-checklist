@@ -77,6 +77,7 @@ export function EditView({
   held,
   targets,
   modules = [],
+  kehikko = null,
   epic,
   selection,
   placed,
@@ -93,6 +94,8 @@ export function EditView({
   targets: { target: Target; done: number }[]
   /** The other modules on this kehikko, by id: whose work this list can be said to be for. */
   modules?: string[]
+  /** The kehikko this page is on: where a list can be held against one module's container, whichever epic is open. */
+  kehikko?: { key?: string; name: string } | null
   /** The epic the canvas is on, whose paper the files below belong to. */
   epic: string | null
   /** The references the canvas has selected, offered as targets. */
@@ -169,6 +172,8 @@ export function EditView({
       <Holding
         list={held.checklist.id}
         targets={targets}
+        modules={modules}
+        kehikko={kehikko}
         epic={epic}
         selection={selection}
         placed={placed}
@@ -283,6 +288,8 @@ export function EditView({
 function Holding({
   list,
   targets,
+  modules,
+  kehikko,
   epic,
   selection,
   placed,
@@ -296,6 +303,8 @@ function Holding({
 }: {
   list: string
   targets: { target: Target; done: number }[]
+  modules: string[]
+  kehikko: { key?: string; name: string } | null
   epic: string | null
   selection: string[]
   placed: Placed | null
@@ -353,6 +362,44 @@ function Holding({
         </div>
       ) : null}
 
+      {/* A module's container on this kehikko, whichever epic is open: for a
+          list about how a module's work is run in every epic
+          (Jalez/kehikko-checklist#27). Offered only where the host says which
+          kehikko this is by its key, which is what such a hold is kept under. */}
+      {kehikko?.key && modules.length ? (
+        <div className="flex flex-col gap-0.5" data-pick-kehikko={kehikko.key}>
+          <span className="text-[0.65rem] leading-4 text-muted-foreground">
+            On {kehikko.name || 'this kehikko'}, whichever epic is open
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {moduleLabels(modules).map(({ id, label }) => {
+              const target: Target = { kind: 'kehikko', kehikko: kehikko.key as string, module: id, epic: null }
+              const on = isHeld(target)
+              return (
+                <Button
+                  key={id}
+                  type="button"
+                  variant={on ? 'default' : 'outline'}
+                  size="container"
+                  disabled={busy}
+                  data-pick-target={targetKey(target)}
+                  data-held={on ? 'yes' : 'no'}
+                  className="max-w-full"
+                  title={
+                    on
+                      ? `Release ${label} on ${kehikko.name || 'this kehikko'}`
+                      : `Hold this list against ${label} on ${kehikko.name || 'this kehikko'}: it is in front whenever ${label} is, for every epic, and each epic keeps its own ticks`
+                  }
+                  onClick={() => toggle(target)}
+                >
+                  <span className="min-w-0 truncate">{label}</span>
+                </Button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {epic ? (
         <Paper
           epic={epic}
@@ -402,7 +449,7 @@ function Holding({
           variant="ghost"
           size="container"
           data-switch
-          title="Change what this list is held against: the paper's files and headings, or a reference."
+          title="Change what this list is held against: the paper's files and headings, a reference, or a module on this kehikko."
           onClick={() => onOpen(!open)}
         >
           {open && !overlaid ? 'done' : 'change'}
@@ -423,7 +470,7 @@ function Holding({
                   onClick={() => onEdit({ op: 'release', id: list, target })}
                   className="flex max-w-full items-center gap-1 rounded border bg-background px-1.5 py-0.5 text-[0.7rem] leading-4 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                 >
-                  <span className="min-w-0 truncate">{labelOf(target, placed, outline)}</span>
+                  <span className="min-w-0 truncate">{labelOf(target, placed, outline, kehikko)}</span>
                   {done ? <span className="shrink-0 tabular-nums text-muted-foreground">{done}</span> : null}
                   <span aria-hidden="true" className="shrink-0 text-muted-foreground">
                     ×
@@ -438,7 +485,7 @@ function Holding({
         /* Never folds away at any size: it is the only thing explaining why a
            list somebody just made is not on the reading page. */
         <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground" data-targets="none">
-          Nothing yet. This list is shown nowhere until it is held against a file, a heading or a reference.
+          Nothing yet. This list is shown nowhere until it is held against a file, a heading, a reference or a module on this kehikko.
         </p>
       )}
 

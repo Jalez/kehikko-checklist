@@ -27,6 +27,9 @@
  * A third kind is deliberately not offered. "Anything you like, as a string"
  * would make this app unable to say what it is showing, unable to offer a
  * sensible list of candidates, and unable to tell a typo from a new target.
+ * The third kind that did arrive later is not that: it is one module's
+ * container on one kehikko, named by two ids the protocol spells, and the
+ * argument for it is on `Target` below (Jalez/kehikko-checklist#27).
  *
  * ## What a paper target actually IS, which is the hard half
  *
@@ -99,6 +102,8 @@
  * itself when you work on the document is a checklist nobody will use twice.
  */
 
+import { KEHIKKO_KEY, MODULE_ID } from 'kehikot-module-protocol'
+
 /** As long as the protocol's own epic slug bound, and as long as a ref may be. */
 export const MAX_TARGET_PART = 80
 
@@ -112,6 +117,42 @@ export const MAX_TARGET_PART = 80
 export type Target =
   | { kind: 'ref'; ref: string }
   | { kind: 'paper'; epic: string; section: string | null }
+  /**
+   * One module's container on one kehikko, whichever epic is open
+   * (Jalez/kehikko-checklist#27).
+   *
+   * ## The third kind, and why it is not "anything you like"
+   *
+   * Some lists are about how a module's work is RUN, in every epic: "what an
+   * epic's issue flows owe before somebody reads the epic's state from them"
+   * is owed wherever the Flows container is, on the Journey kehikko, whichever
+   * epic that kehikko is showing. Neither kind above can say so. A ref is one
+   * piece of work and a paper is one epic's, so such a list had to be held
+   * against every epic's paper by hand, again for every new epic, and an epic
+   * with no paper could not be given it at all.
+   *
+   * The owner said what the scope is: *"the pair (kehikko, module), not a ref,
+   * not one epic's paper, and not 'every epic' in general. A Flows container
+   * on some other kind of kehikko would not get the list."* So the target is
+   * that pair. The kehikko is its `key` — the protocol's identity for one
+   * canvas, which outlives a rename and the host's database (`kehikkoSchema`)
+   * — and never its row number or its name. The module is its id, as the
+   * host spells it in `context.containers`.
+   *
+   * A kehikko in the host is a layout and the epic is the project's: switching
+   * epic does not switch the kehikko. That is exactly why the pair follows the
+   * open epic without anything here having to.
+   *
+   * ## Held against the pair, ticked against one epic
+   *
+   * `epic` is null on the HOLD: the list is held against the container,
+   * whichever epic is open. It is set on the INSTANCE a reader sees and an
+   * agent ticks: the ticks for epic A's run say nothing about epic B's, for the
+   * reason the ticks against `gh#105` say nothing about `gh#106`. Holding or
+   * releasing one epic's run is holding or releasing the pair (`heldAs`), so
+   * there is one hold per pair however many epics have been run through it.
+   */
+  | { kind: 'kehikko'; kehikko: string; module: string; epic: string | null }
 
 /**
  * One component of a target key, bounded rather than matched against a grammar
@@ -153,6 +194,9 @@ export function part(value: unknown): string | null {
  */
 export function targetKey(target: Target): string {
   if (target.kind === 'ref') return `ref:${target.ref}`
+  if (target.kind === 'kehikko') {
+    return `kehikko:${target.kehikko}/${target.module}${target.epic ? `/${target.epic}` : ''}`
+  }
   return target.section ? `paper:${target.epic}/${target.section}` : `paper:${target.epic}`
 }
 
@@ -177,7 +221,43 @@ export function readKey(key: string): Target | null {
     const section = part(rest.slice(cut + 1))
     return section ? { kind: 'paper', epic, section } : null
   }
+  if (key.startsWith('kehikko:')) {
+    const [kehikko, module, epic, extra] = key.slice(8).split('/')
+    if (extra !== undefined) return null
+    const target = readKehikko({ kehikko, module, epic: epic ?? null })
+    /* `kehikko:k/m/` is not a spelling this app writes, and an empty epic is not read as none. */
+    return target && (epic === undefined || target.epic !== null) ? target : null
+  }
   return null
+}
+
+/**
+ * The kehikko-and-module target a door was handed, or null.
+ *
+ * Held to the protocol's own patterns for a kehikko key and a module id
+ * rather than to `part()` alone: both are names somebody else spells, and
+ * both have one spelling on the wire, so a string that is not that spelling
+ * names no container this list could ever be in front of.
+ */
+function readKehikko(input: { kehikko?: unknown; module?: unknown; epic?: unknown }): Extract<Target, { kind: 'kehikko' }> | null {
+  const kehikko = part(input.kehikko)
+  const module = part(input.module)
+  if (!kehikko || !KEHIKKO_KEY.test(kehikko) || !module || !MODULE_ID.test(module)) return null
+  const given = input.epic !== undefined && input.epic !== null && input.epic !== ''
+  const epic = given ? part(input.epic) : null
+  if (given && !epic) return null
+  return { kind: 'kehikko', kehikko, module, epic }
+}
+
+/**
+ * What holding or releasing a target holds or releases.
+ *
+ * Itself, except one epic's run of a kehikko's container, which is held as the
+ * container: a list is held against the pair whichever epic is open, and a
+ * hold made while reading epic A must not be a hold that only epic A sees.
+ */
+export function heldAs(target: Target): Target {
+  return target.kind === 'kehikko' && target.epic ? { ...target, epic: null } : target
 }
 
 /**
@@ -188,9 +268,21 @@ export function readKey(key: string): Target | null {
  * everywhere is that a door bounds and a store decides, and target identity is
  * the store's business even though both doors need it.
  */
-export function readTarget(input: { ref?: unknown; epic?: unknown; section?: unknown }): Target | null {
+export function readTarget(input: {
+  ref?: unknown
+  epic?: unknown
+  section?: unknown
+  kehikko?: unknown
+  module?: unknown
+}): Target | null {
   const ref = part(input.ref)
   if (ref) return { kind: 'ref', ref }
+  /* A kehikko named is a container named, and the epic beside it is then the
+     run being ticked rather than a paper: refused whole when the pair is not
+     one, rather than falling through to a paper nobody asked about. */
+  if (input.kehikko !== undefined && input.kehikko !== null && input.kehikko !== '') {
+    return readKehikko(input)
+  }
   const epic = part(input.epic)
   if (!epic) return null
   const section = input.section === undefined || input.section === null || input.section === '' ? null : part(input.section)
@@ -204,6 +296,10 @@ export function readTarget(input: { ref?: unknown; epic?: unknown; section?: unk
 /** What a target is called on a row, in this app's own words. */
 export function targetName(target: Target): string {
   if (target.kind === 'ref') return target.ref
+  if (target.kind === 'kehikko') {
+    const where = `${target.module} on kehikko ${target.kehikko}`
+    return target.epic ? `${where} · ${target.epic}` : `${where}, whichever epic is open`
+  }
   return target.section ? `${target.epic} · ${target.section}` : `${target.epic} (the paper)`
 }
 
@@ -231,5 +327,10 @@ export function targetName(target: Target): string {
  */
 export function targetNoun(target: Target): string {
   if (target.kind === 'ref') return 'an issue, merge request or pull request'
+  if (target.kind === 'kehikko') {
+    return target.epic
+      ? 'a module’s container on one kehikko, for the epic open there'
+      : 'a module’s container on one kehikko, whichever epic is open'
+  }
   return target.section ? 'a section of a paper' : 'a paper'
 }
