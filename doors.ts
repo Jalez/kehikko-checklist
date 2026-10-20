@@ -20,6 +20,7 @@ import {
   type Op,
 } from './list/checklists.ts'
 import { moduleNamed } from './list/aim.ts'
+import { stateOf, TICK_STATES, type TickState } from './list/shapes.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
 import { discard, preview, purge, restore, SCOPES, usage, usageText, type Finished, type Rule } from './list/storage.ts'
@@ -562,7 +563,7 @@ const ANNOTATIONS: Record<string, Record<string, boolean>> = {
   hold_checklist: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   checklist_for: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   add_checklist_item: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  /* With done: false it takes a tick back, and the tick's record goes with it. */
+  /* With done: false it takes a tick back, and the tick's record goes with it. A person's tick is refused. */
   check_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   reword_checklist_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   move_checklist_item: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -683,12 +684,13 @@ function listed() {
     {
       name: 'check_item',
       description:
-        'Tick one item FOR ONE TARGET, or take a tick back with done: false. This is the tool the module exists for: '
-        + 'a tick belongs to the checklist, the item and the target together, so ticking item 3 for gh#105 says '
-        + 'nothing at all about gh#106. You may tick these — every item here is a line somebody wrote down and you '
-        + 'are often the one who did the work. The record says it was you and that it came through this door, and a '
-        + 'person can take it back with one press, so tick what you have actually done and leave what you cannot '
-        + 'judge, saying that you did.',
+        'Answer one item FOR ONE TARGET: state passed (the default), failed or na (not applicable), with a note '
+        + 'saying how you know; or take your answer back with done: false. This is the tool the module exists for: '
+        + 'a tick belongs to the checklist, the item and the target together, so answering item 3 for gh#105 says '
+        + 'nothing at all about gh#106. The record says it was you and that it came through this door. A tick a '
+        + 'PERSON set on the page is theirs: you cannot change or remove it, and you are told so — say what you '
+        + 'found in your own words instead. Answer what you have actually checked and leave what you cannot judge '
+        + 'unchecked, saying that you did.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -696,8 +698,13 @@ function listed() {
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id, as the checklists tool prints it beside the line' },
           ...TARGET_PROPERTIES,
+          state: {
+            type: 'string',
+            enum: [...TICK_STATES],
+            description: 'passed (the default), failed, or na for not applicable. Not allowed with done: false.',
+          },
           note: { type: 'string', description: 'How you know — the test name, what you changed, where it is' },
-          done: { type: 'boolean', description: 'Defaults to true' },
+          done: { type: 'boolean', description: 'Defaults to true. false takes your answer back and has no state.' },
           agent: { type: 'string' },
         },
         required: ['project', 'checklist', 'item'],
@@ -799,6 +806,21 @@ function listsText(where: string): string {
   ].join('\n')
 }
 
+/** What each state looks like in the listing: x passed, ! failed, - not applicable, a space unchecked. */
+const MARKS: Record<TickState | 'unchecked', string> = { passed: 'x', failed: '!', na: '-', unchecked: ' ' }
+
+/** `passed N · failed N · n/a N · unchecked N`, the same words every time so a caller can read it. */
+function countsLine(counts: { passed: number; failed: number; na: number; unchecked: number }): string {
+  return `passed ${counts.passed} · failed ${counts.failed} · n/a ${counts.na} · unchecked ${counts.unchecked}`
+}
+
+/** A state word from a caller, or null when it is none of the three. Absent means passed. */
+function stateFrom(value: unknown): TickState | null | undefined {
+  if (value === undefined) return undefined
+  return (TICK_STATES as readonly unknown[]).includes(value) ? (value as TickState) : null
+}
+const STATE_REFUSAL = 'state is one of passed, failed or na (not applicable). Nothing was changed.'
+
 /** One checklist, with the ticks for a target where one was named. */
 function listText(id: string, target: Target | null, where: string): string {
   const { held: on, trouble } = held(id, target, where)
@@ -811,7 +833,7 @@ function listText(id: string, target: Target | null, where: string): string {
     )
   }
   const head = target
-    ? `"${on.checklist.name}" (${on.checklist.id}) held against ${targetName(target)} — ${on.done}/${on.total} ticked`
+    ? `"${on.checklist.name}" (${on.checklist.id}) held against ${targetName(target)} — ${on.done}/${on.total} ticked\n${countsLine(on.counts)}`
     : `"${on.checklist.name}" (${on.checklist.id}) — ${on.total} item${on.total === 1 ? '' : 's'}, no target named, so nothing below is ticked or unticked`
   if (!on.rows.length) {
     return `${head}\nThis list has no items yet. add_checklist_item puts the first line on it.`
@@ -826,7 +848,7 @@ function listText(id: string, target: Target | null, where: string): string {
        issue or change to read before ticking it. This door reads no tracker,
        so what the fact SAYS is the agent's to find out. */
     const fact = row.item.fact ? `  [evidence: the tracker's ${FACT_NAMES[row.item.fact]}]` : ''
-    return `${at + 1}. [${done ? 'x' : ' '}] ${row.item.id} — ${row.item.text}${fact}${who}`
+    return `${at + 1}. [${MARKS[stateOf(done)]}] ${row.item.id} — ${row.item.text}${fact}${who}`
   })
   /*
    * Where else this list is held, with what is ticked there. Every target the
@@ -977,12 +999,18 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     }
     target = aim.target
     also = aim.also
+    const state = stateFrom(args.state)
+    if (state === null) throw new Error(`check_item: ${STATE_REFUSAL}`)
+    if (state !== undefined && args.done === false) {
+      throw new Error('check_item: done: false takes an answer back and has no state. Nothing was changed.')
+    }
     op = {
       op: 'tick',
       id,
       item,
       target,
       done: args.done !== false,
+      ...(state ? { state } : {}),
       by,
       viaMcp: true,
       note: str(args.note, MAX_NOTE) || undefined,
@@ -1678,6 +1706,8 @@ export function answerAt(
         } catch (refusal) {
           return bad(refusal instanceof Error ? refusal.message : String(refusal))
         }
+        const state = stateFrom(body.state)
+        if (state === null) return bad(`that tick named a state that is not one: ${STATE_REFUSAL}`)
         return ok(
           change(
             {
@@ -1686,6 +1716,7 @@ export function answerAt(
               item,
               target,
               done: body.done !== false,
+              ...(state ? { state } : {}),
               by,
               note: str(body.note, MAX_NOTE) || undefined,
               /* Parsed, and dropped when it does not parse: evidence is a record
