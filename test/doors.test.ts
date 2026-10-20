@@ -576,7 +576,7 @@ describe('the agent’s door', () => {
     const { change } = await import('../list/checklists.ts')
     const { list, item } = await aList()
     const stale = { kind: 'paper' as const, epic: 'thesis', section: 'sec:dependencies' }
-    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test', viaMcp: true }, dir)
     const read = await tool('checklists', { checklist: list, epic: 'thesis', section: 'sec:dependencies' })
     expect(read.isError).toBe(false)
     expect(read.text).toContain('1/1 ticked')
@@ -598,7 +598,7 @@ describe('the agent’s door', () => {
     const { list, item } = await aList()
     await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
     const stale = { kind: 'paper' as const, epic: 'thesis', section: 'chapters:3_methods' }
-    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: stale, done: true, by: 'a test', viaMcp: true }, dir)
     const named = { checklist: list, epic: 'thesis', section: 'chapters:3_methods' }
 
     const read = await tool('checklists', named)
@@ -1063,5 +1063,94 @@ describe('the page’s door, for a tracker fact (Jalez/kehikko-checklist#1)', ()
     change({ op: 'cite', id: list, item, fact: 'pipeline', by: 'a test' }, dir)
     const out = await tool('checklists', { checklist: list, ref: '!7' })
     expect(out.text).toContain('[evidence: the tracker\'s pipeline]')
+  })
+})
+
+describe('states over MCP and the page', () => {
+  /** The person's press, as the page posts it. */
+  async function page(body: Record<string, unknown>) {
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
+    return answer('POST', '/api/checklist', query, { project: dir, ...body }, TICKET)
+  }
+
+  test('check_item takes state failed or na, and the listing marks them [!] and [-] beside a count line', async () => {
+    const { change } = await import('../list/checklists.ts')
+    const { list, item } = await aList()
+    for (const text of ['second', 'third', 'fourth']) change({ op: 'add', id: list, text, by: 'a test' }, dir)
+    const ids = (await import('../list/checklists.ts')).held(list, null, dir).held!.rows.map((r) => r.item.id)
+    expect(ids[0]).toBe(item)
+    await tool('check_item', { checklist: list, item: ids[0], ref: 'gh#105', note: 'ran it' })
+    await tool('check_item', { checklist: list, item: ids[1], ref: 'gh#105', state: 'failed', note: 'line 4 is wrong' })
+    await tool('check_item', { checklist: list, item: ids[2], ref: 'gh#105', state: 'na', note: 'no UI here' })
+    const back = await tool('checklists', { checklist: list, ref: 'gh#105' })
+    expect(back.isError).toBe(false)
+    expect(back.text).toMatch(/\[x\] \w+ — A test that fails/)
+    expect(back.text).toMatch(/\[!\] \w+ — second .*line 4 is wrong/)
+    expect(back.text).toMatch(/\[-\] \w+ — third .*no UI here/)
+    expect(back.text).toMatch(/\[ \] \w+ — fourth/)
+    expect(back.text).toContain('passed 1 · failed 1 · n/a 1 · unchecked 1')
+  })
+
+  test('check_item says what it did in the state’s own words', async () => {
+    const { list, item } = await aList()
+    expect((await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'failed' })).text).toContain('marked failed for ref:gh#1')
+    expect((await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'na' })).text).toContain('marked not applicable')
+    expect((await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'passed' })).text).toContain('is ticked for')
+  })
+
+  test('a state that is not one of the three is refused, and nothing is written', async () => {
+    const { list, item } = await aList()
+    const out = await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'maybe' })
+    expect(out.isError).toBe(true)
+    expect(out.text).toContain('passed, failed or na')
+    expect((await tool('checklists', { checklist: list, ref: 'gh#1' })).text).toContain('passed 0 · failed 0 · n/a 0 · unchecked 1')
+  })
+
+  test('done: false takes a tick back whatever its state, and a state beside it is refused', async () => {
+    const { list, item } = await aList()
+    await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'failed' })
+    const both = await tool('check_item', { checklist: list, item, ref: 'gh#1', done: false, state: 'passed' })
+    expect(both.isError).toBe(true)
+    expect(both.text).toContain('done: false')
+    expect((await tool('check_item', { checklist: list, item, ref: 'gh#1', done: false })).isError).toBe(false)
+    expect((await tool('checklists', { checklist: list, ref: 'gh#1' })).text).toContain('unchecked 1')
+  })
+
+  test('a tick the person set on the page cannot be changed or taken back over MCP, in a sentence', async () => {
+    const { list, item } = await aList()
+    expect((await page({ op: 'tick', id: list, item, ref: 'gh#1', done: true, state: 'failed', note: 'I looked' }))?.status).toBe(200)
+    const change = await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'passed' })
+    expect(change.isError).toBe(true)
+    expect(change.text).toContain('only a person can change or take back')
+    const remove = await tool('check_item', { checklist: list, item, ref: 'gh#1', done: false })
+    expect(remove.isError).toBe(true)
+    const back = await tool('checklists', { checklist: list, ref: 'gh#1' })
+    expect(back.text).toMatch(/\[!\]/)
+    expect(back.text).toContain('I looked')
+    const drop = await tool('drop_checklist_item', { checklist: list, item })
+    expect(drop.isError).toBe(true)
+  })
+
+  test('the page sets any state, and may overwrite an agent’s', async () => {
+    const { list, item } = await aList()
+    await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'passed' })
+    expect((await page({ op: 'tick', id: list, item, ref: 'gh#1', done: true, state: 'na' }))?.status).toBe(200)
+    expect((await tool('checklists', { checklist: list, ref: 'gh#1' })).text).toMatch(/\[-\]/)
+    expect((await page({ op: 'tick', id: list, item, ref: 'gh#1', done: true }))?.status).toBe(200)
+    expect((await tool('checklists', { checklist: list, ref: 'gh#1' })).text).toMatch(/\[x\]/)
+  })
+
+  test('the page refuses a state that is not one of the three', async () => {
+    const { list, item } = await aList()
+    const reply = await page({ op: 'tick', id: list, item, ref: 'gh#1', done: true, state: 'maybe' })
+    expect(reply?.status).toBe(400)
+    expect((reply?.body as { error: string }).error).toContain('passed, failed or na')
+  })
+
+  test('check_item’s schema offers the three states, defaulting to passed', async () => {
+    const { answerAt: answer } = await import('../doors.ts')
+    const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
+    const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }[] } }).result.tools
+    expect(tools.find((one) => one.name === 'check_item')?.inputSchema.properties.state?.enum).toEqual(['passed', 'failed', 'na'])
   })
 })

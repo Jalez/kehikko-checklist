@@ -282,3 +282,158 @@ describe('a tracker fact as an item’s evidence (Jalez/kehikko-checklist#1)', (
     }
   })
 })
+
+describe('a tick has a state: passed, failed or not applicable', () => {
+  const REF = { kind: 'ref', ref: 'gh#105' } as const
+
+  test('a tick written without a state reads as passed, and no tick reads as unchecked', async () => {
+    const { change, held } = await store()
+    const { stateOf } = await import('../list/shapes.ts')
+    const { list, item } = await aList()
+    change({ op: 'tick', id: list, item, target: REF, done: true, by: 'a test' }, dir)
+    const tick = held(list, REF, dir).held!.rows[0]!.done
+    expect(stateOf(tick)).toBe('passed')
+    expect(stateOf(null)).toBe('unchecked')
+  })
+
+  test('an old file, whose ticks never had a state, reads as passed', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'tick', id: list, item, target: REF, done: true, by: 'a test' }, dir)
+    /* Strip the field from every shard on disk: that is what a tick written
+       before this change looks like. */
+    const { readdirSync, readFileSync: read, writeFileSync: write, statSync } = await import('node:fs')
+    const walk = (at: string): string[] =>
+      readdirSync(at).flatMap((name) => {
+        const path = join(at, name)
+        return statSync(path).isDirectory() ? walk(path) : [path]
+      })
+    let stripped = 0
+    for (const path of walk(join(dir, KEHIKOT_DIR, moduleFolder(ID)))) {
+      const text = read(path, 'utf8')
+      if (!text.includes('"state"')) continue
+      stripped += 1
+      write(path, text.replace(/\s*"state":\s*"passed",?/g, ''))
+    }
+    expect(stripped).toBeGreaterThan(0)
+    const again = held(list, REF, dir).held!
+    expect(again.rows[0]!.done?.state).toBe('passed')
+    expect(again.counts).toEqual({ passed: 1, failed: 0, na: 0, unchecked: 0 })
+  })
+
+  test('a failed tick is stored with its note and who set it, and leaves the others unchecked', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'add', id: list, text: 'second', by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: REF, done: true, state: 'failed', note: 'line 4 is wrong', by: 'claude', viaMcp: true }, dir)
+    const rows = held(list, REF, dir).held!.rows
+    expect(rows[0]!.done).toMatchObject({ state: 'failed', note: 'line 4 is wrong', by: 'claude', viaMcp: true })
+    expect(rows[1]!.done).toBeNull()
+  })
+
+  test('counts say passed, failed, n/a and unchecked, and done stays the passed count', async () => {
+    const { change, held } = await store()
+    const { list } = await aList()
+    for (const text of ['b', 'c', 'd']) change({ op: 'add', id: list, text, by: 'a test' }, dir)
+    const ids = held(list, REF, dir).held!.rows.map((r) => r.item.id)
+    change({ op: 'tick', id: list, item: ids[0]!, target: REF, done: true, by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item: ids[1]!, target: REF, done: true, state: 'failed', by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item: ids[2]!, target: REF, done: true, state: 'na', by: 'a test' }, dir)
+    const now = held(list, REF, dir).held!
+    expect(now.counts).toEqual({ passed: 1, failed: 1, na: 1, unchecked: 1 })
+    expect(now.done).toBe(1)
+    expect(now.total).toBe(4)
+  })
+
+  test('a second tick on the same item replaces the state, and done:false removes it whatever its state', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'tick', id: list, item, target: REF, done: true, state: 'failed', by: 'a test' }, dir)
+    change({ op: 'tick', id: list, item, target: REF, done: true, state: 'na', note: 'no UI here', by: 'a test' }, dir)
+    expect(held(list, REF, dir).held!.rows[0]!.done).toMatchObject({ state: 'na', note: 'no UI here' })
+    change({ op: 'tick', id: list, item, target: REF, done: false, by: 'a test' }, dir)
+    expect(held(list, REF, dir).held!.rows[0]!.done).toBeNull()
+  })
+
+  test('a not-applicable tick still holds the list against the target', async () => {
+    const { change, targetsOf } = await store()
+    const { list, item } = await aList()
+    change({ op: 'tick', id: list, item, target: REF, done: true, state: 'na', by: 'a test', viaMcp: true }, dir)
+    expect(targetsOf(list, dir)).toEqual([{ target: REF, done: 1 }])
+  })
+
+  test('a state that is not one of the three is refused by the schema, so a hand-edited file is said so', async () => {
+    const { tickSchema } = await import('../list/shapes.ts')
+    expect(tickSchema.safeParse({ at: 'x', by: 'y', state: 'maybe' }).success).toBe(false)
+    expect(tickSchema.parse({ at: 'x', by: 'y' }).state).toBe('passed')
+  })
+})
+
+describe('a tick the person made is theirs: no agent changes or removes it', () => {
+  const REF = { kind: 'ref', ref: 'gh#105' } as const
+
+  async function personTicked() {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'tick', id: list, item, target: REF, done: true, state: 'failed', note: 'I checked', by: 'Jaakko' }, dir)
+    return { change, held, list, item }
+  }
+
+  function bytes(): string {
+    const { readdirSync, readFileSync: read, statSync } = require('node:fs') as typeof import('node:fs')
+    const walk = (at: string): string[] =>
+      readdirSync(at).flatMap((name) => {
+        const path = join(at, name)
+        return statSync(path).isDirectory() ? walk(path) : [path]
+      })
+    return walk(join(dir, KEHIKOT_DIR, moduleFolder(ID)))
+      .sort()
+      .map((path) => `${path}\n${read(path, 'utf8')}`)
+      .join('\n')
+  }
+
+  test('an agent cannot change its state', async () => {
+    const { change, held, list, item } = await personTicked()
+    const before = bytes()
+    const out = change({ op: 'tick', id: list, item, target: REF, done: true, state: 'passed', by: 'claude', viaMcp: true }, dir)
+    expect(out.ok).toBe(false)
+    expect(!out.ok && out.error).toContain('Jaakko')
+    expect(!out.ok && out.error).toContain('only a person')
+    expect(bytes()).toBe(before)
+    expect(held(list, REF, dir).held!.rows[0]!.done).toMatchObject({ state: 'failed', note: 'I checked', viaMcp: false })
+  })
+
+  test('an agent cannot take it back', async () => {
+    const { change, held, list, item } = await personTicked()
+    const before = bytes()
+    const out = change({ op: 'tick', id: list, item, target: REF, done: false, by: 'claude', viaMcp: true }, dir)
+    expect(out.ok).toBe(false)
+    expect(bytes()).toBe(before)
+    expect(held(list, REF, dir).held!.rows[0]!.done).not.toBeNull()
+  })
+
+  test('an agent cannot drop an item that carries it', async () => {
+    const { change, list, item } = await personTicked()
+    const before = bytes()
+    const out = change({ op: 'drop', id: list, item, by: 'claude', viaMcp: true }, dir)
+    expect(out.ok).toBe(false)
+    expect(bytes()).toBe(before)
+  })
+
+  test('the person can change their own tick and an agent\'s, and an agent can change an agent\'s', async () => {
+    const { change, held } = await store()
+    const { list, item } = await aList()
+    change({ op: 'tick', id: list, item, target: REF, done: true, by: 'claude', viaMcp: true }, dir)
+    expect(change({ op: 'tick', id: list, item, target: REF, done: true, state: 'failed', by: 'claude', viaMcp: true }, dir).ok).toBe(true)
+    expect(change({ op: 'tick', id: list, item, target: REF, done: true, state: 'na', by: 'Jaakko' }, dir).ok).toBe(true)
+    expect(held(list, REF, dir).held!.rows[0]!.done?.state).toBe('na')
+    expect(change({ op: 'tick', id: list, item, target: REF, done: false, by: 'Jaakko' }, dir).ok).toBe(true)
+  })
+
+  test('an agent may tick another target of the same item', async () => {
+    const { change, held, list, item } = await personTicked()
+    const other = { kind: 'ref', ref: 'gh#106' } as const
+    expect(change({ op: 'tick', id: list, item, target: other, done: true, state: 'passed', by: 'claude', viaMcp: true }, dir).ok).toBe(true)
+    expect(held(list, other, dir).held!.rows[0]!.done?.state).toBe('passed')
+  })
+})

@@ -157,7 +157,7 @@ describe('what crosses, and what does not', () => {
        which is what a store that lost a list without its ticks looks like. */
     aTickedList(dest, 'Something else entirely')
     const book = Book.open(join(dest, KEHIKOT_DIR, moduleFolder(ID)), realpathSync(dest))
-    book.set(list, 'ref:gh#1', { ticks: { [items[0]!]: { at: 'then', by: 'nobody', viaMcp: false } } })
+    book.set(list, 'ref:gh#1', { ticks: { [items[0]!]: { state: 'passed', at: 'then', by: 'nobody', viaMcp: false } } })
     book.save()
 
     const done = change({ op: 'import', from: source, id: list, by: 'the importer' }, dest)

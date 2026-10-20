@@ -75,7 +75,9 @@ describe('the migration from one file to layout 2', () => {
     ])
     /* A released target's ticks came across too, and stay released. */
     expect(held('abc', { kind: 'ref', ref: 'gh#9' }, dir).held!.done).toBe(1)
-    expect(snapshot(dir)!.ticks.abc).toEqual({ 'ref:gh#1': { i1: tick }, 'ref:gh#9': { i1: tick } })
+    /* An old tick has no state; once read it says passed, which is what it meant. */
+    const read = { ...tick, state: 'passed' as const }
+    expect(snapshot(dir)!.ticks.abc).toEqual({ 'ref:gh#1': { i1: read }, 'ref:gh#9': { i1: read } })
   })
 
   test('is idempotent: a second read writes nothing', () => {
@@ -189,6 +191,20 @@ describe('no limit, and a list held against fifty thousand targets stays fast', 
 })
 
 describe('Storage: what the folder takes up', () => {
+  test('a failed and a not-applicable tick are ticks like the rest: counted, and kept when their target is released', () => {
+    const { list, item } = aList()
+    const states = [undefined, 'failed', 'na'] as const
+    states.forEach((state, at) => {
+      change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: `gh#${at + 1}` }, done: true, ...(state ? { state } : {}), by: 'a test' }, dir)
+    })
+    expect(usage(dir).lists[0]!.ticks).toBe(3)
+    change({ op: 'release', id: list, target: { kind: 'ref', ref: 'gh#2' }, by: 'a test' }, dir)
+    expect(usage(dir).lists[0]!.released).toBe(1)
+    /* And held again, the failure is still what it was. */
+    change({ op: 'hold', id: list, target: { kind: 'ref', ref: 'gh#2' }, by: 'a test' }, dir)
+    expect(held(list, { kind: 'ref', ref: 'gh#2' }, dir).held!.rows[0]!.done?.state).toBe('failed')
+  })
+
   test('per list: bytes, held, released with ticks kept, ticks, last activity, finished — and the project total', () => {
     const { list, item } = aList()
     for (const ref of ['gh#1', 'gh#2', 'gh#3']) {

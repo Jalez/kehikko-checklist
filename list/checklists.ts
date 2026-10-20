@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { dataDir, dataFile, makeDir, NAMES, oldPapersFile } from '../store.ts'
 import { Book, migrateLegacy, Unreadable } from './book.ts'
-import type { Item, List, Tick } from './shapes.ts'
+import { countRows, type Item, type List, type Tick, type TickState } from './shapes.ts'
 import { FACT_NAMES, type Evidence, type Fact } from './evidence.ts'
 import { everywhere, following, rungTarget, showing } from './holding.ts'
 import { rungsFrom } from './scope.ts'
@@ -82,7 +82,8 @@ import { heldAs, readKey, targetKey, targetName, type Target } from './targets.t
  * `list/book.ts`
  * ------------------------------------------------------------------ */
 
-export type { Item, Tick } from './shapes.ts'
+export type { Item, Tick, TickState } from './shapes.ts'
+export { stateOf, TICK_STATES } from './shapes.ts'
 
 /**
  * One checklist, as everything past `read()` hands it around: what it says,
@@ -246,6 +247,7 @@ function migrate(book: Book, projectPath: string | null | undefined): boolean {
     for (const item of paper.items) {
       if (!item.done) continue
       ticked[item.id] = {
+        state: 'passed',
         at: item.done.at,
         by: item.done.by,
         viaMcp: item.done.viaMcp,
@@ -509,12 +511,22 @@ export interface Summary {
   for?: string
 }
 
+/** How many items are in each state for one target. They add up to `total`. */
+export interface Counts {
+  passed: number
+  failed: number
+  na: number
+  unchecked: number
+}
+
 export interface Held {
   checklist: Checklist
   /** The target these ticks are for, or null when the list is being read on its own. */
   target: Target | null
   rows: { item: Item; done: Tick | null }[]
+  /** How many items are ticked `passed`. Failed and not applicable are in `counts`. */
   done: number
+  counts: Counts
   total: number
 }
 
@@ -577,7 +589,8 @@ function sample(book: Book, id: string): Target[] {
 function heldOf(book: Book, list: List, target: Target | null): Held {
   const on = target ? (book.entry(list.id, targetKey(target))?.ticks ?? {}) : {}
   const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
-  return { checklist: list, target, rows, done: rows.filter((r) => r.done).length, total: rows.length }
+  const counts: Counts = countRows(rows)
+  return { checklist: list, target, rows, done: counts.passed, counts, total: rows.length }
 }
 
 /** Open, run, and turn a file that will not parse into the trouble every reader already carries. */
@@ -794,6 +807,8 @@ export type Op =
       item: string
       target: Target
       done: boolean
+      /** What the tick says. Defaults to `passed`; ignored when `done` is false. */
+      state?: TickState
       by: string
       viaMcp?: boolean
       note?: string
@@ -803,6 +818,22 @@ export type Op =
 export type Result =
   | { ok: true; said: string; lists: Summary[]; held: Held | null; id: string }
   | { ok: false; error: string }
+
+/** How a state reads in the sentence that says what a write did. */
+const STATE_PHRASE: Record<TickState, string> = {
+  passed: 'ticked',
+  failed: 'marked failed',
+  na: 'marked not applicable',
+}
+
+/** The refusal an agent gets for touching what a person ticked. */
+function PERSONS_TICK(theirs: Tick, text: string, list: string, what: 'tick' | 'drop'): string {
+  return (
+    `"${text}" on "${list}" was set by ${theirs.by} on the page, and only a person can change or take back what a `
+    + `person ticked${what === 'drop' ? ', which dropping the item would do' : ''}. Nothing was changed. Leave it as it `
+    + 'is, and say what you found in your own words instead.'
+  )
+}
 
 /**
  * Change something, and say what happened in a sentence somebody can read back.
@@ -1231,6 +1262,14 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
 
   if (input.op === 'drop') {
     const gone = list.items[where]!
+    if (input.viaMcp === true) {
+      /* Dropping an item takes its ticks with it, so it would be a way round
+         the guard on `tick` below. */
+      for (const [, entry] of book.all(list.id)) {
+        const theirs = entry.ticks?.[input.item]
+        if (theirs && theirs.viaMcp === false) return { ok: false, error: PERSONS_TICK(theirs, gone.text, list.name, 'drop') }
+      }
+    }
     list.items = list.items.filter((i) => i.id !== input.item)
     /* And its ticks, on every target. Same argument as forgetting a list: a tick
        keyed to an item that is not there is a row nothing can draw, and leaving
@@ -1279,6 +1318,16 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
         + 'Name the epic the tick is for — the one open on that kehikko.',
     }
   }
+  /*
+   * A tick the PERSON made — on the page, so `viaMcp` is false — is theirs: the
+   * MCP door may not change its state, its note, or take it back. A disagreement
+   * is something to say in words, not to overwrite. Checked before anything is
+   * held or written, so a refusal leaves the file as it was.
+   */
+  const theirs = book.entry(list.id, key)?.ticks?.[input.item]
+  if (input.viaMcp === true && theirs && theirs.viaMcp === false) {
+    return { ok: false, error: PERSONS_TICK(theirs, list.items[where]!.text, list.name, 'tick') }
+  }
   /* What a tick holds is what a hold would: the container, for a run of one. */
   const holdsNow = heldAs(input.target)
   const holdKey = targetKey(holdsNow)
@@ -1288,6 +1337,7 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
   const forTarget: Record<string, Tick> = { ...(was?.ticks ?? {}) }
   if (input.done) {
     forTarget[input.item] = {
+      state: input.state ?? 'passed',
       at,
       by,
       viaMcp: input.viaMcp === true,
@@ -1313,7 +1363,7 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
   return answer(
     list.id,
     input.done
-      ? `${item.id} on "${list.name}" is ticked for ${key}, by ${by}`
+      ? `${item.id} on "${list.name}" is ${STATE_PHRASE[input.state ?? 'passed']} for ${key}, by ${by}`
         + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(holdsNow)}` : '')
       : `${item.id} on "${list.name}" is no longer ticked for ${key}`,
     input.target,

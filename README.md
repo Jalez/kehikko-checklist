@@ -286,11 +286,14 @@ create_checklist       start one under a name
 hold_checklist         hold it against a ref, a paper, a file or a heading — or release: true
 checklist_for          say which module's work it is for — or, with module: null, every module's
 add_checklist_item     a line on the end
-check_item             tick it FOR A TARGET, or done: false to take a tick back
+check_item             answer it FOR A TARGET (state: passed | failed | na), or done: false to take your answer back
 reword_checklist_item  the same item, sharper words, same id and same ticks
 move_checklist_item    positions count from 1; past the end means the end
-drop_checklist_item    off the list for good, with its ticks on every target
+drop_checklist_item    off the list for good, with its ticks on every target (refused while a person's tick is on it)
 ```
+
+`check_item` signature: `{ project, checklist, item, ref | epic [, section | path…]
+| kehikko, module, epic, state?: 'passed' | 'failed' | 'na', note?, done?: boolean, agent? }`.
 
 Every one of them refuses in a sentence that names what to do instead, and
 `position: "up"` is refused rather than read as 1 — a tool that silently
@@ -323,6 +326,33 @@ reason to press, never a press. The rule is `list/evidence.ts`; the drawing is
 checked against, and finds out what it says itself — this app's server still
 reads no tracker and holds no token. A host that does not grant `trackers:read`
 gets the page as it was before, with nothing drawn from a tracker.
+
+## Passed, failed, not applicable, unchecked
+
+For one target, an item is in one of four states. **Passed** is a tick; **failed**
+and **not applicable** (`na`) are ticks that say so; **unchecked** is no tick at
+all. Each carries its note (how the person or agent knows) and who set it.
+
+- A tick stores `state: 'passed' | 'failed' | 'na'`. A tick written before states
+  existed has none and reads as `passed`: every old tick meant exactly that.
+- The page draws each state with a shape and a word, never colour alone: `✓`
+  Passed, `✗` Failed, `–` N/A, an empty box when unchecked (spoken as "not
+  checked"). Pressing the line sets Passed (and takes it back when it is
+  already Passed); the small Failed and N/A buttons beside it set those, and
+  pressing the one that is on clears it. The count stays `passed/total`, with
+  `N failed · N n/a` said in words beside it, so a failure never reads as
+  nearly done. View → Storage counts ticks of every state alike.
+- MCP `check_item` takes `state` (`passed`, the default, `failed` or `na`);
+  `done: false` still takes the tick back and has no state (the two together are
+  refused). `checklists` for a target prints `[x]` passed, `[!]` failed, `[-]` n/a
+  and `[ ]` unchecked, each with `(by, over MCP: note)`, then one line
+  `passed N · failed N · n/a N · unchecked N` under the heading.
+- **A tick the person made is theirs.** One made on the page (`viaMcp: false`)
+  cannot be changed or taken back over MCP, and neither can the item that holds
+  it be dropped that way: the agent is refused in a sentence and the file is not
+  written. The page may overwrite any tick, and an agent may change its own. A
+  disagreement is something to say in words. The rule is in `change()`
+  (`list/checklists.ts`), so it holds for every caller of the MCP door.
 
 ## An agent may tick, and may never do it anonymously
 
