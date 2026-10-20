@@ -52,6 +52,13 @@ export type Where = Host['where']
 export interface Kehikko {
   id: number
   name: string
+  /**
+   * The kehikko's identity that outlives the host's database: what a list held
+   * against a module's container on this kehikko is stored under
+   * (Jalez/kehikko-checklist#27). Absent from a host older than protocol 1.1.0,
+   * and then no such list can be held or shown here.
+   */
+  key?: string
 }
 
 export interface Kehikot {
@@ -88,9 +95,9 @@ export interface Kehikot {
    * The kehikko this container is on, or null.
    *
    * Null is a REAL state and not a missing one: a host need not have canvases at
-   * all. Nothing on this page is keyed by it any more — the per-kehikko pick
-   * went with `list/keep.ts` — and it is carried because a context says it and
-   * a later reader of this hook should not have to add it back.
+   * all. Its `key` is what a list held against a module's container on this
+   * kehikko is stored under (Jalez/kehikko-checklist#27); nothing else on this
+   * page is keyed by it — the per-kehikko pick went with `list/keep.ts`.
    */
   kehikko: Kehikko | null
   /**

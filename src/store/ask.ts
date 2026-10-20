@@ -164,6 +164,13 @@ export async function whatIsHere(
   refs: readonly string[],
   /** Every list held against the epic's paper, wherever in it: what is asked while parts are picked. See `byParts` in `list/aim.ts`. */
   whole = false,
+  /**
+   * The kehikko this page is on, by key, the modules whose containers are in
+   * front there, and the open epic: what a list held against one module's
+   * container is asked by (Jalez/kehikko-checklist#27). The epic rides apart
+   * from `epic`, which is left out when the paper is not in front.
+   */
+  following: { kehikko: string; modules: readonly string[]; epic: string | null } | null = null,
 ): Promise<Here> {
   const body = replied(
     await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
@@ -172,6 +179,9 @@ export async function whatIsHere(
         doc: epic ? documents.map((at) => (at.from !== null && at.to !== null ? `${at.path}\t${at.from}\t${at.to}` : at.path)) : [],
         refs: refs.length ? refs.join(' ') : null,
         whole: whole && epic ? '1' : null,
+        kehikko: following && following.modules.length ? following.kehikko : null,
+        module: following ? [...following.modules] : [],
+        open: following?.epic || null,
         project: projectPath || null,
       },
     }),
@@ -322,7 +332,9 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
     change.op === 'tick' || change.op === 'hold' || change.op === 'release'
       ? change.target.kind === 'ref'
         ? { ref: change.target.ref }
-        : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
+        : change.target.kind === 'kehikko'
+          ? { kehikko: change.target.kehikko, module: change.target.module, ...(change.target.epic ? { epic: change.target.epic } : {}) }
+          : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
       : {}
   const { ...sent } = change as Record<string, unknown>
   delete sent.target

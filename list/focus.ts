@@ -83,6 +83,8 @@ export function anchorOf(instance: { target: Target | null }, positions: readonl
   const target = instance.target
   if (!target) return []
   if (target.kind === 'ref') return [{ ref: target.ref }]
+  /* A module's container on a kehikko belongs to the open epic as a whole, like the whole paper. */
+  if (target.kind === 'kehikko') return [{ whole: true }]
   if (!target.section) return [{ whole: true }]
   return placesAmong(target, positions).map((place) => ({ file: place.file }))
 }

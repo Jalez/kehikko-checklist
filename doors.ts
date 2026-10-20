@@ -18,6 +18,7 @@ import {
   targetsOf,
   type Op,
 } from './list/checklists.ts'
+import { moduleNamed } from './list/aim.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
 import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
@@ -224,7 +225,28 @@ const TARGET_PROPERTIES = {
   },
   epic: {
     type: 'string',
-    description: 'The epic whose paper this list is being held against, as list_epics spells it. Give this OR a ref.',
+    description:
+      'The epic whose paper this list is being held against, as list_epics spells it. Give this OR a ref. With '
+      + 'kehikko and module, the epic whose run of that container is being ticked or read instead.',
+  },
+  /*
+   * A module's container on one kehikko, whichever epic is open
+   * (Jalez/kehikko-checklist#27): the target for a list about how a module's
+   * work is run in every epic. See the third kind in `list/targets.ts`.
+   */
+  kehikko: {
+    type: 'string',
+    description:
+      'With module, instead of a ref or a paper: the key of one kehikko (context.kehikko.key — the canvas\'s '
+      + 'identity, not its name or number), to hold the list against that module\'s container there whichever '
+      + 'epic is open. It is then in front of a person on that kehikko whenever the container is, for every epic. '
+      + 'Ticks are per epic: to tick or read one epic\'s run, give that epic too.',
+  },
+  module: {
+    type: 'string',
+    description:
+      'With kehikko: the module whose container it is, by the id the host spells, e.g. "kehikot.flows" — its '
+      + 'short name, "flows", is read as that id when one module here has it.',
   },
   section: {
     type: 'string',
@@ -290,7 +312,7 @@ const TARGET_PROPERTIES = {
  */
 function resolve(args: Record<string, unknown>, where: string | null): Target | null {
   const named = readTarget(args)
-  if (!named || named.kind === 'ref' || named.section) return named
+  if (!named || named.kind !== 'paper' || named.section) return named
   /* `pick` says the caller DECIDED this target rather than leaving it to be
      derived. It exists for one case that is otherwise inexpressible: a reader
      who widened to the whole paper sends `{epic, section: null}`, which looks
@@ -349,6 +371,13 @@ function resolve(args: Record<string, unknown>, where: string | null): Target | 
 function aimed(args: Record<string, unknown>, where: string, id: string, minting: boolean): Aimed | null {
   const named = readTarget(args)
   if (!named) return null
+  /* A container on a kehikko is no place in a file. Its module is read in the
+     one form ids are compared in, so "flows" said by an agent is the
+     `kehikot.flows` the host lists in its containers, where one module here
+     is called that. */
+  if (named.kind === 'kehikko') {
+    return { target: { ...named, module: moduleNamed(named.module, modulesHere()) ?? named.module }, also: null }
+  }
   if (named.kind === 'ref' || named.section) return settle(named, where, id, minting, 'paper')
   const path = str(args.path, MAX_PROJECT)
   if (!path) return { target: named, also: null }
@@ -391,7 +420,7 @@ interface Aimed {
  * page presses an id this app minted from the project.
  */
 function settle(named: Target, where: string, id: string, minting: boolean, first: 'paper' | 'project'): Aimed {
-  if (named.kind === 'ref' || !named.section) return { target: named, also: null }
+  if (named.kind !== 'paper' || !named.section) return { target: named, also: null }
   const stored = targetsOf(id, where).some((row) => targetKey(row.target) === targetKey(named))
   if (stored && !minting) return { target: named, also: null }
   const found = placeNamed(where, named.epic, named.section, first)
@@ -577,10 +606,12 @@ function listed() {
     {
       name: 'hold_checklist',
       description:
-        'Hold a checklist against one more target — an issue, merge request or pull request, or a paper, one of its '
-        + 'files, or one heading in it — or, with release: true, stop holding it against one. What a list is held '
-        + 'against is what decides where a PERSON sees it: reading that file or section, or selecting that '
-        + 'reference, puts the list in front of them. A list held against nothing is shown nowhere. Releasing keeps '
+        'Hold a checklist against one more target — an issue, merge request or pull request; a paper, one of its '
+        + 'files, or one heading in it; or one module\'s container on one kehikko, whichever epic is open — or, with '
+        + 'release: true, stop holding it against one. What a list is held against is what decides where a PERSON '
+        + 'sees it: reading that file or section, selecting that reference, or being on that kehikko while that '
+        + 'container is in front, puts the list in front of them. The last is for a list about how a module\'s work '
+        + 'is run in every epic. A list held against nothing is shown nowhere. Releasing keeps '
         + 'every tick made there; holding it again brings them back. On a paper, give path (and from/to) to mean '
         + 'the file or heading being looked at, exactly as check_item does.',
       inputSchema: {
@@ -833,7 +864,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     if (!aim) {
       throw new Error(
         'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
-        + 'e.g. "gh#105") or an epic whose paper this is, optionally with a section of it or a path into it. What a '
+        + 'e.g. "gh#105"), an epic whose paper this is, optionally with a section of it or a path into it, or a '
+        + 'kehikko\'s key and a module, for that module\'s container there whichever epic is open. What a '
         + 'list is held against is where a person sees it, so there is nothing to do without one.',
       )
     }
@@ -911,7 +943,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     if (!aim) {
       throw new Error(
         'check_item needs to say WHAT is being ticked off: a ref (an issue, merge request or pull request, e.g. '
-        + '"gh#105") or an epic whose paper this is, optionally with a section of it. A tick belongs to the '
+        + '"gh#105"), an epic whose paper this is, optionally with a section of it, or a kehikko\'s key, a module '
+        + 'and the epic whose run of that container it is. A tick belongs to the '
         + 'checklist, the item and the target together — the same list held against two pieces of work keeps two '
         + 'separate sets of ticks — so there is nothing to record without one. Names may not be empty, longer than '
         + `${MAX_TARGET_PART} characters, or contain a space or a slash.`,
@@ -1005,7 +1038,7 @@ function mcp(rpc: Rpc): Reply {
     announce({
       tool: name,
       refs: ref ? [ref] : [],
-      epic: named?.kind === 'paper' ? named.epic : null,
+      epic: named?.kind === 'paper' ? named.epic : named?.kind === 'kehikko' ? named.epic : null,
       message: named
         ? `an agent called ${name.slice(0, 60)} on a checklist for ${targetName(named)}`
         : `an agent called ${name.slice(0, 60)} on a checklist`,
@@ -1031,7 +1064,7 @@ function mcp(rpc: Rpc): Reply {
            question — "what does this list say" — and answering it with a
            complaint about a ref nobody sent would be a refusal of the wrong
            thing. */
-        const gave = args.ref !== undefined || args.epic !== undefined
+        const gave = args.ref !== undefined || args.epic !== undefined || args.kehikko !== undefined
         const aim = gave ? aimed(args, where, id, false) : null
         if (gave && !aim) {
           return text(
@@ -1268,7 +1301,14 @@ export function answerAt(
       .split(' ')
       .map(part)
       .filter((one): one is string => one !== null)
-    const { instances, trouble, nowhere } = inFront({ ladders, selection, whole }, where)
+    /* The kehikko the page is on, the modules whose containers are in front
+       there, and the open epic — sent apart from `epic`, which the page leaves
+       out when the paper is not in front, because a list held against a
+       container follows the open epic whatever is picked out. */
+    const kehikko = part(query.get('kehikko'))
+    const modules = heard(query.getAll('module'))
+    const following = kehikko && modules.length ? { kehikko, modules, epic: part(query.get('open')) } : null
+    const { instances, trouble, nowhere } = inFront({ ladders, selection, whole, following }, where)
     /*
      * And for the whole paper, the file each list is held against, as a place.
      *
@@ -1307,12 +1347,14 @@ export function answerAt(
     const id = str(query.get('id'), MAX_ID)
     if (!id) return bad('that did not say which checklist. Ask /api/checklists for the ids.')
     const where = project(query.get('project'))
-    const gave = query.has('ref') || query.has('epic')
+    const gave = query.has('ref') || query.has('epic') || query.has('kehikko')
     const target = gave
       ? resolve(
         {
           ref: query.get('ref'),
           epic: query.get('epic'),
+          kehikko: query.get('kehikko'),
+          module: query.get('module'),
           section: query.get('section'),
           path: query.get('path'),
           /* `undefined` and not `Number(null)`, which is zero. A zero-to-zero
@@ -1327,8 +1369,9 @@ export function answerAt(
       : null
     if (gave && !target) {
       return bad(
-        'that is not a target. A checklist is held against an issue, a merge request, a pull request, or the paper '
-        + `an epic is aimed at: names may not be empty, longer than ${MAX_TARGET_PART} characters, or contain a space `
+        'that is not a target. A checklist is held against an issue, a merge request, a pull request, the paper '
+        + 'an epic is aimed at, or a module\'s container on one kehikko (its key and the module\'s id): '
+        + `names may not be empty, longer than ${MAX_TARGET_PART} characters, or contain a space `
         + 'or a slash.',
       )
     }

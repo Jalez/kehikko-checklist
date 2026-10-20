@@ -183,6 +183,7 @@ export function App() {
     epic,
     projectPath,
     project,
+    kehikko,
     selection,
     passage,
     containers,
@@ -245,8 +246,21 @@ export function App() {
    * and the server answers with the file each list is held against.
    */
   const documents = front.documents
+  /**
+   * What a list held against a module's container on this kehikko is asked
+   * by (Jalez/kehikko-checklist#27): this kehikko's key, the modules whose
+   * containers are in front by the same rule as everything else — every one
+   * while nothing is picked out, only the picked-out ones while the reader
+   * follows them — and the open epic, whose run of the container the ticks
+   * are for. Null on a host that sends no key.
+   */
+  const kehikkoKey = kehikko?.key ?? null
+  const following = useMemo(
+    () => (kehikkoKey ? { kehikko: kehikkoKey, modules: front.narrowed ? front.picked : front.modules, epic } : null),
+    [kehikkoKey, front, epic],
+  )
   /** And the same, as one string, for the fetch to depend on. */
-  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts })
+  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following })
 
   /**
    * Whether there is anywhere at all to read from or write to.
@@ -305,7 +319,7 @@ export function App() {
        `InFront`. The server builds the whole-paper rung from the epic alone,
        and a page narrowed to containers showing no document must not hand it
        one. */
-    void whatIsHere(projectPath, front.paper ? epic : null, documents, front.refs, front.byParts)
+    void whatIsHere(projectPath, front.paper ? epic : null, documents, front.refs, front.byParts, following)
       .then((got) => {
         if (alive) setHere(got)
       })
@@ -690,6 +704,7 @@ export function App() {
         held={opened.held}
         targets={opened.targets}
         modules={modules}
+        kehikko={kehikko}
         epic={epic}
         /* Every reference in front — the canvas's selection and whatever the
            containers show — offered as targets, for the reason the selection
@@ -739,6 +754,7 @@ export function App() {
       busy={busy}
       room={room}
       facts={facts}
+      kehikko={kehikko}
     />
   )
 

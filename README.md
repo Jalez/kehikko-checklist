@@ -32,7 +32,19 @@ paper (an epic, optionally with a section of it). See `list/targets.ts` for what
 a paper target IS and, in particular, for the honest account of what happens to
 its ticks when the paper changes underneath them.
 
-A checklist **is held against** one or more targets. That is a stored property of
+A target can also be **one module's container on one kehikko, whichever epic is
+open** — Flows on the Journey kehikko, say — for a list about how a module's
+work is run in every epic. It is kept under the kehikko's `key` and the module's
+id; the list is in front on that kehikko whenever that container is (every
+container while nothing is picked out, only the picked-out ones while some
+are), for every epic, and each epic's run keeps its own ticks
+(`kehikko:<key>/<module>/<epic>`). The edit page offers the modules on the
+kehikko it is on; an agent passes `kehikko` and `module` to `hold_checklist`,
+and the epic as well to tick or read one epic's run.
+
+A checklist **is held against** one or more targets — up to 10,000, a bound on
+the file and not on how a list is used, so a list for every issue or merge
+request can be held against each of them. That is a stored property of
 the list — `targets`, a list of keys in the file — set on the list's edit page or
 through `hold_checklist`, and by nothing else.
 
@@ -108,7 +120,8 @@ its own. `list/focus.ts` is the anchor each list answers:
   before 1.2.0, its `files`. A file no part has (`main.tex`) is outside every
   pick.
 - **A list held against the whole paper** answers `{ whole: true }` and stays
-  under any pick: every part is a part of the paper.
+  under any pick: every part is a part of the paper. So does a list held
+  against a module's container on the kehikko, which is the open epic's whole.
 - **The list being edited is kept** (`keep`), whatever is picked.
 - **Nothing here names another module.** A path an agent spells from the
   folder an epic's paper is kept in is looked for in every
