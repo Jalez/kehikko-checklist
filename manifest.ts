@@ -266,13 +266,12 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'Work here is held to checklists somebody wrote — nothing is hardcoded, so read them rather than assuming. '
     + 'Call `checklists` to see what exists and where each is held, then call it again with a checklist id and '
     + 'the thing you are working on (a ref like gh#105, or an epic whose paper it is) to see what is still owed '
-    + 'FOR THAT TARGET. Ticks are per target: the same list held against two issues keeps two separate sets. '
-    + 'Before calling anything done, satisfy each item or say plainly which you could not, and why. You MAY tick, '
-    + 'with `check_item`, under your own name — every tick records that it came through the MCP door and a person '
-    + 'can take it back with one press. Tick what you actually did; leave what you cannot judge. On a paper, give '
-    + '`path` (and `from`/`to`) instead of a section to mean the file or heading being looked at. A person sees a '
-    + 'list only where it is held: `hold_checklist` puts it in front of them for a file, a heading or a reference. '
-    + 'If no list fits, `create_checklist` makes one — but look first.',
+    + 'FOR THAT TARGET. Answers are per target: the same list held against two issues keeps two separate sets. '
+    + 'Before calling anything done, answer each item or say plainly which you could not, and why. With '
+    + '`check_item` you MAY answer under your own name: `state` passed (default), failed or na, plus a note. '
+    + 'An answer a person set is theirs: you cannot change or remove it; say what you found in words. On a paper, '
+    + 'give `path` instead of a section to mean the file or heading being looked at. A person sees a list only '
+    + 'where it is held: `hold_checklist` puts it in front of them. If no list fits, `create_checklist` — but look first.',
   entry: '/app',
   modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
   mcp: {

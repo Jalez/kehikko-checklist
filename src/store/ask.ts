@@ -5,6 +5,7 @@ import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts
 import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
 import type { Evidence, Fact } from '../../list/evidence.ts'
+import type { TickState } from '../../list/shapes.ts'
 import type { Shown } from '../../list/aim.ts'
 import type { Finished, Plan, Report, Scope } from '../../list/storage.ts'
 
@@ -314,7 +315,7 @@ export type Edit =
   | { op: 'for'; id: string; module: string | null; present?: string[] }
   /* `evidence` is what the tracker's fact said as the reader pressed — see
      `list/evidence.ts`. Sent as it is; the server parses it or drops it. */
-  | { op: 'tick'; id: string; item: string; target: Target; done: boolean; evidence?: Evidence }
+  | { op: 'tick'; id: string; item: string; target: Target; done: boolean; state?: TickState; evidence?: Evidence }
 
 export type Answer = { ok: true; said: string; id: string; lists: Summary[]; held: Held | null } | { ok: false; error: string }
 

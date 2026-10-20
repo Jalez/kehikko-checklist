@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { dataDir, dataFile, makeDir, NAMES, oldPapersFile } from '../store.ts'
 import { Book, migrateLegacy, Unreadable } from './book.ts'
-import { stateOf, type Item, type List, type Tick, type TickState } from './shapes.ts'
+import { countRows, type Item, type List, type Tick, type TickState } from './shapes.ts'
 import { FACT_NAMES, type Evidence, type Fact } from './evidence.ts'
 import { everywhere, following, rungTarget, showing } from './holding.ts'
 import { rungsFrom } from './scope.ts'
@@ -589,8 +589,7 @@ function sample(book: Book, id: string): Target[] {
 function heldOf(book: Book, list: List, target: Target | null): Held {
   const on = target ? (book.entry(list.id, targetKey(target))?.ticks ?? {}) : {}
   const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
-  const counts: Counts = { passed: 0, failed: 0, na: 0, unchecked: 0 }
-  for (const row of rows) counts[stateOf(row.done)] += 1
+  const counts: Counts = countRows(rows)
   return { checklist: list, target, rows, done: counts.passed, counts, total: rows.length }
 }
 

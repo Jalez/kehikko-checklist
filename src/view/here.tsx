@@ -4,6 +4,7 @@ import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
+import { countRows, stateOf, type TickState } from '../../list/shapes.ts'
 import { nameOf } from '../../list/aim.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
@@ -334,6 +335,7 @@ function Instance({
 }) {
   const ref = target.kind === 'ref' ? target.ref : null
   const refRow = ref ? (facts?.rows[ref] ?? null) : null
+  const counts = countRows(held.rows)
   return (
     <section
       className="border-t first:border-t-0"
@@ -371,14 +373,25 @@ function Instance({
             {label}
           </p>
         </div>
-        <span
-          className={cn(
-            'shrink-0 text-[0.7rem] tabular-nums',
-            held.total > 0 && held.done === held.total ? 'text-done' : 'text-muted-foreground',
-          )}
-          data-count
-        >
-          {held.done}/{held.total}
+        <span className="shrink-0 text-right text-[0.7rem] tabular-nums">
+          <span
+            className={cn(
+              held.total > 0 && counts.passed + counts.na === held.total && counts.failed === 0
+                ? 'text-done'
+                : 'text-muted-foreground',
+            )}
+            data-count
+          >
+            {counts.passed}/{held.total}
+          </span>
+          {/* Failed and not applicable are said in words beside the count and
+              never folded into it: "3/4" with a failure in the fourth must not
+              read as nearly done. */}
+          {counts.failed || counts.na ? (
+            <span className={cn('block', counts.failed ? 'text-failed' : 'text-muted-foreground')} data-count-more>
+              {[counts.failed ? `${counts.failed} failed` : '', counts.na ? `${counts.na} n/a` : ''].filter(Boolean).join(' · ')}
+            </span>
+          ) : null}
         </span>
         <Button
           type="button"
@@ -430,6 +443,24 @@ function Instance({
   )
 }
 
+/** The shape of each state, so it is never told by colour alone. */
+const MARKS: Record<TickState | 'unchecked', string> = { passed: '✓', failed: '✗', na: '–', unchecked: '' }
+
+/** The words of each state: `short` is drawn, `long` is what a screen reader hears. */
+const WORDS: Record<TickState | 'unchecked', { short: string; long: string }> = {
+  passed: { short: 'Passed', long: 'passed' },
+  failed: { short: 'Failed', long: 'failed' },
+  na: { short: 'N/A', long: 'not applicable' },
+  unchecked: { short: '', long: 'not checked' },
+}
+
+const MARK_STYLE: Record<TickState | 'unchecked', string> = {
+  passed: 'border-done/40 text-done',
+  failed: 'border-failed/50 text-failed',
+  na: 'border-unknown/50 text-muted-foreground',
+  unchecked: 'border-todo/50 text-todo',
+}
+
 /**
  * One item on the reading page, and the tick made on it FOR THIS TARGET.
  *
@@ -478,32 +509,43 @@ function ItemRow({
 }) {
   const done = row.done
   const item = row.item
+  const state = stateOf(done)
   const evidence = !done && item.fact && read?.row ? evidenceOf(read.row, item.fact) : null
+  const send = (next: { done: boolean; state?: TickState }) =>
+    onEdit({ op: 'tick', id: list, item: item.id, target, ...next, ...(next.done && evidence ? { evidence } : {}) })
+  /* One press on a state already set takes it back; on any other, sets it. */
+  const set = (which: 'failed' | 'na') => send(state === which ? { done: false } : { done: true, state: which })
 
   return (
     <li
       data-item={item.id}
       data-done={done ? 'yes' : 'no'}
+      data-state={state}
       className={cn('border-t px-2 py-1.5 first:border-t-0', room.snap && 'snap-start')}
     >
       <button
         type="button"
         disabled={busy}
-        aria-pressed={Boolean(done)}
-        title={done ? 'Ticked for this target. Press to take it back.' : 'Press when this is actually done here.'}
-        onClick={() =>
-          onEdit({ op: 'tick', id: list, item: item.id, target, done: !done, ...(evidence ? { evidence } : {}) })
+        aria-pressed={state === 'passed'}
+        title={
+          state === 'passed'
+            ? 'Passed for this target. Press to take it back.'
+            : 'Press when this is actually done here.'
         }
+        onClick={() => send({ done: state !== 'passed' })}
         className="flex w-full min-w-0 items-start gap-1.5 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
       >
+        {/* The shape says the state without colour: a tick, a cross, a dash, an
+            empty box. The word beside the line says it again. */}
         <span
           aria-hidden="true"
+          data-mark
           className={cn(
             'mt-px inline-flex size-4 shrink-0 items-center justify-center rounded border text-[0.7rem] leading-none font-bold',
-            done ? 'border-done/40 text-done' : 'border-todo/50 text-todo',
+            MARK_STYLE[state],
           )}
         >
-          {done ? '✓' : ''}
+          {MARKS[state]}
         </span>
         {/* `min-w-0` and `break-words` together are what keep a 400-character
             item, or an unbroken URL somebody pasted, inside a 220px container.
@@ -511,13 +553,43 @@ function ItemRow({
         <span
           className={cn(
             'min-w-0 flex-1 break-words text-left text-[0.8rem] leading-5',
-            done && 'text-muted-foreground line-through decoration-1',
+            state === 'passed' && 'text-muted-foreground line-through decoration-1',
+            state === 'na' && 'text-muted-foreground',
           )}
         >
           {item.text}
         </span>
-        <span className="sr-only">{done ? 'ticked' : 'not ticked'}</span>
+        <span className="sr-only">{WORDS[state].long}</span>
       </button>
+
+      {/* Set a different answer: failed, or not applicable. Small, always
+          there, and each says its own name. Pressing the one that is on takes
+          it back. */}
+      <div className="mt-1 flex flex-wrap items-center gap-1 pl-[1.375rem]">
+        {(['failed', 'na'] as const).map((which) => (
+          <button
+            key={which}
+            type="button"
+            disabled={busy}
+            data-set={which}
+            aria-pressed={state === which}
+            title={state === which ? `Marked ${WORDS[which].short}. Press to take it back.` : `Mark this ${WORDS[which].short} for this target.`}
+            onClick={() => set(which)}
+            className={cn(
+              'rounded border px-1 text-[0.65rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60',
+              state === which ? 'border-foreground/60 bg-accent font-semibold' : 'border-border text-muted-foreground',
+            )}
+          >
+            <span aria-hidden="true">{MARKS[which]} </span>
+            {WORDS[which].short}
+          </button>
+        ))}
+        {state !== 'unchecked' ? (
+          <span className="text-[0.65rem] leading-4 text-muted-foreground" data-state-word>
+            {WORDS[state].short}
+          </span>
+        ) : null}
+      </div>
 
       {/* The fact this line is checked against, as the tracker says it — read
           beside the press, never pressed by it. */}

@@ -118,6 +118,13 @@ export function stateOf(tick: { state?: TickState } | null | undefined): TickSta
   return tick ? (tick.state ?? 'passed') : 'unchecked'
 }
 
+/** How many of these rows are in each state. They add up to the number of rows. */
+export function countRows(rows: { done: { state?: TickState } | null }[]): Record<TickState | 'unchecked', number> {
+  const counts = { passed: 0, failed: 0, na: 0, unchecked: 0 }
+  for (const row of rows) counts[stateOf(row.done)] += 1
+  return counts
+}
+
 export const itemSchema = z.object({
   /**
    * This app's own handle for the item, which is what an agent addresses it by.

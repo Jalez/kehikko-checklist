@@ -319,6 +319,96 @@ describe('the reading page: what is in front of the reader', () => {
     expect(sent[1]).toEqual({ op: 'tick', id: 'list1', item: 'bbb', target: SECTION, done: false })
   })
 
+  describe('the four states', () => {
+    const tick = (state?: 'passed' | 'failed' | 'na', note?: string) =>
+      ({ at: '2026-01-02T00:00:00Z', by: 'the owner', viaMcp: false, ...(state ? { state } : {}), ...(note ? { note } : {}) }) as never
+
+    /** One list of four items: old tick (no state), failed, n/a, and nothing. */
+    function four(): Held {
+      const item = (id: string, text: string) => ({ id, text, at: '2026-01-01T00:00:00Z', by: 'the owner' })
+      const rows = [
+        { item: item('p', 'Passed one'), done: tick() },
+        { item: item('f', 'Failed one'), done: tick('failed', 'line 4 is wrong') },
+        { item: item('n', 'Not applicable one'), done: tick('na', 'no UI here') },
+        { item: item('u', 'Unchecked one'), done: null },
+      ]
+      return held({ rows, total: 4, done: 1, checklist: { ...held().checklist, items: rows.map((r) => r.item) } })
+    }
+
+    const row = (container: HTMLElement, id: string) => container.querySelector(`li[data-item="${id}"]`) as HTMLElement
+
+    test('each state has its own shape and its own word, so colour is never the only difference', () => {
+      const { container } = render(<Reading here={here([four()])} room={ROOMY} />)
+      const seen = ['p', 'f', 'n', 'u'].map((id) => {
+        const li = row(container, id)
+        return [li.getAttribute('data-state'), li.querySelector('[data-mark]')?.textContent, li.querySelector('[data-state-word]')?.textContent ?? null]
+      })
+      expect(seen).toEqual([
+        ['passed', '✓', 'Passed'],
+        ['failed', '✗', 'Failed'],
+        ['na', '–', 'N/A'],
+        ['unchecked', '', null],
+      ])
+      /* And the words are there for a screen reader too, not only the shapes. */
+      expect(row(container, 'f').textContent).toContain('Failed')
+      expect(row(container, 'u').textContent).toContain('not checked')
+    })
+
+    test('the old tick, which has no state, is drawn as passed', () => {
+      const { container } = render(<Reading here={here([four()])} room={ROOMY} />)
+      expect(row(container, 'p').getAttribute('data-done')).toBe('yes')
+      expect(row(container, 'p').querySelector('button[aria-pressed]')?.getAttribute('aria-pressed')).toBe('true')
+    })
+
+    test('a failed or not-applicable row keeps its note on the page', () => {
+      render(<Reading here={here([four()])} room={ROOMY} />)
+      expect(screen.getByText('line 4 is wrong')).toBeTruthy()
+      expect(screen.getByText('no UI here')).toBeTruthy()
+    })
+
+    test('the count stays n/m and says what else, in words', () => {
+      const { container } = render(<Reading here={here([four()])} room={ROOMY} />)
+      expect(container.querySelector('[data-count]')?.textContent).toBe('1/4')
+      expect(container.querySelector('[data-count-more]')?.textContent).toBe('1 failed · 1 n/a')
+    })
+
+    test('the person can set any state from the row, and set it again to clear it', () => {
+      const sent: unknown[] = []
+      const { container } = render(<Reading here={here([four()])} onEdit={(e) => sent.push(e)} room={ROOMY} />)
+      fireEvent.click(row(container, 'u').querySelector('[data-set="failed"]') as HTMLElement)
+      fireEvent.click(row(container, 'u').querySelector('[data-set="na"]') as HTMLElement)
+      fireEvent.click(row(container, 'f').querySelector('[data-set="failed"]') as HTMLElement)
+      fireEvent.click(row(container, 'n').querySelector('[data-set="na"]') as HTMLElement)
+      fireEvent.click(screen.getByText('Failed one'))
+      fireEvent.click(screen.getByText('Unchecked one'))
+      fireEvent.click(screen.getByText('Passed one'))
+      const at = (id: string) => ({ op: 'tick', id: 'list1', item: id, target: REF })
+      expect(sent).toEqual([
+        { ...at('u'), done: true, state: 'failed' },
+        { ...at('u'), done: true, state: 'na' },
+        { ...at('f'), done: false },
+        { ...at('n'), done: false },
+        { ...at('f'), done: true },
+        { ...at('u'), done: true },
+        { ...at('p'), done: false },
+      ])
+    })
+
+    test('the state buttons say which one is on, with text', () => {
+      const { container } = render(<Reading here={here([four()])} room={ROOMY} />)
+      const f = row(container, 'f').querySelector('[data-set="failed"]')!
+      const n = row(container, 'f').querySelector('[data-set="na"]')!
+      expect([f.getAttribute('aria-pressed'), n.getAttribute('aria-pressed')]).toEqual(['true', 'false'])
+      expect(f.textContent).toContain('Failed')
+      expect(n.textContent).toContain('N/A')
+    })
+
+    test('in a 220-pixel container nothing is clipped or nowrap', () => {
+      const { container } = render(<Reading here={here([four()])} room={TIGHT} />)
+      for (const el of container.querySelectorAll('li[data-item] *')) expect(el.className).not.toContain('whitespace-nowrap')
+    })
+  })
+
   test('names a section by its words, a file by its name, and the whole paper as such', () => {
     const three = [
       held({ target: SECTION }),
