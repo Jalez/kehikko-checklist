@@ -76,6 +76,7 @@ import { cn } from '@/lib/utils.ts'
 export function EditView({
   held,
   targets,
+  heldTotal,
   modules = [],
   kehikko = null,
   epic,
@@ -90,8 +91,10 @@ export function EditView({
   room,
 }: {
   held: Held
-  /** Every target this list is held against, with how much is ticked on each. */
+  /** The targets this list is held against, with how much is ticked on each: the most recent few hundred. */
   targets: { target: Target; done: number }[]
+  /** How many it is held against in all; more than `targets` when there are many. There is no limit. */
+  heldTotal?: number
   /** The other modules on this kehikko, by id: whose work this list can be said to be for. */
   modules?: string[]
   /** The kehikko this page is on: where a list can be held against one module's container, whichever epic is open. */
@@ -172,6 +175,7 @@ export function EditView({
       <Holding
         list={held.checklist.id}
         targets={targets}
+        more={Math.max(0, (heldTotal ?? targets.length) - targets.length)}
         modules={modules}
         kehikko={kehikko}
         epic={epic}
@@ -288,6 +292,7 @@ export function EditView({
 function Holding({
   list,
   targets,
+  more,
   modules,
   kehikko,
   epic,
@@ -303,6 +308,8 @@ function Holding({
 }: {
   list: string
   targets: { target: Target; done: number }[]
+  /** Targets it is held against beyond the ones drawn. */
+  more: number
   modules: string[]
   kehikko: { key?: string; name: string } | null
   epic: string | null
@@ -481,7 +488,13 @@ function Holding({
             )
           })}
         </ul>
-      ) : (
+      ) : null}
+      {more ? (
+        <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground" data-targets-more={more}>
+          {`And ${more} more, held earlier. Every one is kept; View → Storage says what they take up.`}
+        </p>
+      ) : null}
+      {targets.length ? null : (
         /* Never folds away at any size: it is the only thing explaining why a
            list somebody just made is not on the reading page. */
         <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground" data-targets="none">

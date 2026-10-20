@@ -51,11 +51,13 @@ const kehikot = () => join(project, KEHIKOT_DIR)
 const mine = () => join(kehikot(), moduleFolder(ID))
 
 describe('where a checklist lives', () => {
-  test('is .kehikot/checklist/checklists.json inside the project, and nowhere else', async () => {
+  test('is .kehikot/checklist/lists.json inside the project, with targets/ beside it, and nowhere else', async () => {
     const made = change({ op: 'create', name: 'What a change owes', by: 'a test' }, project)
     expect(made.ok).toBe(true)
-    expect(existsSync(join(mine(), 'checklists.json'))).toBe(true)
-    const raw = JSON.parse(readFileSync(join(mine(), 'checklists.json'), 'utf8')) as {
+    expect(existsSync(join(mine(), 'lists.json'))).toBe(true)
+    change({ op: 'hold', id: made.ok ? made.id : '', target: { kind: 'ref', ref: 'gh#1' }, by: 'a test' }, project)
+    expect(readdirSync(mine()).sort()).toEqual(['lists.json', 'targets'])
+    const raw = JSON.parse(readFileSync(join(mine(), 'lists.json'), 'utf8')) as {
       checklists: Record<string, { name: string }>
     }
     expect(Object.values(raw.checklists)[0]?.name).toBe('What a change owes')
@@ -219,7 +221,7 @@ describe('the fence, which is checked after realpath and not before', () => {
     mkdirSync(inside)
     symlinkSync(inside, kehikot())
     expect(change({ op: 'create', name: 'Mine', by: 'a test' }, project).ok).toBe(true)
-    expect(existsSync(join(inside, moduleFolder(ID), 'checklists.json'))).toBe(true)
+    expect(existsSync(join(inside, moduleFolder(ID), 'lists.json'))).toBe(true)
   })
 })
 

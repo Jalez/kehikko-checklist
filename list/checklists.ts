@@ -1,10 +1,13 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { z } from 'zod'
 
-import { dataFile, makeDir, oldPapersFile } from '../store.ts'
-import { evidenceSchema, FACT_NAMES, type Evidence, type Fact, FACTS } from './evidence.ts'
-import { everywhere, following, showing } from './holding.ts'
+import { dataDir, dataFile, makeDir, NAMES, oldPapersFile } from '../store.ts'
+import { Book, migrateLegacy, Unreadable } from './book.ts'
+import type { Item, List, Tick } from './shapes.ts'
+import { FACT_NAMES, type Evidence, type Fact } from './evidence.ts'
+import { everywhere, following, rungTarget, showing } from './holding.ts'
+import { rungsFrom } from './scope.ts'
 import { moduleNamed } from './aim.ts'
 import { heldAs, readKey, targetKey, targetName, type Target } from './targets.ts'
 
@@ -75,262 +78,33 @@ import { heldAs, readKey, targetKey, targetName, type Target } from './targets.t
  */
 
 /* ------------------------------------------------------------------ *
- * The shapes
+ * The shapes, which live in `list/shapes.ts`, and the folder, which is
+ * `list/book.ts`
  * ------------------------------------------------------------------ */
 
+export type { Item, Tick } from './shapes.ts'
+
 /**
- * One tick, and WHO made it.
- *
- * ## An agent may tick, and may never do it anonymously
- *
- * The rule this module used to carry was: an agent is refused the `agreed` item,
- * in words, because an item asking whether a PERSON has agreed to something,
- * which the party doing the asking can tick, is a formality with a box beside
- * it. That gate was pressed on this app's own origin holding a ticket this
- * process minted, and `check_mr` refused it.
- *
- * **`agreed` is gone, and so is the gate, and this is the answer to what it
- * meant.** The gate was about one item on a list this program shipped. Nothing
- * ships a list now. Every item on every checklist here is a line somebody typed,
- * and an agent is very often the one who did the work the line describes —
- * refusing the tick would leave a person hand-ticking work they watched somebody
- * else do, which is a formality in the opposite direction.
- *
- * What survives is the part of the old rule that was doing the actual work:
- * **the tick may not be anonymous about where it came from.** Every tick names
- * its author and carries `viaMcp`, and one press takes it back. An agent's claim
- * is a claim, legible as one, and reversible by the person who can judge it.
- *
- * ## The ROW no longer prints it, and the sentence that used to say so is
- * corrected here rather than quietly left standing
- *
- * This paragraph read "the row prints 'ticked by claude, over MCP' rather than a
- * bare checkmark". It does not any more:
- *
- * > "in checklist, information about what checklist items is and isn't written
- * > by Claude is not important information, get rid of it."
- *
- * That is a judgement about a 220-pixel container rather than a hole in the
- * argument, so it is worth being exact about what moved.
- *
- * **The record did not.** `by` and `viaMcp` are still written on every tick,
- * still stored, and `viaMcp` is still never inferred from the name — which is
- * why the field's own comment below no longer says "printed on the row". Taking
- * the DISPLAY out is a rewording of one line of UI; taking the FIELDS out would
- * be a migration with no undo, over somebody's record of who did what.
- *
- * **The place the claim is legible moved to where it was always doing more
- * work.** `tick` in `tools()` answers an agent with `… is ticked for <target>,
- * by <name>`, so an agent is told what it just asserted and in whose name; and
- * the store is a JSON file in the project that a person can read. Neither of
- * those depended on a badge under a checkmark, which was read only by somebody
- * already looking at the tick and, in this container, nearly always the only
- * person using it.
- *
- * **And the load-bearing half was never the badge.** "Legible as a claim and
- * REVERSIBLE by the person who can judge it" — reversibility is what makes an
- * agent's tick safe, it is a property of the row, and the row still has it at
- * every size, with nothing behind a press. See the essay on `ItemRow` in
- * `src/view/checklist.tsx`, which says the same from the other side.
- *
- * If somebody wants an item only they may tick, they write it as a question and
- * untick what they disagree with. That is a better answer than a permission
- * model, because a permission model would have to be configured, and the thing
- * it configures — "which of my own lines do I not trust an agent with" — is a
- * judgement that changes per item, per agent and per day.
+ * One checklist, as everything past `read()` hands it around: what it says,
+ * and how many targets it is held against (`holds`). WHICH targets is not on
+ * it any more — a list may be held against any number of them, and they are
+ * read where they are needed (`targetsOf`, the buckets a context opens), never
+ * carried with every row.
  */
-const tickSchema = z.object({
-  at: z.string(),
-  /** The agent's own name, or the owner as this app's page files them. */
-  by: z.string(),
-  /**
-   * Whether it arrived through the MCP door.
-   *
-   * Never inferred from the name — an agent may call itself anything, and a
-   * program that guessed "this looks like an agent" would be making up the one
-   * fact this field exists to record. It is no longer drawn on the row (see the
-   * essay above); it is still stored, still answered to an agent by the MCP
-   * door, and still readable in the file.
-   */
-  viaMcp: z.boolean().default(false),
-  /** How they know. */
-  note: z.string().optional(),
-  /**
-   * What the tracker said about the target's fact when this was ticked — the
-   * fact the item names as its evidence, as the page was showing it. Written
-   * only by the page, only on a ref target, and only when the host had
-   * handed over a reading; an agent's tick through the MCP door has none,
-   * because this app's server never reads a tracker. See `list/evidence.ts`,
-   * and why a fact informs a tick and never makes one.
-   */
-  evidence: evidenceSchema.optional(),
-})
-export type Tick = z.infer<typeof tickSchema>
-
-const itemSchema = z.object({
-  /**
-   * This app's own handle for the item, which is what an agent addresses it by.
-   *
-   * Not the text and not the position. The text is the thing most likely to be
-   * reworded and the position is the thing most likely to move, so either as an
-   * identifier would mean every call an agent made pointed at whatever happened
-   * to be there afterwards. Eight hex characters: short enough to type into a
-   * tool call, and there are not going to be four billion items on one list.
-   */
-  id: z.string(),
-  /** The line, as somebody typed it. Wrapped wherever it is drawn, never clipped. */
-  text: z.string(),
-  at: z.string(),
-  by: z.string(),
-  /**
-   * Which of the tracker's facts about a ref target is this item's evidence —
-   * `pipeline` for "pipeline is green", `description` for "the description
-   * explains the why". Absent for an item no tracker fact speaks to, which is
-   * most of them, and for every item written before this field existed.
-   *
-   * A property of the ITEM rather than of a tick, because it is a statement
-   * about what the line means, said once on the edit page, and the same for
-   * every target the list is held against.
-   */
-  fact: z.enum(FACTS).optional(),
-})
-export type Item = z.infer<typeof itemSchema>
+export type Checklist = List
 
 /**
- * One checklist.
+ * This project's LAYOUT-1 file, or null when there is no project.
  *
- * ## Order is the array's order, and there is no `order` field
- *
- * A hand-written list has an order the person chose, it has to survive a reload,
- * and so it is stored. It is stored as the ORDER OF THE ARRAY rather than as a
- * number on each item, which is the decision worth writing down because the
- * other way is the one that looks tidier.
- *
- * A numeric `order` field is two sources for one fact: the array has an order
- * whether or not anybody meant it to, so a file whose numbers disagreed with its
- * array would hold two answers and no way to say which was meant. Every reorder
- * is then a write across every row, and the first partial write leaves two items
- * claiming position 3. The array is the single source, `move` rewrites it whole,
- * and a reader that does nothing but iterate gets the right answer without
- * knowing the rule.
- */
-const checklistSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  at: z.string(),
-  by: z.string(),
-  /**
-   * Where this list came from, when it was not typed here.
-   *
-   * The only value written today is `papers.json:<epic>`, and it exists so the
-   * migration below can be run twice without making two copies of somebody's
-   * list. It is deliberately a string rather than a boolean: the next thing
-   * imported into this store will want to say where IT came from, and a boolean
-   * named `migrated` would have to be replaced rather than extended.
-   */
-  origin: z.string().nullable().default(null),
-  items: z.array(itemSchema).default([]),
-  /**
-   * What this list is HELD AGAINST: the keys of its targets, as `targetKey`
-   * spells them. A stored property of the list, set by a person on the edit
-   * page or by an agent through `hold_checklist`, and by nothing else.
-   *
-   * ## This field is the answer to the report, and its shape is the argument
-   *
-   * The owner, three times in three wordings, and this is the third:
-   *
-   * > "I want to be able to connect one or more checklists in papers case to
-   * > sections or tex files and I want that to stick. … I dont want it to be
-   * > able to change on the fly, only when I am in edit mode of that
-   * > checklist."
-   *
-   * Under the model this replaces a list was "held against" whatever it had
-   * TICKS on: a pairing came into being the first time somebody ticked an item
-   * against a target, and never before. That is why the owner's own store, on
-   * disk, held seven chapter checklists and `"ticks": {}` — every one of them
-   * was about a chapter and not one of them was held against anything, because
-   * nothing had been ticked yet. The connection they asked for could not be
-   * written down, so the container derived one from wherever they had scrolled
-   * to, and derived a different one on the next scroll.
-   *
-   * So the connection is a field. Plural, because "one or more"; keys rather
-   * than `Target` objects because the `ticks` map below is already keyed by the
-   * same spelling, and one spelling in the file is what lets a person reading
-   * it join the two by eye.
-   *
-   * ## Optional in the schema, and the absence MEANS something
-   *
-   * Every other field a later version added arrived with `.default()`. This
-   * one is `.optional()`, deliberately, because an absent array and an empty
-   * one are two different facts about a file. Absent says "written before this
-   * field existed", and `settleTargets` fills it in from the ticks — a target
-   * somebody ticked against under the old model is a target they meant. Empty
-   * says "somebody released every target on purpose", and has to stay empty. A
-   * `.default([])` would make the second indistinguishable from the first, and
-   * a release would quietly undo itself on the next read.
-   *
-   * `Checklist` below narrows it back to `string[]`: past `read()` the field is
-   * always there, and nothing downstream should have to ask.
-   */
-  targets: z.array(z.string()).optional(),
-  /**
-   * Which module's work this list is FOR, as that module's id —
-   * `kehikot.screenplay` — or absent, which is every module's.
-   *
-   * ## Why a list needs to say it, when it already says what it is held against
-   *
-   * A target is a place: a reference, or a place in a paper. Several modules
-   * report the SAME place as what they show — Paper the section being read,
-   * Slides the section its slide is linked to, Screenplay the chapter its
-   * narration is about — so "what a screenplay owes its learner" held against
-   * a chapter was in front of all three, eighteen lines about narration beside
-   * a page of prose. What it is held against cannot tell them apart, because
-   * it is the same for all of them. Whose work it is about can.
-   *
-   * It is a property of the LIST and not of a target, because it is a fact
-   * about what the lines say: a list about narration is about narration in
-   * every chapter it is held against. Ticks are untouched by it — still the
-   * list, the item and the target together.
-   *
-   * ## Absent is every module's, and nothing is filled in
-   *
-   * `.optional()` like an item's `fact`, and for its reason rather than
-   * `targets`': there is nothing to derive. Every list written before this
-   * field existed has none, is every module's, and is in front exactly where
-   * it was. `forPicked` in `list/aim.ts` is the rule that reads it.
-   */
-  for: z.string().optional(),
-})
-export type Checklist = Omit<z.infer<typeof checklistSchema>, 'targets'> & { targets: string[] }
-
-const storeSchema = z.object({
-  checklists: z.record(z.string(), checklistSchema).default({}),
-  /**
-   * Ticks, nested checklist → target → item.
-   *
-   * Nested rather than a flat record keyed by a joined triple, because every
-   * question this app asks is "what is ticked on THIS list against THIS target",
-   * and a flat key would mean scanning every tick in the file to answer it. The
-   * nesting is also what makes dropping a checklist, or dropping a target, one
-   * delete instead of a filter.
-   */
-  ticks: z.record(z.string(), z.record(z.string(), z.record(z.string(), tickSchema))).default({}),
-})
-type Store = z.infer<typeof storeSchema>
-
-/**
- * This project's file, or null when there is no project and nothing to open.
- *
- * A thin pass-through to `store.ts`, kept exported because the tests assert
- * against the bytes on disk and because `dev/migrate.ts` writes to exactly the
- * path this names — two programs agreeing about a location by calling the same
- * function rather than by joining the same strings.
+ * Kept because `dev/migrate.ts` still writes a layout-1 file into a project
+ * (it moves the store this app kept beside itself before stores lived in
+ * projects), and the next read migrates it into layout 2 — see
+ * `migrateLegacy` in `list/book.ts`.
  */
 export function checklistsFile(projectPath: string | null | undefined): string | null {
   return dataFile(projectPath).path
 }
 
-const empty = (): Store => storeSchema.parse({})
 
 /* ------------------------------------------------------------------ *
  * The migration, which runs on read
@@ -415,7 +189,7 @@ export function papersFile(projectPath: string | null | undefined): string | nul
  * effect of reading is not a thing a program should do, and keeping it means a
  * migration that went wrong can be looked at rather than reconstructed.
  */
-function migrate(store: Store, projectPath: string | null | undefined): boolean {
+function migrate(book: Book, projectPath: string | null | undefined): boolean {
   const path = papersFile(projectPath)
   if (path === null || !existsSync(path)) return false
   let old: z.infer<typeof oldPapersSchema>
@@ -431,7 +205,7 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
   }
 
   const already = new Set(
-    Object.values(store.checklists)
+    Object.values(book.lists)
       .map((list) => list.origin)
       .filter((origin): origin is string => typeof origin === 'string'),
   )
@@ -448,14 +222,17 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
        can be, still name one list rather than two. */
     const id = `paper-${epic}`.slice(0, 64)
     const at = paper.items[0]?.at ?? new Date().toISOString()
-    store.checklists[id] = {
+    book.lists[id] = {
       id,
       name: `${epic} — what the paper owes`,
       at,
       by: paper.items[0]?.by ?? 'somebody who did not say',
       origin,
       items: paper.items.map((item) => ({ id: item.id, text: item.text, at: item.at, by: item.by })),
+      holds: 1,
+      next: 1,
     }
+    book.touch()
 
     /* The target is the whole paper for that epic, not a section of it. That is
        the honest reading of what the old store held: it was keyed by epic and
@@ -465,7 +242,6 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
     const key = targetKey({ kind: 'paper', epic, section: null })
     /* And the list IS held against that paper, ticks or no ticks: being about
        one paper was the whole meaning of the old store's key. */
-    store.checklists[id]!.targets = [key]
     const ticked: Record<string, Tick> = {}
     for (const item of paper.items) {
       if (!item.done) continue
@@ -476,7 +252,7 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
         ...(item.done.note ? { note: item.done.note } : {}),
       }
     }
-    if (Object.keys(ticked).length) store.ticks[id] = { [key]: ticked }
+    book.set(id, key, { since: at, n: 0, ...(Object.keys(ticked).length ? { ticks: ticked } : {}) })
     changed = true
   }
   return changed
@@ -507,97 +283,68 @@ function migrate(store: Store, projectPath: string | null | undefined): boolean 
  * to write" has to be refused rather than written, and this one field is what
  * keeps those two apart at every call site below.
  */
-type Opened = { store: Store; where: 'here' | 'nowhere'; trouble: string | null }
+type Opened = { book: Book; where: 'here' | 'nowhere'; trouble: string | null }
 
+/**
+ * Open this project's checklists: `lists.json`, with every list's targets left
+ * on disk until something asks for them (`list/book.ts`).
+ *
+ * A layout-1 `checklists.json` is migrated here, the first time anything
+ * opens the folder, and proved before its backup goes (`migrateLegacy`).
+ * Exported as `openBook` for `list/storage.ts`, which is the other reader.
+ */
 function read(projectPath: string | null | undefined): Opened {
-  const { path, trouble: refused } = dataFile(projectPath)
-  if (refused) return { store: empty(), where: 'here', trouble: refused }
-  if (path === null) return { store: empty(), where: 'nowhere', trouble: null }
+  const { dir, root, trouble: refused } = dataDir(projectPath)
+  if (refused) return { book: new Book(null, null), where: 'here', trouble: refused }
+  if (dir === null || root === null) return { book: new Book(null, null), where: 'nowhere', trouble: null }
 
-  let store: Store
-  if (!existsSync(path)) {
-    store = empty()
-  } else {
-    try {
-      store = storeSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
-    } catch (e) {
-      return {
-        store: empty(),
-        where: 'here',
-        trouble:
-          `${path} could not be read (${e instanceof Error ? e.message.split('\n')[0] : String(e)}), so no ` +
-          'checklist is being shown and nothing will be written over it. Every list and every tick in that file is ' +
-          'recoverable: fix or move it.',
-      }
-    }
+  let book: Book
+  try {
+    if (!existsSync(join(dir, NAMES.lists))) migrateLegacy(dir, root)
+    book = Book.open(dir, root)
+  } catch (e) {
+    if (!(e instanceof Unreadable)) throw e
+    return { book: new Book(null, null), where: 'here', trouble: e.message }
   }
   /* The migration is inside the read and after the trouble check, which is the
      only safe order: bringing somebody's paper lists across into a store this
      app has just failed to parse would write them over the file it could not
      read. */
-  const moved = migrate(store, projectPath)
-  const settled = settleTargets(store)
-  if (moved || settled) save(store, projectPath)
-  return { store, where: 'here', trouble: null }
+  if (migrate(book, projectPath)) save(book, projectPath)
+  return { book, where: 'here', trouble: null }
 }
+export { read as openBook }
 
 /**
- * Give every list written before `targets` existed the targets it already had.
- *
- * A file from the previous version has no `targets` on any list, and it may
- * have ticks. Under that version a tick WAS the assignment — the only way a
- * list came to be about `gh#105` was somebody ticking an item against it — so
- * the keys of its tick map are exactly the targets that person meant, and they
- * are copied across. No tick is touched, and none is dropped. A list with no
- * ticks gets `[]`, which is the true answer: nothing had ever connected it to
- * anything, and that is the state the owner's seven chapter lists were in on
- * disk when this was written (`test/targets.test.ts` opens a copy of that file).
- *
- * Runs once per list: after this the field is present and `optional()` no
- * longer fires — see the essay on the field. Idempotent for the same reason
- * the papers migration is, which is that the file itself is the marker.
- */
-function settleTargets(store: Store): boolean {
-  let changed = false
-  for (const list of Object.values(store.checklists)) {
-    if (Array.isArray(list.targets)) continue
-    list.targets = Object.keys(store.ticks[list.id] ?? {})
-    changed = true
-  }
-  return changed
-}
-
-/** A list as everything past `read()` holds it: `targets` present, always. */
-function settled(list: z.infer<typeof checklistSchema>): Checklist {
-  return { ...list, targets: list.targets ?? [] }
-}
-
-/**
- * Write the store into this project's folder, making the folder if it is not
- * there — and answering with a sentence rather than throwing when there is
- * nowhere to make it.
+ * Write what changed into this project's folder, making the folder if it is
+ * not there — and answering with a sentence rather than throwing when there
+ * is nowhere to make it.
  *
  * `makeDir` is called HERE and nowhere on the read path, which is what stops
  * this app leaving a `.kehikot/` in every repository somebody happens to open a
  * checklist container against. The folder appears on the first save, which is the
- * first moment this project actually has a checklist to hold — and that is also
- * the one moment the project's `.gitignore` is told about it.
+ * first moment this project actually has a checklist to hold.
  *
  * A refusal comes back as a string because every caller already has somewhere to
  * put one: `change()` answers `{ ok: false, error }`, and that sentence reaches
  * both the page and an agent. An exception here would surface at the door as a
  * 500 with nothing anybody could act on.
  */
-function save(store: Store, projectPath: string | null | undefined): string | null {
+function save(book: Book, projectPath: string | null | undefined): string | null {
   const made = makeDir(projectPath)
   if (made.trouble) return made.trouble
   if (made.dir === null) return NOWHERE
-  const { path, trouble } = dataFile(projectPath)
+  const { dir, trouble } = dataDir(projectPath)
   if (trouble) return trouble
-  if (path === null) return NOWHERE
-  writeFileSync(path, `${JSON.stringify(storeSchema.parse(store), null, 2)}\n`)
+  if (dir === null) return NOWHERE
+  try {
+    book.save()
+  } catch (e) {
+    return e instanceof Error ? e.message.split('\n')[0]! : String(e)
+  }
   return null
 }
+export { save as saveBook }
 
 /**
  * What a write is told when nothing said which project this is.
@@ -645,34 +392,22 @@ export const MAX_ID = 64
  */
 export const MAX_ITEMS = 200
 export const MAX_LISTS = 200
-/**
- * How many targets one checklist may be held against.
+/*
+ * There is no bound on how many targets one checklist is held against.
  *
- * A bound on the file, like the two above, and not a guess at how many
- * targets a list should have. It used to be one — 64, sized for a thesis of
- * seven chapters — and a list about what every issue or every merge request
- * owes is the opposite case: it is held against every ref it applies to, and
- * a busy project has far more than 64 (Jalez/kehikko-checklist#23). An agent
- * holding such a list against a new issue was told to release one somebody
- * else had assigned, which is a judgement nobody asked it to make.
- *
- * What it guards is that the whole store is read on every context a canvas
- * sends, and a caller with no rate limit can hold. A key is at most 88
- * characters (`ref:` and an 80-character name, with its quotes), so ten
- * thousand of them is about a megabyte for one list: past what a project's
- * issues and changes come to in years of normal use, and well short of a file
- * this app would struggle to read.
+ * There was — 64, then ten thousand (Jalez/kehikko-checklist#23) — and what
+ * it guarded was that the whole store was one file, read on every context
+ * and written on every tick. The owner asked why there had to be a limit at
+ * all, and there does not: since layout 2 (`list/book.ts`) a context opens
+ * only the buckets of what is in front, and a tick writes only the bucket it
+ * lands in, so a list held against fifty thousand references costs a reader
+ * what one held against five does (`test/storage.test.ts` measures it). What
+ * grows is the folder, and the folder is a thing a person can see and choose
+ * to trim: View → Storage, and Purge (`list/storage.ts`).
  */
-export const MAX_TARGETS = 10_000
 
-/** The refusal for a list already held against `MAX_TARGETS` targets: what the bound is for, and what to do. */
-function tooMany(list: { name: string }, count: number): string {
-  return (
-    `"${list.name}" is already held against ${count} targets, which is the most one list is held against here: `
-    + 'the bound keeps the file this app reads on every move a size it can read, and normal use does not reach '
-    + 'it. Release the targets whose work is long finished first; their ticks are kept.'
-  )
-}
+/** How many held targets the list of every checklist names per list; past it, the count says the rest. */
+export const SAMPLE = 12
 
 /** The ids among what a caller said is here, each in the form `moduleNamed` stores one. */
 function modulesSaid(present: readonly string[]): string[] {
@@ -799,20 +534,62 @@ export interface Store_ {
 
 /** Every checklist in this project, by name. */
 export function checklists(projectPath: string | null | undefined): Store_ {
-  const { store, where, trouble } = read(projectPath)
-  const lists = Object.values(store.checklists)
+  const { book, where, trouble } = read(projectPath)
+  return { lists: summaries(book), trouble, nowhere: where === 'nowhere' }
+}
+
+/**
+ * One line per list, from a book already open.
+ *
+ * `held` names the targets only for a list held against a handful
+ * (`SAMPLE`), which costs the few bucket files those few are in. A list held
+ * against more says how many in `targets`, and its edit page or the
+ * `checklists` tool with its id lists them: the list of every checklist is
+ * read after every write, and must not open every list's whole folder to say
+ * "held against 40,000".
+ */
+function summaries(book: Book): Summary[] {
+  return Object.values(book.lists)
     .map((list) => ({
       id: list.id,
       name: list.name,
       at: list.at,
       by: list.by,
       items: list.items.length,
-      targets: (list.targets ?? []).length,
-      held: (list.targets ?? []).map(readKey).filter((one): one is Target => one !== null),
+      targets: list.holds,
+      held: list.holds && list.holds <= SAMPLE ? sample(book, list.id) : [],
       ...(list.for ? { for: list.for } : {}),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
-  return { lists, trouble, nowhere: where === 'nowhere' }
+}
+
+/** The few targets a list is held against, or none when one of its bucket files will not parse — that is said where the list is opened. */
+function sample(book: Book, id: string): Target[] {
+  try {
+    return book.heldKeys(id).map(readKey).filter((one): one is Target => one !== null)
+  } catch (e) {
+    if (e instanceof Unreadable) return []
+    throw e
+  }
+}
+
+/** One list against one target (or none), with the ticks made there beside each item. */
+function heldOf(book: Book, list: List, target: Target | null): Held {
+  const on = target ? (book.entry(list.id, targetKey(target))?.ticks ?? {}) : {}
+  const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
+  return { checklist: list, target, rows, done: rows.filter((r) => r.done).length, total: rows.length }
+}
+
+/** Open, run, and turn a file that will not parse into the trouble every reader already carries. */
+function reading<T>(projectPath: string | null | undefined, empty: T, run: (book: Book) => T): { value: T; trouble: string | null; nowhere: boolean } {
+  const { book, where, trouble } = read(projectPath)
+  if (trouble) return { value: empty, trouble, nowhere: false }
+  try {
+    return { value: run(book), trouble: null, nowhere: where === 'nowhere' }
+  } catch (e) {
+    if (!(e instanceof Unreadable)) throw e
+    return { value: empty, trouble: e.message, nowhere: false }
+  }
 }
 
 /**
@@ -828,17 +605,11 @@ export function held(
   target: Target | null,
   projectPath: string | null | undefined,
 ): { held: Held | null; trouble: string | null; nowhere: boolean } {
-  const { store, where, trouble } = read(projectPath)
-  const nowhere = where === 'nowhere'
-  const checklist = store.checklists[id]
-  if (!checklist) return { held: null, trouble, nowhere }
-  const on = target ? (store.ticks[id]?.[targetKey(target)] ?? {}) : {}
-  const rows = checklist.items.map((item) => ({ item, done: on[item.id] ?? null }))
-  return {
-    held: { checklist: settled(checklist), target, rows, done: rows.filter((r) => r.done).length, total: rows.length },
-    trouble,
-    nowhere,
-  }
+  const got = reading<Held | null>(projectPath, null, (book) => {
+    const checklist = book.lists[id]
+    return checklist ? heldOf(book, checklist, target) : null
+  })
+  return { held: got.value, trouble: got.trouble, nowhere: got.nowhere }
 }
 
 /**
@@ -851,15 +622,25 @@ export function held(
  * use", and a released target is precisely the thing that is not.
  */
 export function targetsOf(id: string, projectPath: string | null | undefined): { target: Target; done: number }[] {
-  const { store } = read(projectPath)
-  const list = store.checklists[id]
-  if (!list) return []
-  return (list.targets ?? [])
-    .map((key) => {
-      const target = readKey(key)
-      return target ? { target, done: Object.keys(store.ticks[id]?.[key] ?? {}).length } : null
-    })
-    .filter((row): row is { target: Target; done: number } => row !== null)
+  return reading(projectPath, [] as { target: Target; done: number }[], (book) => {
+    if (!book.lists[id]) return []
+    return book
+      .heldKeys(id)
+      .map((key) => {
+        const target = readKey(key)
+        return target ? { target, done: Object.keys(book.entry(id, key)?.ticks ?? {}).length } : null
+      })
+      .filter((row): row is { target: Target; done: number } => row !== null)
+  }).value
+}
+
+/**
+ * Whether one list is held against one target — one bucket file, where
+ * `targetsOf` reads the list's whole folder. What the doors ask before a tick
+ * or a hold, which is every press.
+ */
+export function holds(id: string, target: Target, projectPath: string | null | undefined): boolean {
+  return reading(projectPath, false, (book) => Boolean(book.lists[id]) && book.holds(id, targetKey(target))).value
 }
 
 /**
@@ -902,33 +683,56 @@ export function inFront(
   },
   projectPath: string | null | undefined,
 ): { instances: Held[]; trouble: string | null; nowhere: boolean } {
-  const { store, where, trouble } = read(projectPath)
-  const lists = Object.values(store.checklists)
-    .map((list) => ({ id: list.id, name: list.name, targets: list.targets ?? [] }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-  const ladders = input.ladders.length ? input.ladders : ['']
-  const seen = new Set<string>()
-  const found = [
-    ...(input.whole
-      ? everywhere({ epic: input.whole, selection: input.selection, lists })
-      : ladders.flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))),
-    ...(input.following ? following({ ...input.following, lists }) : []),
-  ]
-  const instances = found
-    .filter((one) => {
-      const key = `${one.id}|${targetKey(one.target)}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .flatMap((one) => {
-      const list = store.checklists[one.id]
-      if (!list) return []
-      const on = store.ticks[one.id]?.[targetKey(one.target)] ?? {}
-      const rows = list.items.map((item) => ({ item, done: on[item.id] ?? null }))
-      return [{ checklist: settled(list), target: one.target, rows, done: rows.filter((r) => r.done).length, total: rows.length }]
-    })
-  return { instances, trouble, nowhere: where === 'nowhere' }
+  const got = reading(projectPath, [] as Held[], (book) => {
+    const ladders = input.ladders.length ? input.ladders : ['']
+    /*
+     * The keys anything in front could be held under: each reference, each
+     * rung of each ladder, each container. A list is asked about these and
+     * nothing else, so a context opens one bucket per group in front — and
+     * `showing` and its siblings, which are pure and ask `includes`, are
+     * handed only the keys among these that the list does hold. The answer is
+     * the one they would have given the list's whole set of keys.
+     */
+    const asked = new Set<string>([
+      ...input.selection.map((ref) => targetKey({ kind: 'ref', ref })),
+      ...ladders.flatMap((ladder) => rungsFrom(ladder).map((rung) => targetKey(rungTarget(rung)))),
+      ...(input.following
+        ? input.following.modules.map((module) => targetKey({ kind: 'kehikko', kehikko: input.following!.kehikko, module, epic: null }))
+        : []),
+    ])
+    const lists = Object.values(book.lists)
+      .filter((list) => list.holds > 0)
+      .map((list) => {
+        const targets = [...asked].filter((key) => book.holds(list.id, key))
+        if (input.whole) {
+          for (const [key, entry] of book.group(list.id, `paper:${input.whole}`)) {
+            if (entry.since !== undefined && !targets.includes(key)) targets.push(key)
+          }
+        }
+        return { id: list.id, name: list.name, targets }
+      })
+      .filter((list) => list.targets.length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    const seen = new Set<string>()
+    const found = [
+      ...(input.whole
+        ? everywhere({ epic: input.whole, selection: input.selection, lists })
+        : ladders.flatMap((ladder, index) => showing({ ladder, selection: index === 0 ? input.selection : [], lists }))),
+      ...(input.following ? following({ ...input.following, lists }) : []),
+    ]
+    return found
+      .filter((one) => {
+        const key = `${one.id}|${targetKey(one.target)}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .flatMap((one) => {
+        const list = book.lists[one.id]
+        return list ? [heldOf(book, list, one.target)] : []
+      })
+  })
+  return { instances: got.value, trouble: got.trouble, nowhere: got.nowhere }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1009,8 +813,29 @@ export type Result =
  * instead; a bare "no" is the kind of refusal an agent routes around.
  */
 export function change(input: Op, projectPath: string | null | undefined): Result {
+  try {
+    return apply(input, projectPath)
+  } catch (e) {
+    /* A bucket file that will not parse, found half-way through a change:
+       nothing has been written, because `save` is the last thing a change
+       does. */
+    if (e instanceof Unreadable) return { ok: false, error: `nothing was changed. ${e.message}` }
+    throw e
+  }
+}
+
+/** Hold a list against one more key: an entry with when and in what order, and the list's count. */
+function hold(book: Book, list: List, key: string, at: string): void {
+  const { released: _was, ...entry } = book.entry(list.id, key) ?? {}
+  book.set(list.id, key, { ...entry, since: at, n: list.next })
+  list.next += 1
+  list.holds += 1
+  book.touch()
+}
+
+function apply(input: Op, projectPath: string | null | undefined): Result {
   const opened = read(projectPath)
-  const store = opened.store
+  const book = opened.book
   if (opened.trouble) return { ok: false, error: `nothing was changed. ${opened.trouble}` }
   /* Refused BEFORE anything is decided, and refused rather than being allowed to
      succeed against an empty store nobody will ever see again. This is the
@@ -1033,20 +858,10 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
    * tick had landed when nothing had been written at all.
    */
   const answer = (id: string, said: string, target: Target | null): Result => {
-    const refused = save(store, projectPath)
+    const refused = save(book, projectPath)
     if (refused) return { ok: false, error: `nothing was changed. ${refused}` }
-    const list = store.checklists[id]
-    const on = target && list ? (store.ticks[id]?.[targetKey(target)] ?? {}) : {}
-    const rows = (list?.items ?? []).map((item) => ({ item, done: on[item.id] ?? null }))
-    return {
-      ok: true,
-      said,
-      id,
-      lists: checklists(projectPath).lists,
-      held: list
-        ? { checklist: settled(list), target, rows, done: rows.filter((r) => r.done).length, total: rows.length }
-        : null,
-    }
+    const list = book.lists[id]
+    return { ok: true, said, id, lists: summaries(book), held: list ? heldOf(book, list, target) : null }
   }
 
   if (input.op === 'create') {
@@ -1059,7 +874,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
           + 'one is for — "what a merge request owes before review", "what a chapter owes before it is submitted".',
       }
     }
-    const lists = Object.values(store.checklists)
+    const lists = Object.values(book.lists)
     if (lists.length >= MAX_LISTS) {
       return {
         ok: false,
@@ -1079,7 +894,8 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
       }
     }
     const id = newId()
-    store.checklists[id] = { id, name, at, by, origin: null, items: [], targets: [] }
+    book.lists[id] = { id, name, at, by, origin: null, items: [], holds: 0, next: 0 }
+    book.touch()
     return answer(id, `created "${name}" as ${id}`, null)
   }
 
@@ -1102,7 +918,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
           + 'project into another, and the project it comes from has to be named as a folder on this machine.',
       }
     }
-    const source = there.store.checklists[input.id]
+    const source = there.book.lists[input.id]
     if (!source) {
       return {
         ok: false,
@@ -1111,7 +927,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
           + 'project was read: ask for its checklists again and pick from what is there now.',
       }
     }
-    const lists = Object.values(store.checklists)
+    const lists = Object.values(book.lists)
     if (lists.length >= MAX_LISTS) {
       return {
         ok: false,
@@ -1152,7 +968,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
      * projects can independently mint the same one, and an import that kept the
      * source's id would silently replace a list somebody already had.
      *
-     * The one that matters more is that TICKS ARE KEYED BY ID. `store.ticks` is
+     * The one that matters more is that TICKS ARE KEYED BY ID. A list's ticks are
      * checklist, then target, then item. Forgetting a list deletes its ticks
      * here, but a file somebody hand-edited need not have, and neither need a
      * file that arrived from somewhere. A copy carrying the source's ids could
@@ -1202,7 +1018,8 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
       /* And held against nothing, for the reason it carries no ticks: what a
          list is about is a fact about the project it is in, and the chapters of
          somebody else's paper are not in this one. */
-      targets: [],
+      holds: 0,
+      next: 0,
     }
     /*
      * And no ticks — which needs no code, and that is worth saying out loud.
@@ -1210,13 +1027,14 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
      * A checklist's items are the thing being reused; whether they are done is a
      * fact about the project they came from. Copying the ticks would hand
      * somebody a list of work claiming to be finished in a repository where none
-     * of it has been started. Nothing above reads `there.store.ticks`, and it
+     * of it has been started. Nothing above opens the other project's `targets/`, and it
      * cannot land by accident either, because ticks live in a map of their own
      * keyed by checklist id and the id being written here is one nothing has
      * ever ticked. The SHAPE of the store is what makes the right answer the one
      * you get by writing nothing.
      */
-    store.checklists[id] = copied
+    book.lists[id] = copied
+    book.touch()
     return answer(
       id,
       `imported "${source.name}" from ${named(input.from)} as "${name}" (${id}), with `
@@ -1225,7 +1043,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     )
   }
 
-  const list = store.checklists[input.id]
+  const list = book.lists[input.id]
   if (!list) {
     return {
       ok: false,
@@ -1240,6 +1058,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     const name = input.name.trim().slice(0, MAX_NAME)
     if (!name) return { ok: false, error: 'a checklist needs a name; to remove it, forget it.' }
     list.name = name
+    book.touch()
     return answer(list.id, `${list.id} is now called "${name}"`, null)
   }
 
@@ -1263,6 +1082,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     }
     if (module) list.for = module
     else delete list.for
+    book.touch()
     const unknown =
       module && !present.includes(module)
         ? `. No module by that id is ${present.length ? `among the ones here (${present.join(', ')})` : 'known here'}, `
@@ -1280,13 +1100,12 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
   }
 
   if (input.op === 'forget') {
-    delete store.checklists[input.id]
+    book.forget(input.id)
     /* And every tick on it, against every target. A checklist without its ticks
        is a list of items nobody can explain; ticks without their checklist are
        rows keyed by an id nothing resolves. Neither half is worth keeping alone,
        and leaving the ticks would mean recreating a list with the same id
        silently inherited somebody else's answers. */
-    delete store.ticks[input.id]
     return answer(input.id, `"${list.name}" is gone, along with every tick made on it`, null)
   }
 
@@ -1294,17 +1113,21 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     /* One epic's run of a container is held as the container: see `heldAs`. */
     const target = heldAs(input.target)
     const key = targetKey(target)
-    const targets = list.targets ?? []
-    const has = targets.includes(key)
+    const entry = book.entry(list.id, key)
+    const has = entry?.since !== undefined
     if (input.op === 'hold') {
       if (has) return answer(list.id, `"${list.name}" is already held against ${targetName(target)}`, null)
-      if (targets.length >= MAX_TARGETS) return { ok: false, error: tooMany(list, targets.length) }
-      list.targets = [...targets, key]
+      hold(book, list, key, at)
       return answer(list.id, `"${list.name}" is now held against ${targetName(target)}`, null)
     }
     if (!has) return answer(list.id, `"${list.name}" was not held against ${targetName(target)}`, null)
-    list.targets = targets.filter((one) => one !== key)
-    const kept = Object.keys(store.ticks[list.id]?.[key] ?? {}).length
+    const kept = Object.keys(entry?.ticks ?? {}).length
+    /* Released, and when — which is what Storage counts as ticks kept, and
+       what Purge measures their age from. An entry with no ticks says nothing
+       once it is released, and goes. */
+    book.set(list.id, key, { ...(entry?.ticks ? { ticks: entry.ticks } : {}), released: at })
+    list.holds = Math.max(0, list.holds - 1)
+    book.touch()
     /* The ticks stay, and the sentence says so: a person releasing a chapter
        should know that holding it again brings the work back rather than
        starting it over. */
@@ -1336,6 +1159,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     }
     const item: Item = { id: newId(), text, at, by }
     list.items = [...list.items, item]
+    book.touch()
     return answer(list.id, `added "${item.text}" to "${list.name}" as ${item.id}`, null)
   }
 
@@ -1356,6 +1180,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     const next = [...list.items]
     next[where] = { ...list.items[where]!, text }
     list.items = next
+    book.touch()
     /* The id and every tick on it are untouched, on purpose: sharpening the
        words of an item is not the same as replacing it, and a rewording that
        cleared the ticks would mean nobody could ever fix a typo on a list people
@@ -1368,6 +1193,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     const { fact: _was, ...rest } = list.items[where]!
     next[where] = input.fact ? { ...rest, fact: input.fact } : rest
     list.items = next
+    book.touch()
     /* The ticks are untouched, and so is the evidence they carry: a tick made
        on the pipeline is still a tick made on the pipeline after somebody
        decides the line is really about the review. The page compares a tick's
@@ -1399,6 +1225,7 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
     const [moved] = next.splice(where, 1)
     next.splice(to, 0, moved!)
     list.items = next
+    book.touch()
     return answer(list.id, `${input.item} on "${list.name}" moved to position ${to + 1} of ${next.length}`, null)
   }
 
@@ -1409,10 +1236,13 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
        keyed to an item that is not there is a row nothing can draw, and leaving
        them would mean a new item that happened to be given this id — which
        cannot happen today and could after a hand edit — inherited them. */
+    book.touch()
     let ticked = 0
-    for (const on of Object.values(store.ticks[list.id] ?? {})) {
-      if (on[input.item]) ticked += 1
-      delete on[input.item]
+    for (const [key, entry] of book.all(list.id)) {
+      if (!entry.ticks?.[input.item]) continue
+      ticked += 1
+      const { [input.item]: _gone, ...rest } = entry.ticks
+      book.set(list.id, key, { ...entry, ticks: rest })
     }
     return answer(
       list.id,
@@ -1449,15 +1279,13 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
         + 'Name the epic the tick is for — the one open on that kehikko.',
     }
   }
-  const targets = list.targets ?? []
   /* What a tick holds is what a hold would: the container, for a run of one. */
-  const holds = heldAs(input.target)
-  const holdKey = targetKey(holds)
-  const newlyHeld = input.done && !targets.includes(holdKey)
-  if (newlyHeld && targets.length >= MAX_TARGETS) return { ok: false, error: tooMany(list, targets.length) }
-  if (newlyHeld) list.targets = [...targets, holdKey]
-  const forList = (store.ticks[list.id] ??= {})
-  const forTarget = (forList[key] ??= {})
+  const holdsNow = heldAs(input.target)
+  const holdKey = targetKey(holdsNow)
+  const newlyHeld = input.done && !book.holds(list.id, holdKey)
+  if (newlyHeld) hold(book, list, holdKey, at)
+  const was = book.entry(list.id, key)
+  const forTarget: Record<string, Tick> = { ...(was?.ticks ?? {}) }
   if (input.done) {
     forTarget[input.item] = {
       at,
@@ -1475,20 +1303,44 @@ export function change(input: Op, projectPath: string | null | undefined): Resul
   } else {
     delete forTarget[input.item]
   }
-  /* An empty map is deleted rather than kept. A target somebody ticked and
-     unticked is a target nothing is recorded against, and a file full of empty
-     objects reads as if it holds something — which matters here because
-     `targetsOf` is what the page offers as "targets this list is held against". */
-  if (!Object.keys(forTarget).length) delete forList[key]
-  if (!Object.keys(forList).length) delete store.ticks[list.id]
+  /* An empty map is not kept. A target somebody ticked and unticked, and that
+     is not held, is a target nothing is recorded against, and the entry goes
+     (`Book.set` drops an entry that says nothing). */
+  const { ticks: _old, ...rest } = was ?? {}
+  book.set(list.id, key, { ...rest, ...(Object.keys(forTarget).length ? { ticks: forTarget } : {}) })
 
   const item = list.items[where]!
   return answer(
     list.id,
     input.done
       ? `${item.id} on "${list.name}" is ticked for ${key}, by ${by}`
-        + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(holds)}` : '')
+        + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(holdsNow)}` : '')
       : `${item.id} on "${list.name}" is no longer ticked for ${key}`,
     input.target,
   )
+}
+
+/**
+ * The whole store in the shape layout 1 wrote it — every list with the keys
+ * it is held against, in order, and every tick, nested list → target → item.
+ *
+ * For reading by a person or a test, never for writing: it opens every
+ * list's whole folder. `null` when the folder will not open.
+ */
+export function snapshot(projectPath: string | null | undefined): {
+  checklists: Record<string, Omit<List, 'holds' | 'next'> & { targets: string[] }>
+  ticks: Record<string, Record<string, Record<string, Tick>>>
+} | null {
+  const got = reading(projectPath, null, (book) => {
+    const out = { checklists: {} as Record<string, Omit<List, 'holds' | 'next'> & { targets: string[] }>, ticks: {} as Record<string, Record<string, Record<string, Tick>>> }
+    for (const list of Object.values(book.lists)) {
+      const { holds: _holds, next: _next, ...says } = list
+      out.checklists[list.id] = { ...says, targets: book.heldKeys(list.id) }
+      for (const [key, entry] of book.all(list.id)) {
+        if (entry.ticks && Object.keys(entry.ticks).length) (out.ticks[list.id] ??= {})[key] = entry.ticks
+      }
+    }
+    return out
+  })
+  return got.trouble ? null : got.value
 }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { cleanup, fireEvent, render } from '@testing-library/react'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -144,9 +144,9 @@ describe('a module’s container on a kehikko, as a target (#27)', () => {
     /* On another kehikko, nothing. */
     expect(inFront({ ladders: [], selection: [], following: { kehikko: 'review', modules: [FLOWS], epic: 'epic-a' } }, dir).instances).toEqual([])
 
-    const file = JSON.parse(readFileSync(join(dir, KEHIKOT_DIR, moduleFolder(ID), 'checklists.json'), 'utf8'))
-    expect(file.checklists[list].targets).toEqual(['kehikko:journey/kehikot.flows'])
-    expect(Object.keys(file.ticks[list])).toEqual(['kehikko:journey/kehikot.flows/epic-a'])
+    const file = (await import('../list/checklists.ts')).snapshot(dir)!
+    expect(file.checklists[list]!.targets).toEqual(['kehikko:journey/kehikot.flows'])
+    expect(Object.keys(file.ticks[list]!)).toEqual(['kehikko:journey/kehikot.flows/epic-a'])
 
     /* Releasing one epic's run releases the pair, and keeps the ticks. */
     const released = change({ op: 'release', id: list, target: flows('epic-b'), by: 'a test' }, dir)
@@ -203,7 +203,7 @@ describe('a module’s container on a kehikko, as a target (#27)', () => {
   test('the edit page offers the modules on this kehikko, and a press holds the list against one of them', () => {
     const edits: Edit[] = []
     const held = {
-      checklist: { id: 'list1', name: 'What flows owe', at: '', by: 'the owner', origin: null, items: [], targets: [] },
+      checklist: { id: 'list1', name: 'What flows owe', at: '', by: 'the owner', origin: null, items: [], holds: 0, next: 0 },
       target: null,
       rows: [],
       done: 0,
@@ -257,7 +257,7 @@ describe('a module’s container on a kehikko, as a target (#27)', () => {
 
   test('a host that sends no kehikko key is offered no container to hold a list against', () => {
     const held = {
-      checklist: { id: 'list1', name: 'x', at: '', by: '', origin: null, items: [], targets: [] },
+      checklist: { id: 'list1', name: 'x', at: '', by: '', origin: null, items: [], holds: 0, next: 0 },
       target: null,
       rows: [],
       done: 0,
@@ -297,25 +297,25 @@ describe('how many targets one list is held against (#23)', () => {
     expect(targetsOf(list, dir)).toHaveLength(200)
   })
 
-  test('the bound that is left is on the file, says so, and holds a tick that would hold one more too', async () => {
-    const { MAX_TARGETS, change } = await import('../list/checklists.ts')
+  test('there is no bound: a list past the old ten thousand is held against one more, and ticked there', async () => {
+    const checklists = await import('../list/checklists.ts')
+    expect('MAX_TARGETS' in checklists).toBe(false)
+    const { change, targetsOf } = checklists
     const { list, item } = await aList('What an issue owes')
-    expect(MAX_TARGETS).toBeGreaterThanOrEqual(10_000)
 
-    /* Written straight into the file rather than held ten thousand times. */
-    const path = join(dir, KEHIKOT_DIR, moduleFolder(ID), 'checklists.json')
-    const file = JSON.parse(readFileSync(path, 'utf8'))
-    file.checklists[list].targets = Array.from({ length: MAX_TARGETS }, (_, n) => `ref:gh#${n + 1}`)
-    writeFileSync(path, JSON.stringify(file))
+    /* Ten thousand and one targets, in the layout-1 file the cap was guarding,
+       migrated on the next read rather than held one at a time. */
+    const before = checklists.snapshot(dir)!
+    rmSync(join(dir, KEHIKOT_DIR, moduleFolder(ID)), { recursive: true, force: true })
+    mkdirSync(join(dir, KEHIKOT_DIR, moduleFolder(ID)), { recursive: true })
+    before.checklists[list]!.targets = Array.from({ length: 10_001 }, (_, n) => `ref:gh#${n + 1}`)
+    writeFileSync(join(dir, KEHIKOT_DIR, moduleFolder(ID), 'checklists.json'), JSON.stringify(before))
 
     const hold = change({ op: 'hold', id: list, target: { kind: 'ref', ref: 'gh#0' }, by: 'an agent' }, dir)
-    expect(hold.ok).toBe(false)
-    expect(!hold.ok && hold.error).toContain(`held against ${MAX_TARGETS} targets`)
-    expect(!hold.ok && hold.error).toContain('the bound keeps the file')
-    const tick = change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#0' }, done: true, by: 'an agent' }, dir)
-    expect(tick.ok).toBe(false)
-    /* Already held: ticking there is not holding one more, and is not refused. */
-    const there = change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#1' }, done: true, by: 'an agent' }, dir)
-    expect(there.ok).toBe(true)
+    expect(hold.ok && hold.said).toContain('is now held against gh#0')
+    const tick = change({ op: 'tick', id: list, item, target: { kind: 'ref', ref: 'gh#20000' }, done: true, by: 'an agent' }, dir)
+    expect(tick.ok && tick.said).toContain('is now held against gh#20000')
+    expect(targetsOf(list, dir)).toHaveLength(10_003)
+    expect(checklists.checklists(dir).lists[0]?.targets).toBe(10_003)
   })
 })

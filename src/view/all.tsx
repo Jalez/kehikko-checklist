@@ -55,6 +55,7 @@ export function AllView({
   onCreate,
   onImport,
   onBack,
+  onStorage,
   importing,
   trouble,
   busy,
@@ -75,6 +76,8 @@ export function AllView({
   onImport: () => void
   /** Back to the reading page. */
   onBack: () => void
+  /** What the checklists take up on disk, and purging old ones. Also View → Storage in a host's header. */
+  onStorage?: () => void
   /** True while the person is being asked, or while the other project is being read. */
   importing: boolean
   trouble: string | null
@@ -215,6 +218,11 @@ export function AllView({
         <Button type="button" variant="ghost" size="container" disabled={busy || importing} onClick={onImport}>
           {importing ? 'Choosing…' : 'Copy from another project'}
         </Button>
+        {onStorage ? (
+          <Button type="button" variant="ghost" size="container" data-storage-open onClick={onStorage} title="What the checklists take up on disk, and purging old ones.">
+            Storage
+          </Button>
+        ) : null}
       </div>
 
       {overlaid ? (

@@ -14,6 +14,7 @@ import {
   change,
   checklists,
   held,
+  holds,
   inFront,
   targetsOf,
   type Op,
@@ -21,6 +22,7 @@ import {
 import { moduleNamed } from './list/aim.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
+import { discard, preview, purge, restore, SCOPES, usage, usageText, type Finished, type Rule } from './list/storage.ts'
 import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
 import { filesNamed, placeIn, placeNamed, placeOf } from './file/open.ts'
@@ -85,6 +87,12 @@ const MAX_DOCS = 17
 
 /** How many different files' lists one whole-paper answer names the place of. */
 const MAX_HELD_FILES = 128
+/** How many held targets the `checklists` tool names for one list before it counts the rest. */
+const NAMED_TARGETS = 50
+/** How many held targets the edit page is sent as chips before it is sent a count. */
+const SHOWN_TARGETS = 300
+/** How many finished refs the page may hand over with one Storage request: several tracker readings' worth. */
+const MAX_FINISHED = 20_000
 
 function str(value: unknown, max: number): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value).slice(0, max)
@@ -97,7 +105,7 @@ function str(value: unknown, max: number): string {
  *
  * ## Why every door takes one, and why none of them defaults
  *
- * This app's store moved into the project: `<projectPath>/.kehikot/checklist/checklists.json`.
+ * This app's store moved into the project: `<projectPath>/.kehikot/checklist/` (`lists.json` and `targets/`, see `list/book.ts`).
  * So "which checklists" is not answerable without "whose", and the string that
  * answers it arrives on the request. The page reads it from
  * `kehikot.context.projectPath` and passes it on; an agent over MCP says it in
@@ -421,7 +429,7 @@ interface Aimed {
  */
 function settle(named: Target, where: string, id: string, minting: boolean, first: 'paper' | 'project'): Aimed {
   if (named.kind !== 'paper' || !named.section) return { target: named, also: null }
-  const stored = targetsOf(id, where).some((row) => targetKey(row.target) === targetKey(named))
+  const stored = holds(id, named, where)
   if (stored && !minting) return { target: named, also: null }
   const found = placeNamed(where, named.epic, named.section, first)
   if (found && 'section' in found) {
@@ -559,6 +567,7 @@ const ANNOTATIONS: Record<string, Record<string, boolean>> = {
   reword_checklist_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   move_checklist_item: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   drop_checklist_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  storage: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 }
 
 function tools() {
@@ -746,6 +755,15 @@ function listed() {
         required: ['project', 'checklist', 'item'],
       },
     },
+    {
+      name: 'storage',
+      description:
+        'How much space this project’s checklists take on disk, per checklist: bytes, how many targets each is held '
+        + 'against, released targets whose ticks are kept, ticks, and the last activity. Read-only. There is no '
+        + 'limit on how many targets a list is held against; when the folder grows, a PERSON decides what to purge, '
+        + 'on the page under View → Storage. No tool purges.',
+      inputSchema: { type: 'object', properties: { ...PROJECT_PROPERTY }, required: ['project'] },
+    },
   ]
 }
 
@@ -760,7 +778,7 @@ function listsText(where: string): string {
   if (!lists.length) {
     return (
       `There are no checklists in ${where} yet. Nothing is wrong: this app ships no lists at all, and a project `
-      + 'that has never had one has no .kehikot/checklist/checklists.json in it. create_checklist starts the '
+      + 'that has never had one has no .kehikot/checklist/lists.json in it. create_checklist starts the '
       + 'first, and then add_checklist_item puts lines on it.'
     )
   }
@@ -772,7 +790,9 @@ function listsText(where: string): string {
         + (list.for ? `for ${list.for}’s work; ` : '')
         + (list.held.length
           ? `held against ${list.held.map(targetName).join(', ')})`
-          : 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'),
+          : list.targets
+            ? `held against ${list.targets} targets — ask with its id to see them)`
+            : 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'),
     ),
     '',
     'Ticks live per (checklist, target, item): ask again with a ref or an epic to see what is ticked for it.',
@@ -816,8 +836,13 @@ function listText(id: string, target: Target | null, where: string): string {
    */
   const all = targetsOf(id, where)
   const others = all.filter((row) => !target || targetKey(row.target) !== targetKey(target))
+  /* The most recently held first when there are many: a list held against every issue
+     a project ever had is named by count past `NAMED_TARGETS`, not printed whole. */
+  const named = others.length > NAMED_TARGETS ? others.slice(-NAMED_TARGETS).reverse() : others
+  const more = others.length - named.length
   const tail = others.length
-    ? `\n\n${target ? 'Also held' : 'Held'} against: ${others.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
+    ? `\n\n${target ? 'Also held' : 'Held'} against: ${named.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
+      + (more ? `, and ${more} more (${others.length} in all; the ${named.length} named are the most recently held)` : '')
     : target
       ? ''
       : '\n\nHeld against nothing yet, so nobody sees it anywhere: hold_checklist puts it in front of somebody.'
@@ -972,6 +997,29 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
 /* A status and a document — the protocol's `Reply`. Nothing here writes bytes; `doors()` does that. */
 export type { Reply }
 
+/**
+ * A tool name that asks to purge, restore or delete storage. There is no such tool, and the
+ * refusal says why rather than "no tool": an agent that went looking for one should learn
+ * that this is a person's decision, and where the person makes it.
+ */
+const PERSON_ONLY = /purge|restore|discard|delete_?backup|clean_?up|prune/i
+export const PURGE_IS_A_PERSONS =
+  'Purging checklist storage is a person’s decision, so no tool here does it and none ever will. Read what the '
+  + 'folder takes up with the storage tool, and tell the person: they purge, with a preview first, on the '
+  + 'Checklist page under View → Storage.'
+
+/** The host's tracker reading as the page hands it over: closed or merged refs, and when. Bounded, never trusted. */
+function finishedFrom(value: unknown): Finished[] | null {
+  if (!Array.isArray(value)) return null
+  return value.slice(0, MAX_FINISHED).flatMap((one) => {
+    const row = (typeof one === 'object' && one !== null ? one : {}) as { ref?: unknown; at?: unknown }
+    const ref = part(row.ref)
+    if (!ref) return []
+    const at = typeof row.at === 'string' && !Number.isNaN(Date.parse(row.at)) ? new Date(row.at).toISOString() : null
+    return [{ ref, at }]
+  })
+}
+
 const ok = (body: unknown): Reply => ({ status: 200, body })
 const bad = (why: string, status = 400): Reply => ({ status, body: { ok: false, error: why } })
 
@@ -1056,6 +1104,8 @@ function mcp(rpc: Rpc): Reply {
       const where = project(args.project)
       if (!where) return text(NO_PROJECT, true)
 
+      if (name === 'storage') return text(usageText(where))
+      if (PERSON_ONLY.test(name)) return text(PURGE_IS_A_PERSONS, true)
       if (name === 'checklists') {
         const id = str(args.checklist, MAX_ID)
         if (!id) return text(listsText(where))
@@ -1399,7 +1449,18 @@ export function answerAt(
         query.has('to') ? Number(query.get('to')) : null,
       )
       : null
-    return ok({ ok: true, held: on, targets: targetsOf(id, where), placed, trouble, nowhere })
+    /* The edit page draws a chip per target. Past `SHOWN_TARGETS` it is sent the most
+       recently held and the count, and says how many more there are. */
+    const all = targetsOf(id, where)
+    return ok({
+      ok: true,
+      held: on,
+      targets: all.length > SHOWN_TARGETS ? all.slice(-SHOWN_TARGETS) : all,
+      heldTotal: all.length,
+      placed,
+      trouble,
+      nowhere,
+    })
   }
 
   /*
@@ -1451,6 +1512,15 @@ export function answerAt(
    * half of this app that knows a tool was called has no wire, and the half with
    * a wire does not know.
    */
+  /*
+   * What the folder takes up. Ungated like every other read; it says less than
+   * `/api/checklists` already does. Which targets are finished needs the
+   * tracker reading the PAGE has, so the page asks by POST with it (below).
+   */
+  if (path === '/api/storage' && method === 'GET') {
+    return ok({ ok: true, ...usage(project(query.get('project'))) })
+  }
+
   if (path === '/api/announcements' && method === 'GET') {
     const cursor = Number(query.get('since') ?? '0')
     return ok({ ok: true, ...since(Number.isFinite(cursor) && cursor >= 0 ? cursor : 0) })
@@ -1467,6 +1537,36 @@ export function answerAt(
     const refused = refuseTicket(ticket, TICKET, 'that press did not come from this app’s own page')
     if (refused) return refused
     if (!body) return bad('that was not a request')
+
+    /*
+     * Storage: usage with the tracker's reading, a purge's preview, the purge,
+     * and a backup put back or deleted. Behind the ticket like every write, so
+     * only this app's own page can reach it — the MCP door is `/mcp`, and no
+     * tool there purges (`PURGE_IS_A_PERSONS`).
+     */
+    if (path === '/api/storage') {
+      const where = project(body.project)
+      if (!where) return bad(NO_PROJECT)
+      const op = str(body.op, 16)
+      const finished = finishedFrom(body.finished)
+      if (op === 'usage') return ok({ ok: true, ...usage(where, finished) })
+      const rule = { scope: str(body.scope, 16) as Rule['scope'], days: typeof body.days === 'number' ? body.days : Number.NaN }
+      if (op === 'preview') {
+        const out = preview(where, rule, finished)
+        return ok(out.ok ? { ok: true, plan: out.value } : out)
+      }
+      if (op === 'purge') {
+        if (body.confirm !== true) return bad('a purge has to be confirmed, after its preview. Nothing was purged.')
+        const out = purge(where, { rule, digest: str(body.digest, 64), keep: body.keep !== false }, finished)
+        return ok(out.ok ? { ok: true, said: out.value.said, backup: out.value.backup, ...usage(where, finished) } : out)
+      }
+      if (op === 'restore' || op === 'discard') {
+        const name = str(body.name, 64)
+        const out = op === 'restore' ? restore(where, name) : discard(where, name)
+        return ok(out.ok ? { ok: true, said: out.value, ...usage(where, finished) } : out)
+      }
+      return bad(`there is no "${op}" in Storage — it is usage, preview, purge, restore or discard. Scopes: ${SCOPES.join(', ')}.`)
+    }
 
     if (path === '/api/checklist') {
       /* The project comes off the body on a write and off the query on a read,

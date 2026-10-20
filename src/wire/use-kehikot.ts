@@ -7,6 +7,7 @@ import {
   trackerReadingResult,
   type Disposition,
   type FilterGroup,
+  type HeaderItemInput,
   type TrackerReading,
 } from 'kehikot-module-protocol'
 import { PERSON_ANSWERS_WITHIN_MS, type HostEvents } from 'kehikot-module-protocol/client'
@@ -69,7 +70,7 @@ export interface Kehikot {
    * Where the open project is on this machine, or null.
    *
    * The single most load-bearing field this hook reads, now that this app's
-   * store lives inside the project: `<projectPath>/.kehikot/checklist/checklists.json`.
+   * store lives inside the project: `<projectPath>/.kehikot/checklist/` (`lists.json` and `targets/`, see `list/book.ts`).
    * Every fetch below carries it, and a fetch without it comes back saying there
    * is nowhere to look.
    *
@@ -244,7 +245,17 @@ export interface Kehikot {
    * read lands.
    */
   readTracker: (refs: readonly string[]) => Promise<TrackerReading | null>
+  /**
+   * The host's whole reading for this project (`tracker.get` with `project: true`), or null — no
+   * host, no tracker, or a host that would not say. Storage reads it to say which targets are
+   * finished; nothing ticks or purges on it by itself.
+   */
+  readProject: () => Promise<TrackerReading | null>
+  /** Declare this page's header (`kehikot.header`): the host draws it and relays a press to `onPress`. */
+  header: (items: HeaderItemInput[]) => void
 }
+
+export type PressHandler = NonNullable<HostEvents['onPress']>
 
 /** The marks back out of `Kehikot.marks`, each parsed; a row that does not parse is left out. */
 export function marksOf(marks: string): Disposition[] {
@@ -271,9 +282,14 @@ export function marksOf(marks: string): Disposition[] {
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
-export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void): Kehikot {
-  const host = useHost(id, { onGoto }, { reloadWhenStale: false })
-  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters } = host
+export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void, onPress?: PressHandler): Kehikot {
+  /* Through a ref, so the handler the host calls is always the page's latest, and the
+     connection is not re-made when the page's view changes. */
+  const pressed = useRef(onPress)
+  pressed.current = onPress
+  const press = useCallback<PressHandler>((one) => pressed.current?.(one) ?? 'This page is not ready for that yet.', [])
+  const host = useHost(id, { onGoto, onPress: press }, { reloadWhenStale: false })
+  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header } = host
 
   /* The doorbell, read through a ref so the pump below is started once and always rings the newest one. */
   const door = useRef(onDoor)
@@ -348,6 +364,16 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
     [request],
   )
 
+  const readProject = useCallback(async (): Promise<TrackerReading | null> => {
+    try {
+      const answered = await request('tracker.get', { project: true })
+      const read = trackerReadingResult.safeParse(answered)
+      return read.success ? read.data : null
+    } catch {
+      return null
+    }
+  }, [request])
+
   return useMemo(
     () => ({
       where,
@@ -367,6 +393,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       marks,
       parts,
       readTracker,
+      readProject,
+      header,
     }),
     [
       where,
@@ -386,6 +414,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void)
       marks,
       parts,
       readTracker,
+      readProject,
+      header,
     ],
   )
 }
