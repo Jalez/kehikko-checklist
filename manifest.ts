@@ -366,9 +366,17 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * picking is the host's own control, so nothing is declared in `uses` for it.
    */
   reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions', 'parts'],
+  /*
+   * `filters:set`, for one press (Jalez/kehikko-checklist#32). While containers
+   * are picked out a ref somebody clicks is set aside, and the pane says so
+   * with a way out: "Show gh#105 instead" moves this container's own aim to
+   * everything on this kehikko. It moves this container's filter and nothing
+   * else — never another container's pick, which is the host's own control
+   * and has no method.
+   */
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'projects:pick', 'trackers:read'],
+    uses: ['events:emit', 'filters:set', 'projects:pick', 'trackers:read'],
     storage: true,
     prompt: false,
   },

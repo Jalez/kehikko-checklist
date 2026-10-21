@@ -251,6 +251,21 @@ export interface Kehikot {
    * finished; nothing ticks or purges on it by itself.
    */
   readProject: () => Promise<TrackerReading | null>
+  /**
+   * The host's summary reading for some refs, or for the refs one epic names
+   * (`tracker.get` without detail), or null for every no. What a list held
+   * against every issue or every change is decided by: a row's `kind`, and
+   * which refs an epic names (`list/standing.ts`, Jalez/kehikko-checklist#31).
+   * Cheap at the tracker, unlike `readTracker`, which reads detail per ref.
+   */
+  readSummary: (scope: { refs: readonly string[] } | { epic: string }) => Promise<TrackerReading | null>
+  /**
+   * Ask the host to put this container's aim on `all` — everything on this
+   * kehikko — or back on following the picks (`filters.set`). True when the
+   * host settled on it; false for every no, which the page then says in words
+   * (Jalez/kehikko-checklist#32).
+   */
+  setAim: (aim: 'follow' | 'all') => Promise<boolean>
   /** Declare this page's header (`kehikot.header`): the host draws it and relays a press to `onPress`. */
   header: (items: HeaderItemInput[]) => void
 }
@@ -364,6 +379,38 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
     [request],
   )
 
+  const readSummary = useCallback(
+    async (scope: { refs: readonly string[] } | { epic: string }): Promise<TrackerReading | null> => {
+      if ('refs' in scope && !scope.refs.length) return null
+      const params = 'refs' in scope ? { refs: scope.refs.slice(0, LIMITS.TRACKER_ASK) } : { epic: scope.epic }
+      try {
+        const answered = await request('tracker.get', params)
+        const read = trackerReadingResult.safeParse(answered)
+        return read.success ? read.data : null
+      } catch {
+        return null
+      }
+    },
+    [request],
+  )
+
+  const setAim = useCallback(
+    async (aim: 'follow' | 'all'): Promise<boolean> => {
+      try {
+        const answered: unknown = await request('filters.set', { filters: { aim } })
+        /* The answer is unspecified by the protocol beyond "what it settled on": the choice itself, or
+           one under `filters`. One that names another aim is a no; anything else is taken at its word,
+           and the next context says what is true either way. */
+        const box = answered && typeof answered === 'object' ? (answered as Record<string, unknown>) : {}
+        const settled = box.filters && typeof box.filters === 'object' ? (box.filters as Record<string, unknown>) : box
+        return typeof settled.aim !== 'string' || settled.aim === aim
+      } catch {
+        return false
+      }
+    },
+    [request],
+  )
+
   const readProject = useCallback(async (): Promise<TrackerReading | null> => {
     try {
       const answered = await request('tracker.get', { project: true })
@@ -394,6 +441,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       parts,
       readTracker,
       readProject,
+      readSummary,
+      setAim,
       header,
     }),
     [
@@ -415,6 +464,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       parts,
       readTracker,
       readProject,
+      readSummary,
+      setAim,
       header,
     ],
   )

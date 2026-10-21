@@ -369,6 +369,40 @@ function Holding({
         </div>
       ) : null}
 
+      {/* Every issue or every change, of the project or of the open epic: a
+          standing hold, for a list every such ref owes, with no hold per ref
+          and each ref keeping its own ticks (Jalez/kehikko-checklist#31). */}
+      <div className="flex flex-col gap-0.5" data-pick-every>
+        <span className="text-[0.65rem] leading-4 text-muted-foreground">
+          Every issue or change, including ones opened later
+        </span>
+        <div className="flex flex-wrap gap-1">
+          {everyOffered(epic).map(({ target, label }) => {
+            const on = isHeld(target)
+            return (
+              <Button
+                key={targetKey(target)}
+                type="button"
+                variant={on ? 'default' : 'outline'}
+                size="container"
+                disabled={busy}
+                data-pick-target={targetKey(target)}
+                data-held={on ? 'yes' : 'no'}
+                className="max-w-full"
+                title={
+                  on
+                    ? `Release ${label.toLowerCase()}; the ticks made on each ref are kept`
+                    : `Hold this list against ${label.toLowerCase()}: it is in front of each one, as the host's tracker reads it, and each keeps its own ticks`
+                }
+                onClick={() => toggle(target)}
+              >
+                <span className="min-w-0 truncate">{label}</span>
+              </Button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* A module's container on this kehikko, whichever epic is open: for a
           list about how a module's work is run in every epic
           (Jalez/kehikko-checklist#27). Offered only where the host says which
@@ -901,4 +935,18 @@ function EditRow({
       ) : null}
     </li>
   )
+}
+
+/** The standing holds the edit page offers: every issue and every change, and the open epic's of each. */
+function everyOffered(epic: string | null): { target: Target; label: string }[] {
+  const project: { target: Target; label: string }[] = [
+    { target: { kind: 'every', of: 'issue', epic: null }, label: 'Every issue' },
+    { target: { kind: 'every', of: 'change', epic: null }, label: 'Every change' },
+  ]
+  if (!epic) return project
+  return [
+    ...project,
+    { target: { kind: 'every', of: 'issue', epic }, label: `Every issue of ${epic}` },
+    { target: { kind: 'every', of: 'change', epic }, label: `Every change of ${epic}` },
+  ]
 }

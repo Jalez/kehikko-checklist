@@ -5,7 +5,8 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 
 import { ID } from '../manifest.ts'
 
-import { aimOf, aimOffer, forPicked, inFrontOf, moduleLabels, whyAside, whyEmpty } from '../list/aim.ts'
+import { aimOf, aimOffer, forPicked, inFrontOf, moduleLabels, setAside, whyAside, whyEmpty } from '../list/aim.ts'
+import { noneLine, undecidedLine, type RefsRead } from '../list/standing.ts'
 import { NOUN, anchorOf, readParts } from '../list/focus.ts'
 import {
   edit,
@@ -211,6 +212,8 @@ export function App() {
     parts,
     readTracker,
     readProject,
+    readSummary,
+    setAim,
     header,
   } = useKehikot(ID, onGoto, bump, onPress)
 
@@ -275,8 +278,55 @@ export function App() {
     () => (kehikkoKey ? { kehikko: kehikkoKey, modules: front.narrowed ? front.picked : front.modules, epic } : null),
     [kehikkoKey, front, epic],
   )
+  /**
+   * Every standing hold in the project — every issue, every change, of the
+   * project or of one epic — off the list of every checklist
+   * (Jalez/kehikko-checklist#31). With none, nothing below asks anything.
+   */
+  const standingAll = useMemo(() => lists.flatMap((one) => one.standing ?? []), [lists])
+  const standingEpics = useMemo(
+    () => [...new Set(standingAll.flatMap((one) => (one.kind === 'every' && one.epic ? [one.epic] : [])))].sort().join(' '),
+    [standingAll],
+  )
+  /**
+   * What the host's tracker reading says about the refs in front: each one's
+   * kind, and which of them each epic a standing hold names names. Asked only
+   * while some list stands somewhere, and again when the reading moves — a
+   * ref that came back `pending` is decided then. Null without a host: then a
+   * ref's own spelling is all there is, and the pane says what is not known.
+   */
+  const refsInFront = front.refs.join(' ')
+  const [refsRead, setRefsRead] = useState<RefsRead | null>(null)
+  useEffect(() => {
+    if (where !== 'hosted' || !standingAll.length || !refsInFront) {
+      setRefsRead(null)
+      return
+    }
+    let alive = true
+    const refs = refsInFront.split(' ')
+    const epics = standingEpics ? standingEpics.split(' ') : []
+    void Promise.all([readSummary({ refs }), ...epics.map((one) => readSummary({ epic: one }))]).then(([mine, ...byEpic]) => {
+      if (!alive) return
+      const kinds: Record<string, 'issue' | 'change'> = Object.create(null)
+      for (const row of mine?.rows ?? []) if (refs.includes(row.ref)) kinds[row.ref] = row.kind
+      const named: Record<string, string[]> = Object.create(null)
+      epics.forEach((one, at) => {
+        const got = byEpic[at]
+        /* An epic whose reading did not come back is left out, which is "not known" — never "names none". */
+        if (!got) return
+        const names = new Set([...got.rows.map((row) => row.ref), ...got.missing.map((row) => row.ref)])
+        named[one] = refs.filter((ref) => names.has(ref))
+      })
+      setRefsRead({ kinds, epics: named })
+    })
+    return () => {
+      alive = false
+    }
+  }, [where, standingAll.length > 0, refsInFront, standingEpics, trackerAt, readSummary])
+  const readKey = refsRead ? JSON.stringify(refsRead) : ''
+
   /** And the same, as one string, for the fetch to depend on. */
-  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following })
+  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following, read: readKey })
 
   /**
    * Whether there is anywhere at all to read from or write to.
@@ -341,7 +391,7 @@ export function App() {
        `InFront`. The server builds the whole-paper rung from the epic alone,
        and a page narrowed to containers showing no document must not hand it
        one. */
-    void whatIsHere(projectPath, front.paper ? epic : null, documents, front.refs, front.byParts, following)
+    void whatIsHere(projectPath, front.paper ? epic : null, documents, front.refs, front.byParts, following, refsRead)
       .then((got) => {
         if (alive) setHere(got)
       })
@@ -476,6 +526,20 @@ export function App() {
   if (settled) drawn.current = drawnNow
 
   const editing = view.kind === 'edit' ? view.id : null
+
+  /*
+   * What the reading page says beside its lists (Jalez/kehikko-checklist#31,
+   * #32): refs a standing hold could not be decided for; why a pane with refs
+   * in front is empty; and refs somebody clicked that the picks set aside.
+   */
+  const undecided = drawn.current.here?.undecided ?? []
+  const undecidedSaid = undecidedLine(undecided)
+  const none = noneLine(
+    front.refs.filter((ref) => !undecided.some((row) => row.ref === ref)),
+    standingAll,
+  )
+  const clicked = useMemo(() => setAside(front, selected ? selected.split(' ') : []), [front, selected])
+  const onShowClicked = useCallback(() => setAim('all'), [setAim])
 
   /**
    * The list being edited, on its own.
@@ -781,6 +845,10 @@ export function App() {
       room={room}
       facts={facts}
       kehikko={kehikko}
+      none={none}
+      undecided={undecidedSaid}
+      clicked={clicked}
+      onShowClicked={where === 'hosted' ? onShowClicked : undefined}
     />
   )
 

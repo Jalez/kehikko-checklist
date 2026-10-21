@@ -85,6 +85,8 @@ export function anchorOf(instance: { target: Target | null }, positions: readonl
   if (target.kind === 'ref') return [{ ref: target.ref }]
   /* A module's container on a kehikko belongs to the open epic as a whole, like the whole paper. */
   if (target.kind === 'kehikko') return [{ whole: true }]
+  /* A standing hold is never an instance's target (`list/standing.ts`); were one to arrive, it belongs to no one part. */
+  if (target.kind === 'every') return [{ whole: true }]
   if (!target.section) return [{ whole: true }]
   return placesAmong(target, positions).map((place) => ({ file: place.file }))
 }

@@ -898,3 +898,87 @@ describe('what the tracker says, beside a ref’s lists (Jalez/kehikko-checklist
     expect(sent[0]).toEqual({ op: 'cite', id: 'list1', item: 'aaa', fact: 'description' })
   })
 })
+
+describe('every issue or every change, and a click set aside (Jalez/kehikko-checklist#31, #32)', () => {
+  test('a list in front through a standing hold says so on its row', () => {
+    const through = held({ through: [{ kind: 'every', of: 'issue', epic: null }] })
+    const { container } = render(<Reading here={here([through])} room={ROOMY} />)
+    expect(container.querySelector('[data-label]')?.textContent).toBe('gh#105 · every issue')
+  })
+
+  test('the empty pane tells nothing held from nothing that applies', () => {
+    const unheld = render(
+      <Reading here={here([])} none={{ why: 'nothing-held', said: 'Nothing is held against gh#106.' }} room={ROOMY} />,
+    )
+    expect(unheld.container.querySelector('[data-none="nothing-held"]')?.textContent).toBe('Nothing is held against gh#106.')
+    cleanup()
+    const applies = render(
+      <Reading here={here([])} none={{ why: 'none-applies', said: 'No checklist applies to gh#200.' }} room={ROOMY} />,
+    )
+    expect(applies.container.querySelector('[data-none="none-applies"]')?.textContent).toBe('No checklist applies to gh#200.')
+  })
+
+  test('a ref whose kind is not known is said, in place of a sentence that would guess', () => {
+    const said = 'The tracker has not said whether gh#9 is an issue or a change.'
+    const { container } = render(<Reading here={here([])} undecided={said} room={ROOMY} />)
+    expect(container.querySelector('[data-undecided]')?.textContent).toBe(said)
+    expect(container.querySelector('[data-none]')).toBeNull()
+  })
+
+  test.each([ROOMY, TIGHT])('a click set aside: the line and both ways out, above the lists', async (size) => {
+    let pressed = 0
+    const { container } = render(
+      <Reading
+        here={here([held()])}
+        clicked={{ refs: ['gh#7'], picked: ['kehikot.flows'] }}
+        onShowClicked={async () => {
+          pressed += 1
+          return false
+        }}
+        room={size}
+      />,
+    )
+    const line = container.querySelector('[data-clicked]')!
+    expect(line.textContent).toContain('You clicked gh#7, but flows is picked out, so this shows what that container shows.')
+    expect(line.querySelector('[data-unpick]')?.textContent).toBe('To unpick flows, untick the box in its header.')
+    /* It comes before the lists, and the lists are still drawn. */
+    expect(container.querySelector('section')!.firstElementChild).toBe(line)
+    expect(container.querySelectorAll('[data-instance]')).toHaveLength(1)
+    fireEvent.click(line.querySelector('[data-show-clicked]') as HTMLElement)
+    expect(pressed).toBe(1)
+    /* A host that would not move the aim: the line says where to move it by hand. */
+    await screen.findByText(/choose “everything on this kehikko” under aim/)
+  })
+
+  test('no click set aside, no line', () => {
+    const { container } = render(<Reading here={here([held()])} room={ROOMY} />)
+    expect(container.querySelector('[data-clicked]')).toBeNull()
+  })
+})
+
+describe('the edit page offers every issue and every change (Jalez/kehikko-checklist#31)', () => {
+  test('of the project and of the open epic; pressing holds, and a held one is a chip that releases', () => {
+    const sent: unknown[] = []
+    const EVERY_ISSUE: Target = { kind: 'every', of: 'issue', epic: null }
+    const { container } = render(
+      <Editing held={held()} targets={[{ target: EVERY_ISSUE, done: 0 }]} onEdit={(e) => sent.push(e)} room={ROOMY} />,
+    )
+    fireEvent.click(container.querySelector('[data-switch]') as HTMLElement)
+    const offered = [...container.querySelectorAll('[data-pick-every] [data-pick-target]')].map((one) => [
+      one.getAttribute('data-pick-target'),
+      one.textContent,
+      one.getAttribute('data-held'),
+    ])
+    expect(offered).toEqual([
+      ['every:issue', 'Every issue', 'yes'],
+      ['every:change', 'Every change', 'no'],
+      ['every:issue/thesis', 'Every issue of thesis', 'no'],
+      ['every:change/thesis', 'Every change of thesis', 'no'],
+    ])
+    fireEvent.click(container.querySelector('[data-pick-target="every:change"]') as HTMLElement)
+    expect(sent[0]).toEqual({ op: 'hold', id: 'list1', target: { kind: 'every', of: 'change', epic: null } })
+    fireEvent.click(container.querySelector('[data-release="every:issue"]') as HTMLElement)
+    expect(sent[1]).toEqual({ op: 'release', id: 'list1', target: EVERY_ISSUE })
+    expect(container.querySelector('[data-release="every:issue"]')?.textContent).toContain('every issue')
+  })
+})

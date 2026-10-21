@@ -7,6 +7,7 @@ import { NAMES } from '../store.ts'
 import { Book, bucketOf, groupOf, serialise, speaks, Unreadable, writeAtomic } from './book.ts'
 import { openBook, saveBook } from './checklists.ts'
 import { entrySchema, type Entry, type List, listSchema } from './shapes.ts'
+import { throughStanding } from './standing.ts'
 
 /**
  * What this module's folder takes up, and taking out what a person decides is
@@ -209,7 +210,7 @@ export function usage(projectPath: string | null | undefined, finished: readonly
         let last = latest(list.at, ...list.items.map((item) => item.at))
         let over = 0
         for (const [key, entry] of entries) {
-          if (entry.since !== undefined) held += 1
+          if (entry.since !== undefined || throughStanding(list, key, entry)) held += 1
           else if (entry.ticks && Object.keys(entry.ticks).length) released += 1
           ticks += Object.keys(entry.ticks ?? {}).length
           last = latest(last, lastOf(entry))
@@ -305,7 +306,8 @@ function take(book: Book, rule: Rule, finished: readonly Finished[] | null, now:
     const going = all.filter(([key, entry]) => {
       if (rule.scope === 'released') {
         const last = lastOf(entry)
-        return entry.since === undefined && speaks(entry) && last !== null && last < cutoff
+        /* Ticks a standing hold is still in front of are in use, not released. */
+        return entry.since === undefined && speaks(entry) && !throughStanding(list, key, entry) && last !== null && last < cutoff
       }
       const ref = refOf(key)
       const at = ref ? done!.get(ref) : undefined

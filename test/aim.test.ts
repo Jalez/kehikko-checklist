@@ -9,6 +9,9 @@ import {
   moduleLabels,
   moduleNamed,
   nameOf,
+  clickedLine,
+  setAside,
+  unpickLine,
   whyAside,
   whyEmpty,
   type Shown,
@@ -295,5 +298,31 @@ describe('a list for one module’s work follows the container picked out', () =
         + 'This lists it with every other checklist.',
     )
     expect(whyAside(0, [])).toBeNull()
+  })
+})
+
+describe('a click the picks set aside (Jalez/kehikko-checklist#32)', () => {
+  test('narrowed: the clicked refs no picked container shows, and the picked containers', () => {
+    const front = inFrontOf({ passage: null, selection: ['gh#900', 'gh#10'], containers: canvas(['kehikot.journeys']), aim: 'follow' })
+    /* gh#10 is shown by journeys, so it is in front anyway; gh#900 is set aside. */
+    expect(setAside(front, ['gh#900', 'gh#10'])).toEqual({ refs: ['gh#900'], picked: ['kehikot.journeys'] })
+    expect(clickedLine({ refs: ['gh#900'], picked: ['kehikot.journeys'] })).toBe(
+      'You clicked gh#900, but journeys is picked out, so this shows what that container shows.',
+    )
+    expect(clickedLine({ refs: ['gh#1', 'gh#2'], picked: ['kehikot.paper', 'kehikot.notes'] })).toBe(
+      'You clicked gh#1 and gh#2, but paper and notes are picked out, so this shows what those containers show.',
+    )
+    expect(unpickLine(['kehikot.journeys'])).toBe('To unpick journeys, untick the box in its header.')
+  })
+
+  test('not narrowed — nothing picked, or everything on the kehikko chosen — there is nothing to say', () => {
+    const none = inFrontOf({ passage: null, selection: ['gh#900'], containers: canvas(), aim: 'follow' })
+    expect(setAside(none, ['gh#900'])).toBeNull()
+    const all = inFrontOf({ passage: null, selection: ['gh#900'], containers: canvas(['kehikot.journeys']), aim: 'all' })
+    expect(setAside(all, ['gh#900'])).toBeNull()
+    /* And narrowed with nothing clicked, or only what a picked container shows. */
+    const picked = inFrontOf({ passage: null, selection: ['gh#10'], containers: canvas(['kehikot.journeys']), aim: 'follow' })
+    expect(setAside(picked, ['gh#10'])).toBeNull()
+    expect(setAside(picked, [])).toBeNull()
   })
 })

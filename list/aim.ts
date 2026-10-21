@@ -249,6 +249,45 @@ export function whyEmpty(front: InFront, aside: readonly string[] = []): string 
   return `${who} ${names.length === 1 ? 'is' : 'are'} picked out; no checklist is held against what ${names.length === 1 ? 'it shows' : 'they show'}.${tail}`
 }
 
+/**
+ * The refs somebody clicked that this pane is NOT showing, because the picks
+ * narrow it (Jalez/kehikko-checklist#32).
+ *
+ * The rule stays as it is — "some picked out: the union of what those show,
+ * and nothing else" — and the selection is set aside while containers are
+ * picked out. What this adds is that the setting-aside is SAID: a click that
+ * leaves the pane as it was, with nothing on it saying why, looks like a pane
+ * that does not work, and the cause is a tick in another container's header
+ * that may have been put there long ago or for an agent's sake.
+ *
+ * Null when nothing narrows, or when every clicked ref is in front anyway
+ * because a picked container shows it too. Otherwise those refs and the
+ * picked-out containers, whether or not those containers have lists.
+ */
+export function setAside(front: Pick<InFront, 'narrowed' | 'refs' | 'picked'>, selection: readonly string[]): { refs: string[]; picked: string[] } | null {
+  if (!front.narrowed) return null
+  const refs = dedupe(selection.filter((ref) => !front.refs.includes(ref)))
+  return refs.length ? { refs, picked: [...front.picked] } : null
+}
+
+/** The line for refs set aside: what was clicked, what is picked out, and what the pane shows instead. */
+export function clickedLine(aside: { refs: readonly string[]; picked: readonly string[] }): string {
+  const one = aside.picked.length === 1
+  return (
+    `You clicked ${list(aside.refs)}, but ${list(aside.picked.map(nameOf))} ${one ? 'is' : 'are'} picked out, `
+    + `so this shows what ${one ? 'that container shows' : 'those containers show'}.`
+  )
+}
+
+/**
+ * Where to unpick the containers, in words: a container's pick is the host's
+ * own control and no method moves it, so the way out is named, not pressed.
+ */
+export function unpickLine(picked: readonly string[]): string {
+  const one = picked.length === 1
+  return `To unpick ${list(picked.map(nameOf))}, untick the box in ${one ? 'its header' : 'their headers'}.`
+}
+
 /** The last word of a module id, which is what the ids look like: `kehikot.journeys` is `journeys`. */
 export function nameOf(module: string): string {
   const cut = module.lastIndexOf('.')

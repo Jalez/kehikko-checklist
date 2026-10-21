@@ -279,3 +279,49 @@ for (const sent of SHAPES) describe(`the checklists follow the picked parts, wha
     expect(box.value).toBe('half an item, typed and not sent')
   })
 })
+
+describe('a click the picks set aside is said (Jalez/kehikko-checklist#32)', () => {
+  test('with a container picked out, a clicked ref it does not show gets one line and both ways out', async () => {
+    const posted: unknown[] = []
+    const was = HOST.postMessage
+    ;(HOST as { postMessage: (message: unknown) => void }).postMessage = (message: unknown) => posted.push(message)
+    try {
+      render(<App />)
+      await say('hello', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], [], { selected: true, selection: ['gh#105'] }))
+      await waitFor(() => expect(document.querySelector('[data-clicked]')).toBeTruthy())
+      const line = document.querySelector('[data-clicked]')!
+      expect(line.getAttribute('data-clicked')).toBe('gh#105')
+      expect(line.textContent).toContain('You clicked gh#105, but paper is picked out, so this shows what that container shows.')
+      /* The picked container's lists are still what is drawn: the rule is kept. */
+      expect(drawn()).not.toContain('+Change 1/1')
+      /* Way out one: this container's aim, one press. */
+      const show = line.querySelector('[data-show-clicked]') as HTMLElement
+      expect(show.textContent).toBe('Show gh#105 instead')
+      /* Way out two: the host's own control, named. */
+      expect(line.querySelector('[data-unpick]')?.textContent).toBe('To unpick paper, untick the box in its header.')
+      await act(async () => {
+        fireEvent.click(show)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      })
+      const asked = posted.find((one) => (one as { method?: string }).method === 'filters.set') as { params?: unknown } | undefined
+      expect(asked?.params).toEqual({ filters: { aim: 'all' } })
+    } finally {
+      ;(HOST as { postMessage: unknown }).postMessage = was
+    }
+  })
+
+  test('the line is there when the picked containers have no lists too, beside the sentence that says so', async () => {
+    render(<App />)
+    const bare = canvas('chapters/4_results.tex', [], [], { selected: true, selection: ['gh#105'] })
+    await say('hello', bare)
+    await waitFor(() => expect(document.querySelector('[data-clicked]')).toBeTruthy())
+    expect(document.querySelector('[data-none="narrowed"]')?.textContent).toContain('paper is picked out')
+  })
+
+  test('with nothing picked out the click is in front and there is no line', async () => {
+    render(<App />)
+    await say('hello', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], [], { selection: ['gh#105'] }))
+    await waitFor(() => expect(drawn()).toContain('+Change 1/1'))
+    expect(document.querySelector('[data-clicked]')).toBeNull()
+  })
+})
