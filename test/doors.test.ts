@@ -1154,3 +1154,59 @@ describe('states over MCP and the page', () => {
     expect(tools.find((one) => one.name === 'check_item')?.inputSchema.properties.state?.enum).toEqual(['passed', 'failed', 'na'])
   })
 })
+
+describe('every issue or every change (Jalez/kehikko-checklist#31)', () => {
+  test('hold_checklist takes every, and checklists lists the standing hold', async () => {
+    const { list } = await aList('What an issue owes')
+    const held = await tool('hold_checklist', { checklist: list, every: 'issue' })
+    expect(held.isError).toBe(false)
+    expect(held.text).toContain('is now held against every issue')
+    const all = await tool('checklists', {})
+    expect(all.text).toContain('held against every issue)')
+    const one = await tool('checklists', { checklist: list })
+    expect(one.text).toContain('Held against: every issue (each ref its own ticks)')
+    const epic = await tool('hold_checklist', { checklist: list, every: 'change', epic: 'thesis' })
+    expect(epic.text).toContain('is now held against every change of thesis')
+    expect((await tool('checklists', {})).text).toContain('held against every issue, every change of thesis)')
+  })
+
+  test('a word that is neither kind is refused, and so is a tick against every', async () => {
+    const { list, item } = await aList('What an issue owes')
+    expect((await tool('hold_checklist', { checklist: list, every: 'mr' })).isError).toBe(true)
+    await tool('hold_checklist', { checklist: list, every: 'issue' })
+    const tick = await tool('check_item', { checklist: list, item, every: 'issue' })
+    expect(tick.isError).toBe(true)
+    expect(tick.text).toContain('one ref at a time')
+  })
+
+  test('the list schema offers every as issue or change', async () => {
+    const { answerAt: answer } = await import('../doors.ts')
+    const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
+    const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }[] } }).result.tools
+    expect(tools.find((one) => one.name === 'hold_checklist')?.inputSchema.properties.every?.enum).toEqual(['issue', 'change'])
+  })
+
+  test('/api/here puts the list in front of a ref the page read as an issue, and says one it could not', async () => {
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
+    const { list, item } = await aList('What an issue owes')
+    expect(answer('POST', '/api/checklist', query, { op: 'hold', id: list, every: 'issue', project: dir }, TICKET)?.status).toBe(200)
+    answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, ref: 'gh#105', done: true, project: dir }, TICKET)
+
+    const here = (refs: string, kinds: string[]) => {
+      const ask = asking({ refs })
+      for (const one of kinds) ask.append('kind', one)
+      return answer('GET', '/api/here', ask, null, null)?.body as {
+        instances: { target: { ref: string }; done: number; through?: { kind: string }[] }[]
+        undecided: { ref: string }[]
+      }
+    }
+    const read = here('gh#105 gh#106 gh#9', ['gh#105\tissue', 'gh#106\tissue'])
+    expect(read.instances.map((one) => [one.target.ref, one.done, one.through?.[0]?.kind])).toEqual([
+      ['gh#105', 1, 'every'],
+      ['gh#106', 0, 'every'],
+    ])
+    expect(read.undecided.map((one) => one.ref)).toEqual(['gh#9'])
+    /* A kind for a ref that is not in front is not read. */
+    expect(here('gh#9', ['gh#105\tissue']).instances).toEqual([])
+  })
+})

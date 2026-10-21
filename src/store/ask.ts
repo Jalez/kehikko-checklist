@@ -7,6 +7,7 @@ import type { Target } from '../../list/targets.ts'
 import type { Evidence, Fact } from '../../list/evidence.ts'
 import type { TickState } from '../../list/shapes.ts'
 import type { Shown } from '../../list/aim.ts'
+import type { RefsRead, UndecidedRef } from '../../list/standing.ts'
 import type { Finished, Plan, Report, Scope } from '../../list/storage.ts'
 
 /**
@@ -137,6 +138,12 @@ export interface Here {
   positions: (Placed | null)[]
   /** One entry per (checklist, target) pairing in front of the reader. `held.target` is never null here. */
   instances: Held[]
+  /**
+   * Refs in front a list standing against every issue or every change could
+   * not be decided for — the tracker has not said what they are — with those
+   * lists' names. Said on the pane, never guessed (`list/standing.ts`).
+   */
+  undecided?: UndecidedRef[]
   trouble: string | null
   nowhere: boolean
   /**
@@ -173,9 +180,15 @@ export async function whatIsHere(
    * from `epic`, which is left out when the paper is not in front.
    */
   following: { kehikko: string; modules: readonly string[]; epic: string | null } | null = null,
+  /**
+   * What the host's tracker reading said about those refs: each one's kind,
+   * and which of them the epics a standing hold names name. What a list held
+   * against every issue or every change is asked by (Jalez/kehikko-checklist#31).
+   */
+  read: RefsRead | null = null,
 ): Promise<Here> {
   const body = replied(
-    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
+    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; undecided?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
       query: {
         epic: epic || null,
         doc: epic ? documents.map((at) => (at.from !== null && at.to !== null ? `${at.path}\t${at.from}\t${at.to}` : at.path)) : [],
@@ -184,6 +197,9 @@ export async function whatIsHere(
         kehikko: following && following.modules.length ? following.kehikko : null,
         module: following ? [...following.modules] : [],
         open: following?.epic || null,
+        kind: read ? Object.entries(read.kinds).map(([ref, kind]) => `${ref}\t${kind}`) : [],
+        'epic-read': read ? Object.keys(read.epics) : [],
+        'in-epic': read ? Object.entries(read.epics).flatMap(([epic, refs]) => refs.map((ref) => `${epic}\t${ref}`)) : [],
         project: projectPath || null,
       },
     }),
@@ -192,6 +208,7 @@ export async function whatIsHere(
     placed: (body.placed as Placed | null) ?? null,
     positions: Array.isArray(body.positions) ? (body.positions as (Placed | null)[]) : [],
     instances: Array.isArray(body.instances) ? (body.instances as Held[]) : [],
+    undecided: Array.isArray(body.undecided) ? (body.undecided as UndecidedRef[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
     nowhere: body.nowhere === true,
     whole: body.whole === true,
@@ -339,7 +356,9 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
         ? { ref: change.target.ref }
         : change.target.kind === 'kehikko'
           ? { kehikko: change.target.kehikko, module: change.target.module, ...(change.target.epic ? { epic: change.target.epic } : {}) }
-          : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
+          : change.target.kind === 'every'
+            ? { every: change.target.of, ...(change.target.epic ? { epic: change.target.epic } : {}) }
+            : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
       : {}
   const { ...sent } = change as Record<string, unknown>
   delete sent.target

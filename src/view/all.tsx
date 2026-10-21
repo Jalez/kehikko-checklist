@@ -6,6 +6,7 @@ import { Sheet } from '@/view/sheet.tsx'
 import type { Room } from '@/view/room.ts'
 import { cn } from '@/lib/utils.ts'
 import { nameOf } from '../../list/aim.ts'
+import { targetName } from '../../list/targets.ts'
 
 /**
  * Every checklist in the project, reached on purpose.
@@ -197,7 +198,7 @@ export function AllView({
                 <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground" data-summary>
                   {list.items}
                   {room.prose ? ` item${list.items === 1 ? '' : 's'}` : ''}
-                  {room.prose ? (list.targets ? `, held against ${list.targets}` : ', held against nothing') : ''}
+                  {room.prose ? heldSaid(list) : ''}
                   {/* Whose work it is for, as the reading page's row says it. */}
                   {room.prose && list.for ? `, for ${nameOf(list.for)}` : ''}
                 </span>
@@ -241,4 +242,11 @@ export function AllView({
       )}
     </section>
   )
+}
+
+/** What a row says a list is held against: its standing holds by name, then how many targets besides. */
+function heldSaid(list: Summary): string {
+  const standing = (list.standing ?? []).map(targetName)
+  if (!standing.length) return list.targets ? `, held against ${list.targets}` : ', held against nothing'
+  return `, held against ${standing.join(', ')}${list.targets ? ` and ${list.targets} more` : ''}`
 }

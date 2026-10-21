@@ -60,7 +60,7 @@ describe('the manifest', () => {
        and kept on a tick as evidence, and every tick is still a press
        (Jalez/kehikko-checklist#1). `trackers:refresh` is not here — spending
        the person's rate limit was not asked for. */
-    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'projects:pick', 'trackers:read'])
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'filters:set', 'projects:pick', 'trackers:read'])
     expect(MANIFEST.declares.uses).not.toContain('trackers:refresh')
     expect(MANIFEST.declares.uses).not.toContain('state:keep')
     expect(MANIFEST.declares.uses).not.toContain('live:read')

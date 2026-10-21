@@ -10,6 +10,7 @@ import { everywhere, following, rungTarget, showing } from './holding.ts'
 import { rungsFrom } from './scope.ts'
 import { moduleNamed } from './aim.ts'
 import { heldAs, readKey, targetKey, targetName, type Target } from './targets.ts'
+import { covers, NOTHING_READ, standingTarget, standsAt, tickedUnheld, type RefsRead, type UndecidedRef } from './standing.ts'
 
 /**
  * Every checklist this app holds, and every tick anybody has made on one.
@@ -507,6 +508,12 @@ export interface Summary {
   targets: number
   /** Which ones, so the screen listing every checklist can say where each is in use. */
   held: Target[]
+  /**
+   * Every issue or every change it stands against (Jalez/kehikko-checklist#31),
+   * which `targets` does not count: a standing hold is on the list, not in its
+   * folder. Empty for a list that stands nowhere; absent from an older server.
+   */
+  standing?: Target[]
   /** The module whose work it is for. Absent for every module's. */
   for?: string
 }
@@ -523,6 +530,12 @@ export interface Held {
   checklist: Checklist
   /** The target these ticks are for, or null when the list is being read on its own. */
   target: Target | null
+  /**
+   * The standing holds this instance is in front through — every issue, every
+   * change — when the list is not held against its ref by itself. Absent
+   * otherwise. The ticks are the ref's either way.
+   */
+  through?: Target[]
   rows: { item: Item; done: Tick | null }[]
   /** How many items are ticked `passed`. Failed and not applicable are in `counts`. */
   done: number
@@ -570,6 +583,7 @@ function summaries(book: Book): Summary[] {
       items: list.items.length,
       targets: list.holds,
       held: list.holds && list.holds <= SAMPLE ? sample(book, list.id) : [],
+      standing: (list.standing ?? []).map(standingTarget),
       ...(list.for ? { for: list.for } : {}),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -636,14 +650,20 @@ export function held(
  */
 export function targetsOf(id: string, projectPath: string | null | undefined): { target: Target; done: number }[] {
   return reading(projectPath, [] as { target: Target; done: number }[], (book) => {
-    if (!book.lists[id]) return []
-    return book
+    const list = book.lists[id]
+    if (!list) return []
+    /* Standing holds first: they are on the list and have no ticks of their own — each ref's are its own. */
+    const standing = (list.standing ?? []).map((hold) => ({ target: standingTarget(hold), done: 0 }))
+    return [
+      ...standing,
+      ...book
       .heldKeys(id)
       .map((key) => {
         const target = readKey(key)
         return target ? { target, done: Object.keys(book.entry(id, key)?.ticks ?? {}).length } : null
       })
-      .filter((row): row is { target: Target; done: number } => row !== null)
+      .filter((row): row is { target: Target; done: number } => row !== null),
+    ]
   }).value
 }
 
@@ -653,7 +673,12 @@ export function targetsOf(id: string, projectPath: string | null | undefined): {
  * or a hold, which is every press.
  */
 export function holds(id: string, target: Target, projectPath: string | null | undefined): boolean {
-  return reading(projectPath, false, (book) => Boolean(book.lists[id]) && book.holds(id, targetKey(target))).value
+  return reading(projectPath, false, (book) => {
+    const list = book.lists[id]
+    if (!list) return false
+    if (target.kind === 'every') return standsAt(list.standing, target) !== -1
+    return book.holds(id, targetKey(target))
+  }).value
 }
 
 /**
@@ -693,10 +718,22 @@ export function inFront(
     selection: string[]
     whole?: string | null
     following?: { kehikko: string; modules: readonly string[]; epic: string | null } | null
+    /**
+     * What the host's tracker reading said about the refs in front: each
+     * one's kind, and which of them the epics a standing hold names name.
+     * What a list held against every issue or every change is asked by
+     * (`list/standing.ts`, Jalez/kehikko-checklist#31).
+     */
+    read?: RefsRead
   },
   projectPath: string | null | undefined,
-): { instances: Held[]; trouble: string | null; nowhere: boolean } {
+): { instances: Held[]; undecided: UndecidedRef[]; trouble: string | null; nowhere: boolean } {
+  const read = input.read ?? NOTHING_READ
+  const undecided = new Map<string, UndecidedRef>()
   const got = reading(projectPath, [] as Held[], (book) => {
+    undecided.clear()
+    /* Which standing holds put a list in front of a ref, by `<list>|<key>`, for the row's label. */
+    const through = new Map<string, Target[]>()
     const ladders = input.ladders.length ? input.ladders : ['']
     /*
      * The keys anything in front could be held under: each reference, each
@@ -714,12 +751,32 @@ export function inFront(
         : []),
     ])
     const lists = Object.values(book.lists)
-      .filter((list) => list.holds > 0)
+      .filter((list) => list.holds > 0 || list.standing?.length)
       .map((list) => {
-        const targets = [...asked].filter((key) => book.holds(list.id, key))
-        if (input.whole) {
+        const targets = list.holds > 0 ? [...asked].filter((key) => book.holds(list.id, key)) : []
+        if (input.whole && list.holds > 0) {
           for (const [key, entry] of book.group(list.id, `paper:${input.whole}`)) {
             if (entry.since !== undefined && !targets.includes(key)) targets.push(key)
+          }
+        }
+        /*
+         * Each ref in front that this list is not held against by itself, and
+         * that one of its standing holds covers, is in front as that ref: the
+         * same key and so the same ticks a hold by hand would have. One the
+         * tracker has not decided is said, never guessed.
+         */
+        for (const ref of list.standing?.length ? input.selection : []) {
+          const key = targetKey({ kind: 'ref', ref })
+          if (targets.includes(key)) continue
+          const covered = covers(list.standing, ref, read)
+          if (covered.answer === 'yes') {
+            targets.push(key)
+            through.set(`${list.id}|${key}`, covered.through.map(standingTarget))
+          } else if (covered.answer === 'unknown') {
+            const row = undecided.get(ref) ?? { ref, why: covered.why, lists: [] }
+            if (covered.why === 'kind') row.why = 'kind'
+            if (!row.lists.includes(list.name)) row.lists.push(list.name)
+            undecided.set(ref, row)
           }
         }
         return { id: list.id, name: list.name, targets }
@@ -742,10 +799,12 @@ export function inFront(
       })
       .flatMap((one) => {
         const list = book.lists[one.id]
-        return list ? [heldOf(book, list, one.target)] : []
+        if (!list) return []
+        const by = through.get(`${one.id}|${targetKey(one.target)}`)
+        return [by ? { ...heldOf(book, list, one.target), through: by } : heldOf(book, list, one.target)]
       })
   })
-  return { instances: got.value, trouble: got.trouble, nowhere: got.nowhere }
+  return { instances: got.value, undecided: [...undecided.values()], trouble: got.trouble, nowhere: got.nowhere }
 }
 
 /* ------------------------------------------------------------------ *
@@ -1140,6 +1199,57 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     return answer(input.id, `"${list.name}" is gone, along with every tick made on it`, null)
   }
 
+  if ((input.op === 'hold' || input.op === 'release') && input.target.kind === 'every') {
+    /*
+     * Every issue or every change: one line on the list in `lists.json`, and
+     * nothing in its folder (`list/standing.ts`). Holding writes no ref;
+     * releasing deletes no tick.
+     */
+    const target = input.target
+    const standing = list.standing ?? []
+    const was = standsAt(standing, target)
+    const name = targetName(target)
+    if (input.op === 'hold') {
+      if (was !== -1) return answer(list.id, `"${list.name}" is already held against ${name}`, null)
+      list.standing = [...standing, { of: target.of, ...(target.epic ? { epic: target.epic } : {}), since: at }]
+      book.touch()
+      return answer(
+        list.id,
+        `"${list.name}" is now held against ${name}: it is in front of every ${target.of === 'issue' ? 'issue' : 'merge request and pull request'}`
+        + `${target.epic ? ` ${target.epic} names` : ''} as the host's tracker reads it, and each keeps its own ticks`,
+        null,
+      )
+    }
+    if (was === -1) return answer(list.id, `"${list.name}" was not held against ${name}`, null)
+    const left = standing.filter((_, at_) => at_ !== was)
+    if (left.length) list.standing = left
+    else delete list.standing
+    book.touch()
+    /*
+     * The ticks made on each ref stay under that ref, as a release always
+     * leaves them. With no standing hold left they are ticks on refs the list
+     * is not held against — released ones — and are marked so, which is what
+     * Storage counts as kept and what Purge measures an age by. With another
+     * standing hold left they may still be in front, and are left alone.
+     */
+    let kept = 0
+    if (!left.length) {
+      for (const [key, entry] of book.all(list.id)) {
+        if (!tickedUnheld(key, entry)) continue
+        kept += 1
+        book.set(list.id, key, { ...entry, released: at })
+      }
+    }
+    return answer(
+      list.id,
+      `"${list.name}" is no longer held against ${name}`
+      + (kept
+        ? `; the ticks made on ${kept === 1 ? 'one ref are' : `${kept} refs are`} kept and come back if it is held again`
+        : '; the ticks made on each ref are kept'),
+      null,
+    )
+  }
+
   if (input.op === 'hold' || input.op === 'release') {
     /* One epic's run of a container is held as the container: see `heldAs`. */
     const target = heldAs(input.target)
@@ -1304,6 +1414,15 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
    * opposite of that, and the sentence it gets back says what it just did.
    * An untick holds nothing: taking a tick back is not a claim about the work.
    */
+  /* Every issue or every change is never what a tick is filed under: each ref keeps its own. */
+  if (input.target.kind === 'every') {
+    return {
+      ok: false,
+      error:
+        `"${list.name}" held against ${targetName(input.target)} is ticked one ref at a time: the ticks on one issue `
+        + 'say nothing about another. Name the ref the tick is for, e.g. "gh#105". Nothing was changed.',
+    }
+  }
   /*
    * A tick on a module's container on a kehikko is a tick on one epic's run of
    * it, and has to say which: the ticks for one epic's run say nothing about
@@ -1331,7 +1450,16 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
   /* What a tick holds is what a hold would: the container, for a run of one. */
   const holdsNow = heldAs(input.target)
   const holdKey = targetKey(holdsNow)
-  const newlyHeld = input.done && !book.holds(list.id, holdKey)
+  /*
+   * A ref a standing hold may cover is NOT held by its tick: the list is in
+   * front of it already, or will be once the tracker says what it is, and a
+   * hold by hand would keep it in front after the standing hold is released.
+   * "May": this store has no tracker reading, so a ref whose spelling does not
+   * say its kind is given the benefit of the doubt (`list/standing.ts`).
+   */
+  const standing =
+    input.target.kind === 'ref' && !book.holds(list.id, holdKey) && covers(list.standing, input.target.ref, NOTHING_READ).answer !== 'no'
+  const newlyHeld = input.done && !standing && !book.holds(list.id, holdKey)
   if (newlyHeld) hold(book, list, holdKey, at)
   const was = book.entry(list.id, key)
   const forTarget: Record<string, Tick> = { ...(was?.ticks ?? {}) }
@@ -1357,6 +1485,8 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
      is not held, is a target nothing is recorded against, and the entry goes
      (`Book.set` drops an entry that says nothing). */
   const { ticks: _old, ...rest } = was ?? {}
+  /* A ref ticked through a standing hold is in use again, not released (`throughStanding`). */
+  if (standing) delete rest.released
   book.set(list.id, key, { ...rest, ...(Object.keys(forTarget).length ? { ticks: forTarget } : {}) })
 
   const item = list.items[where]!
@@ -1365,6 +1495,10 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     input.done
       ? `${item.id} on "${list.name}" is ${STATE_PHRASE[input.state ?? 'passed']} for ${key}, by ${by}`
         + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(holdsNow)}` : '')
+        + (standing
+          ? `; "${list.name}" stands against ${(list.standing ?? []).map((one) => targetName(standingTarget(one))).join(' and ')}, `
+            + `so ${key.slice(4)} was not held on its own: the list is in front of it while the host's tracker reads it as one of those`
+          : '')
       : `${item.id} on "${list.name}" is no longer ticked for ${key}`,
     input.target,
   )

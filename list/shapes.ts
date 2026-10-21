@@ -282,6 +282,14 @@ export type Legacy = z.infer<typeof legacySchema>
  * Layout 2: what `list/book.ts` writes
  * ------------------------------------------------------------------ */
 
+/** One standing hold: which kind of ref, which epic's (absent: the whole project's), and since when. */
+export const standingSchema = z.object({
+  of: z.enum(['issue', 'change']),
+  epic: z.string().optional(),
+  since: z.string(),
+})
+export type StandingHold = z.infer<typeof standingSchema>
+
 /**
  * One checklist as `lists.json` holds it: what the list SAYS, and none of
  * what it is held against.
@@ -299,6 +307,17 @@ export type Legacy = z.infer<typeof legacySchema>
 export const listSchema = checklistSchema.omit({ targets: true }).extend({
   holds: z.number().int().min(0).default(0),
   next: z.number().int().min(0).default(0),
+  /**
+   * What this list STANDS against: every issue, or every change, of the
+   * project — or of one epic (Jalez/kehikko-checklist#31). See
+   * `list/standing.ts`.
+   *
+   * Here, with what the list says, and never in its folder: a standing hold
+   * names no one target, so it has no bucket, and nothing per ref is written
+   * for it until somebody ticks one. Optional, so every `lists.json` written
+   * before it reads as it did: no list stands anywhere.
+   */
+  standing: z.array(standingSchema).optional(),
 })
 export type List = z.infer<typeof listSchema>
 

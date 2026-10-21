@@ -2,10 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { Edit, Held, Here } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
-import { targetKey, targetNoun, type Target } from '../../list/targets.ts'
+import { targetKey, targetName, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
 import { countRows, stateOf, type TickState } from '../../list/shapes.ts'
-import { nameOf } from '../../list/aim.ts'
+import { clickedLine, nameOf, unpickLine } from '../../list/aim.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -115,6 +115,10 @@ export function HereView({
   room,
   facts = null,
   kehikko = null,
+  none = null,
+  undecided = null,
+  clicked = null,
+  onShowClicked,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
@@ -136,6 +140,21 @@ export function HereView({
   facts?: Facts | null
   /** The kehikko this page is on, whose name a list held against a container on it is labelled with. */
   kehikko?: { key?: string; name: string } | null
+  /**
+   * Why an empty pane with refs in front is empty: nothing is held against
+   * them, or no checklist applies to them though some stand against every
+   * issue or every change. See `noneLine` in `list/standing.ts`.
+   */
+  none?: { said: string; why: 'nothing-held' | 'none-applies' } | null
+  /** The line for refs a standing hold could not be decided for, or null. See `undecidedLine`. */
+  undecided?: string | null
+  /**
+   * Refs somebody clicked that the picks set aside, and the picked-out
+   * containers — `setAside` in `list/aim.ts` (Jalez/kehikko-checklist#32).
+   */
+  clicked?: { refs: string[]; picked: string[] } | null
+  /** Show the clicked refs instead: this container's aim on everything. Resolves false when the host would not. */
+  onShowClicked?: () => Promise<boolean>
 }) {
   /* Which instances a person folded or unfolded, keyed by list and target, so
      the same list against two targets folds separately. Only what was pressed
@@ -143,6 +162,10 @@ export function HereView({
      "Several" above — so a new instance arriving after a scroll needs nothing
      from this. */
   const [turned, setTurned] = useState<Record<string, boolean>>({})
+  /* Whether the host refused to move the aim, so the line says where to move it by hand. Reset by a new click. */
+  const [refused, setRefused] = useState(false)
+  const clickedKey = clicked ? clicked.refs.join(' ') : ''
+  useEffect(() => setRefused(false), [clickedKey])
 
   /*
    * Which instance was at the scroller's top edge, and how far below the edge it sat, kept
@@ -207,6 +230,21 @@ export function HereView({
   if (!here) return null
 
   const several = here.instances.length > 1
+  /*
+   * What an empty pane says, in order: the picks emptied it; the refs in
+   * front have nothing held or nothing that applies (`none`); and, when the
+   * only refs are ones the tracker has not decided, nothing — the undecided
+   * line below says it. Otherwise the page's own two sentences.
+   */
+  const emptySaid =
+    why
+    ?? none?.said
+    ?? (undecided
+      ? null
+      : somewhere
+        ? 'No checklist is held against what is in front of you.'
+        : 'Nothing is in front of you: no paper is open and nothing is selected.')
+  const emptyKind = why ? 'narrowed' : none ? none.why : somewhere ? 'held' : 'front'
 
   return (
     <section
@@ -217,6 +255,37 @@ export function HereView({
       data-here={here.instances.length}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
+      {/* A click the picks set aside, said where the click was expected to land
+          (Jalez/kehikko-checklist#32): whether or not the picked containers have
+          lists, and above them, because it is about what is NOT drawn. */}
+      {clicked ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-1 border-b px-2 py-1.5 text-[0.7rem] leading-4" data-clicked={clicked.refs.join(' ')}>
+          <span className="min-w-0 basis-full text-muted-foreground">{clickedLine(clicked)}</span>
+          {onShowClicked ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="container"
+              data-show-clicked
+              title="Show everything on this kehikko, whatever is picked out: this container's aim filter."
+              onClick={() => {
+                void onShowClicked().then((ok) => setRefused(!ok))
+              }}
+            >
+              {`Show ${clicked.refs.length === 1 ? clicked.refs[0] : 'them'} instead`}
+            </Button>
+          ) : null}
+          <span className="min-w-0 basis-full text-muted-foreground" data-unpick>
+            {unpickLine(clicked.picked)}
+          </span>
+          {refused ? (
+            <span className="min-w-0 basis-full text-muted-foreground" data-aim-refused>
+              The host did not move it: choose “everything on this kehikko” under aim in this container’s header.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
       {here.instances.length ? (
         <div
           /* `before:` is a snap area of no height at the very start, so the
@@ -251,6 +320,8 @@ export function HereView({
                    narration owes — say which is about which. */
                 label={
                   labelOf(target, placeAmong(target, here.positions) ?? here.placed, null, kehikko)
+                  /* In front through a standing hold, not held here by hand: say which. */
+                  + (held.through?.length ? ` · ${held.through.map(targetName).join(', ')}` : '')
                   + (held.checklist.for ? ` · for ${nameOf(held.checklist.for)}` : '')
                 }
                 open={open}
@@ -265,17 +336,28 @@ export function HereView({
             )
           })}
         </div>
-      ) : (
+      ) : emptySaid ? (
         <p
           className={cn('px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground', room.pinned && 'min-h-0 flex-1')}
-          data-none={why ? 'narrowed' : somewhere ? 'held' : 'front'}
+          data-none={emptyKind}
         >
-          {why
-            ?? (somewhere
-              ? 'No checklist is held against what is in front of you.'
-              : 'Nothing is in front of you: no paper is open and nothing is selected.')}
+          {emptySaid}
         </p>
-      )}
+      ) : null}
+
+      {/* A list that stands against every issue or every change and could not be
+          decided for a ref in front: said, never guessed (`list/standing.ts`). */}
+      {undecided ? (
+        <p
+          className={cn(
+            'shrink-0 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground',
+            here.instances.length ? 'border-t' : room.pinned && 'min-h-0 flex-1',
+          )}
+          data-undecided
+        >
+          {undecided}
+        </p>
+      ) : null}
 
       {trouble ? (
         <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-failed">{trouble}</p>

@@ -153,6 +153,31 @@ export type Target =
    * there is one hold per pair however many epics have been run through it.
    */
   | { kind: 'kehikko'; kehikko: string; module: string; epic: string | null }
+  /**
+   * Every issue, or every change, of the project — optionally only those of
+   * one epic (Jalez/kehikko-checklist#31).
+   *
+   * ## A standing hold, and why it is not a ref
+   *
+   * An issue checklist is meant for every issue and a review checklist for
+   * every merge request. Held one ref at a time, coverage was only as complete
+   * as whoever last went through the tracker, and every new issue started
+   * uncovered — with an empty pane that read as "this owes nothing" when it
+   * meant "nobody held a list here".
+   *
+   * So this is held once and never fanned out: it lives on the list in
+   * `lists.json` (`standing` in `list/shapes.ts`), and a ref is in front with
+   * the list when the host's tracker reading says the ref is that kind
+   * (`list/standing.ts`). It is NEVER what a tick is filed under. The ticks on
+   * `gh#105` are filed under `ref:gh#105` exactly as a held ref's are, so
+   * `gh#105` and `gh#106` keep two sets, and releasing the standing hold keeps
+   * them as releasing any target does.
+   */
+  | { kind: 'every'; of: RefKind; epic: string | null }
+
+/** What a standing hold covers: the tracker's own two kinds (`TRACKER_KINDS`). */
+export type RefKind = 'issue' | 'change'
+export const REF_KINDS: readonly RefKind[] = ['issue', 'change']
 
 /**
  * One component of a target key, bounded rather than matched against a grammar
@@ -194,6 +219,7 @@ export function part(value: unknown): string | null {
  */
 export function targetKey(target: Target): string {
   if (target.kind === 'ref') return `ref:${target.ref}`
+  if (target.kind === 'every') return `every:${target.of}${target.epic ? `/${target.epic}` : ''}`
   if (target.kind === 'kehikko') {
     return `kehikko:${target.kehikko}/${target.module}${target.epic ? `/${target.epic}` : ''}`
   }
@@ -220,6 +246,13 @@ export function readKey(key: string): Target | null {
     if (cut === -1) return { kind: 'paper', epic, section: null }
     const section = part(rest.slice(cut + 1))
     return section ? { kind: 'paper', epic, section } : null
+  }
+  if (key.startsWith('every:')) {
+    const [of, epic, extra] = key.slice(6).split('/')
+    if (extra !== undefined || !REF_KINDS.includes(of as RefKind)) return null
+    if (epic === undefined) return { kind: 'every', of: of as RefKind, epic: null }
+    const named = part(epic)
+    return named ? { kind: 'every', of: of as RefKind, epic: named } : null
   }
   if (key.startsWith('kehikko:')) {
     const [kehikko, module, epic, extra] = key.slice(8).split('/')
@@ -274,9 +307,21 @@ export function readTarget(input: {
   section?: unknown
   kehikko?: unknown
   module?: unknown
+  every?: unknown
 }): Target | null {
   const ref = part(input.ref)
   if (ref) return { kind: 'ref', ref }
+  /* Every issue or every change, the epic beside it narrowing to that epic's
+     refs. Refused whole when it names neither kind, rather than falling
+     through to the epic's paper: somebody who said "every" did not mean a
+     paper. */
+  if (input.every !== undefined && input.every !== null && input.every !== '') {
+    if (!REF_KINDS.includes(input.every as RefKind)) return null
+    const given = input.epic !== undefined && input.epic !== null && input.epic !== ''
+    const epic = given ? part(input.epic) : null
+    if (given && !epic) return null
+    return { kind: 'every', of: input.every as RefKind, epic }
+  }
   /* A kehikko named is a container named, and the epic beside it is then the
      run being ticked rather than a paper: refused whole when the pair is not
      one, rather than falling through to a paper nobody asked about. */
@@ -296,6 +341,7 @@ export function readTarget(input: {
 /** What a target is called on a row, in this app's own words. */
 export function targetName(target: Target): string {
   if (target.kind === 'ref') return target.ref
+  if (target.kind === 'every') return everyName(target.of, target.epic)
   if (target.kind === 'kehikko') {
     const where = `${target.module} on kehikko ${target.kehikko}`
     return target.epic ? `${where} · ${target.epic}` : `${where}, whichever epic is open`
@@ -327,10 +373,24 @@ export function targetName(target: Target): string {
  */
 export function targetNoun(target: Target): string {
   if (target.kind === 'ref') return 'an issue, merge request or pull request'
+  if (target.kind === 'every') {
+    return target.epic
+      ? `every ${target.of === 'issue' ? 'issue' : 'merge request and pull request'} of one epic`
+      : `every ${target.of === 'issue' ? 'issue' : 'merge request and pull request'} of the project`
+  }
   if (target.kind === 'kehikko') {
     return target.epic
       ? 'a module’s container on one kehikko, for the epic open there'
       : 'a module’s container on one kehikko, whichever epic is open'
   }
   return target.section ? 'a section of a paper' : 'a paper'
+}
+
+/**
+ * What a standing hold is called on a row: "every issue", "every change of
+ * thesis". "Change" is the tracker's word for a merge request or a pull
+ * request, which is what the README calls it too.
+ */
+export function everyName(of: RefKind, epic: string | null): string {
+  return `every ${of}${epic ? ` of ${epic}` : ''}`
 }

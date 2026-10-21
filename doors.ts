@@ -20,12 +20,13 @@ import {
   type Op,
 } from './list/checklists.ts'
 import { moduleNamed } from './list/aim.ts'
+import type { RefsRead } from './list/standing.ts'
 import { stateOf, TICK_STATES, type TickState } from './list/shapes.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
 import { discard, preview, purge, restore, SCOPES, usage, usageText, type Finished, type Rule } from './list/storage.ts'
 import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
-import { MAX_TARGET_PART, part, readTarget, targetKey, targetName, type Target } from './list/targets.ts'
+import { MAX_TARGET_PART, part, readTarget, REF_KINDS, targetKey, targetName, type RefKind, type Target } from './list/targets.ts'
 import { filesNamed, placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 
@@ -236,7 +237,23 @@ const TARGET_PROPERTIES = {
     type: 'string',
     description:
       'The epic whose paper this list is being held against, as list_epics spells it. Give this OR a ref. With '
-      + 'kehikko and module, the epic whose run of that container is being ticked or read instead.',
+      + 'kehikko and module, the epic whose run of that container is being ticked or read instead. With every, '
+      + 'the epic whose issues or changes the list stands against, instead of the whole project\'s.',
+  },
+  /*
+   * Every issue or every change of the project, or of one epic
+   * (Jalez/kehikko-checklist#31): a standing hold. See the fourth kind in
+   * `list/targets.ts` and `list/standing.ts`.
+   */
+  every: {
+    type: 'string',
+    enum: [...REF_KINDS],
+    description:
+      'Instead of a ref, a paper or a container: "issue" to hold the list against EVERY issue of the project, '
+      + '"change" against every merge request and pull request — with epic, only those that epic names. The list '
+      + 'is then in front of a person on any such ref, including ones opened later, with nobody holding it ref by '
+      + 'ref; which kind a ref is, is the host\'s tracker reading\'s to say. Ticks stay per ref: to tick or read '
+      + 'one, give its ref, not every. Releasing keeps every tick made on each ref.',
   },
   /*
    * A module's container on one kehikko, whichever epic is open
@@ -387,6 +404,8 @@ function aimed(args: Record<string, unknown>, where: string, id: string, minting
   if (named.kind === 'kehikko') {
     return { target: { ...named, module: moduleNamed(named.module, modulesHere()) ?? named.module }, also: null }
   }
+  /* Every issue or every change is no place in a file either, and its epic is a name, never read off disk. */
+  if (named.kind === 'every') return { target: named, also: null }
   if (named.kind === 'ref' || named.section) return settle(named, where, id, minting, 'paper')
   const path = str(args.path, MAX_PROJECT)
   if (!path) return { target: named, also: null }
@@ -476,6 +495,40 @@ function settle(named: Target, where: string, id: string, minting: boolean, firs
     + 'and this app works the id out.',
   )
 }
+
+/** How many epics' refs one request may say it read: one per epic a standing hold names, which is a few. */
+const MAX_EPICS_READ = 16
+
+/**
+ * What the page's tracker reading said about the refs in front, off the
+ * query (Jalez/kehikko-checklist#31): `kind` is `<ref>\t<issue|change>`,
+ * `epic-read` an epic whose refs the page read, and `in-epic`
+ * `<epic>\t<ref>` for each ref in front that epic names. Bounded to the refs
+ * in front and read leniently: a row that does not parse is a ref whose kind
+ * is not known, which the page then says.
+ */
+function refsRead(query: URLSearchParams, selection: readonly string[]): RefsRead {
+  const front = new Set(selection)
+  /* No prototype: a ref or an epic is a name somebody spelled, and `__proto__` is one. */
+  const kinds: Record<string, RefKind> = Object.create(null)
+  for (const row of query.getAll('kind').slice(0, MAX_KINDS)) {
+    const [ref, kind] = str(row, MAX_PROJECT).split('\t')
+    if (ref && front.has(ref) && REF_KINDS.includes(kind as RefKind)) kinds[ref] = kind as RefKind
+  }
+  const epics: Record<string, string[]> = Object.create(null)
+  for (const row of query.getAll('epic-read').slice(0, MAX_EPICS_READ)) {
+    const epic = part(row)
+    if (epic) epics[epic] = []
+  }
+  for (const row of query.getAll('in-epic').slice(0, MAX_KINDS * 4)) {
+    const [epic, ref] = str(row, MAX_PROJECT).split('\t')
+    if (epic && ref && front.has(ref) && Object.hasOwn(epics, epic) && !epics[epic]!.includes(ref)) epics[epic]!.push(ref)
+  }
+  return { kinds, epics }
+}
+
+/** How many refs' kinds one request may say: as many refs as it may name. */
+const MAX_KINDS = 256
 
 /** How many module ids one request may say are here, and how many a refusal offers. */
 const MAX_MODULES = 64
@@ -583,7 +636,8 @@ function listed() {
         'Every checklist this app holds, or one of them in full. Nothing here ships a list: each one was created by '
         + 'a person or by an agent, so what comes back is exactly what somebody has written down and no more. Every '
         + 'list says what it is HELD AGAINST — the issues, changes, paper files and sections somebody assigned it to, '
-        + 'which is where a person sees it. Give a checklist id to read that list; add a ref or an epic to see what '
+        + 'which is where a person sees it, including standing holds on every issue or every change. Give a '
+        + 'checklist id to read that list; add a ref or an epic to see what '
         + 'has been ticked on it FOR that target — the same list held against two issues keeps two separate sets. '
         + 'Read this before starting work and again before saying you are done.',
       inputSchema: {
@@ -616,11 +670,13 @@ function listed() {
     {
       name: 'hold_checklist',
       description:
-        'Hold a checklist against one more target — an issue, merge request or pull request; a paper, one of its '
+        'Hold a checklist against one more target — an issue, merge request or pull request; every issue or every '
+        + 'change of the project or of one epic (every: "issue" | "change", optionally with epic); a paper, one of its '
         + 'files, or one heading in it; or one module\'s container on one kehikko, whichever epic is open — or, with '
         + 'release: true, stop holding it against one. What a list is held against is what decides where a PERSON '
         + 'sees it: reading that file or section, selecting that reference, or being on that kehikko while that '
-        + 'container is in front, puts the list in front of them. The last is for a list about how a module\'s work '
+        + 'container is in front, puts the list in front of them. Every issue or every change is for a list every '
+        + 'such ref owes — each ref still keeps its own ticks. The last is for a list about how a module\'s work '
         + 'is run in every epic. A list held against nothing is shown nowhere. Releasing keeps '
         + 'every tick made there; holding it again brings them back. On a paper, give path (and from/to) to mean '
         + 'the file or heading being looked at, exactly as check_item does.',
@@ -795,15 +851,28 @@ function listsText(where: string): string {
       (list) =>
         `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
         + (list.for ? `for ${list.for}’s work; ` : '')
-        + (list.held.length
-          ? `held against ${list.held.map(targetName).join(', ')})`
-          : list.targets
-            ? `held against ${list.targets} targets — ask with its id to see them)`
-            : 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'),
+        + heldPhrase(list),
     ),
     '',
     'Ticks live per (checklist, target, item): ask again with a ref or an epic to see what is ticked for it.',
   ].join('\n')
+}
+
+/**
+ * What one list is held against, for the listing: its standing holds by name
+ * (`every issue`), then its targets by name or, past a few, by count.
+ */
+function heldPhrase(list: { held: Target[]; targets: number; standing?: Target[] }): string {
+  const standing = (list.standing ?? []).map(targetName)
+  const named = list.held.length
+    ? list.held.map(targetName)
+    : list.targets
+      ? [`${list.targets} target${list.targets === 1 ? '' : 's'} — ask with its id to see them`]
+      : []
+  if (!standing.length && !named.length) {
+    return 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'
+  }
+  return `held against ${[...standing, ...named].join(', ')})`
 }
 
 /** What each state looks like in the listing: x passed, ! failed, - not applicable, a space unchecked. */
@@ -832,7 +901,11 @@ function listText(id: string, target: Target | null, where: string): string {
       + 'checklists with just the project to see what exists.'
     )
   }
-  const head = target
+  const head = target?.kind === 'every'
+    ? `"${on.checklist.name}" (${on.checklist.id}) — ${on.total} item${on.total === 1 ? '' : 's'}, `
+      + `${holds(id, target, where) ? 'held' : 'NOT held'} against ${targetName(target)}. Ticks are per ref, so nothing below is `
+      + 'ticked or unticked: ask with a ref to see what is ticked for it.'
+    : target
     ? `"${on.checklist.name}" (${on.checklist.id}) held against ${targetName(target)} — ${on.done}/${on.total} ticked\n${countsLine(on.counts)}`
     : `"${on.checklist.name}" (${on.checklist.id}) — ${on.total} item${on.total === 1 ? '' : 's'}, no target named, so nothing below is ticked or unticked`
   if (!on.rows.length) {
@@ -860,11 +933,16 @@ function listText(id: string, target: Target | null, where: string): string {
   const others = all.filter((row) => !target || targetKey(row.target) !== targetKey(target))
   /* The most recently held first when there are many: a list held against every issue
      a project ever had is named by count past `NAMED_TARGETS`, not printed whole. */
-  const named = others.length > NAMED_TARGETS ? others.slice(-NAMED_TARGETS).reverse() : others
+  /* Standing holds (every issue, every change) are always named, first: there are at most a few. */
+  const standing = others.filter((row) => row.target.kind === 'every')
+  const each = others.filter((row) => row.target.kind !== 'every')
+  const named = [...standing, ...(each.length > NAMED_TARGETS ? each.slice(-NAMED_TARGETS).reverse() : each)]
   const more = others.length - named.length
   const tail = others.length
-    ? `\n\n${target ? 'Also held' : 'Held'} against: ${named.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
-      + (more ? `, and ${more} more (${others.length} in all; the ${named.length} named are the most recently held)` : '')
+    ? `\n\n${target ? 'Also held' : 'Held'} against: ${named
+      .map((row) => `${targetName(row.target)} (${row.target.kind === 'every' ? 'each ref its own ticks' : `${row.done} ticked`})`)
+      .join(', ')}`
+      + (more ? `, and ${more} more (${others.length} in all; the ${named.length - standing.length} named are the most recently held)` : '')
     : target
       ? ''
       : '\n\nHeld against nothing yet, so nobody sees it anywhere: hold_checklist puts it in front of somebody.'
@@ -912,7 +990,8 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
       throw new Error(
         'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
         + 'e.g. "gh#105"), an epic whose paper this is, optionally with a section of it or a path into it, or a '
-        + 'kehikko\'s key and a module, for that module\'s container there whichever epic is open. What a '
+        + 'kehikko\'s key and a module, for that module\'s container there whichever epic is open, or every: "issue" '
+        + 'or "change" (with epic to mean only that epic\'s), for every such ref. What a '
         + 'list is held against is where a person sees it, so there is nothing to do without one.',
       )
     }
@@ -1386,7 +1465,8 @@ export function answerAt(
     const kehikko = part(query.get('kehikko'))
     const modules = heard(query.getAll('module'))
     const following = kehikko && modules.length ? { kehikko, modules, epic: part(query.get('open')) } : null
-    const { instances, trouble, nowhere } = inFront({ ladders, selection, whole, following }, where)
+    const read = refsRead(query, selection)
+    const { instances, undecided, trouble, nowhere } = inFront({ ladders, selection, whole, following, read }, where)
     /*
      * And for the whole paper, the file each list is held against, as a place.
      *
@@ -1409,7 +1489,7 @@ export function answerAt(
         }
       }
     }
-    return ok({ ok: true, placed, positions, instances, trouble, nowhere, whole: whole !== null })
+    return ok({ ok: true, placed, positions, instances, undecided, trouble, nowhere, whole: whole !== null })
   }
 
   /*
@@ -1679,7 +1759,7 @@ export function answerAt(
         if (!named) {
           return bad(
             `that ${op} did not say which target. A checklist is held against an issue, a merge request, a pull `
-            + 'request, or a paper, one of its files or one heading in it.',
+            + 'request, every issue or every change, or a paper, one of its files or one heading in it.',
           )
         }
         let target = named

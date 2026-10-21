@@ -1,8 +1,9 @@
 # Checklist
 
 Checklists somebody wrote, each **held against** the things a person assigned it
-to — issues, merge requests, pull requests, a paper, one file of it, one heading
-in it — and shown wherever one of those is in front of the reader. **Nothing
+to — issues, merge requests, pull requests, every issue or every change, a paper,
+one file of it, one heading in it — and shown wherever one of those is in front
+of the reader. **Nothing
 here ships a list.**
 
 An app first. It holds every checklist a person or an agent has made, what each
@@ -43,11 +44,43 @@ kehikko it is on; an agent passes `kehikko` and `module` to `hold_checklist`,
 and the epic as well to tick or read one epic's run.
 
 A checklist **is held against** one or more targets — **as many as it needs; there
-is no limit**, so a list for every issue or merge request can be held against
-each of them. That is a stored property of the list — one entry per target under
+is no limit**. That is a stored property of the list — one entry per target under
 `targets/<list>/` — set on the list's edit page or through `hold_checklist`, and by
 nothing else. When the folder grows, a person sees it and decides what to purge
 (View → Storage).
+
+### Every issue, or every change
+
+A list meant for **every issue** or **every change** (merge request or pull
+request) is held against that once, not ref by ref (Jalez/kehikko-checklist#31):
+a **standing hold**, `{ kind: 'every', of: 'issue' | 'change', epic }` in
+`list/targets.ts`, optionally narrowed to the refs one epic names. It lives in
+`lists.json` with the list (`standing`), and nothing per ref is written for it —
+an issue opened tomorrow is covered without anybody holding it.
+
+- **On any ref of that kind the list is in front, as that ref.** Its ticks are
+  filed under the ref's own key (`ref:gh#105`) exactly as a held ref's are, so
+  `gh#105` and `gh#106` keep separate ticks, and the row's label says how it
+  got there: `gh#105 · every issue`. A tick through a standing hold holds no
+  ref; Storage counts those ticks as in use and Purge never takes them as
+  released.
+- **Releasing keeps the ticks**, as releasing any target does. With no standing
+  hold left they become released ticks; holding it again brings them back.
+- **Which kind a ref is, is the tracker's to say.** The page asks the host
+  (`tracker.get`, a row's `kind`) for the refs in front, and for the refs an
+  epic names where a standing hold is narrowed to one; a GitLab spelling (`!7`)
+  says its own kind. When nothing has said, the pane says so — "The tracker has
+  not said whether gh#9 is an issue or a change, so … is not shown for it" —
+  and does not guess. A list standing against both kinds needs no kind.
+  `list/standing.ts` is the rule.
+- **An empty pane says which emptiness it is.** "Nothing is held against
+  gh#106" — nobody put a list there, not that it owes nothing — is a different
+  sentence from "No checklist applies to gh#200: … the ones held against every
+  issue are for other refs".
+- **Doors.** The edit page offers *Every issue*, *Every change*, and the open
+  epic's of each. `hold_checklist` takes `every: 'issue' | 'change'` (with
+  `epic` to narrow, `release: true` to let go); `checklists` lists standing
+  holds beside the rest. `check_item` refuses `every` — name the ref.
 
 ## A list's targets are assigned, and the reading page shows what is in front
 
@@ -97,6 +130,27 @@ two, stacked, each foldable. A list held against `gh#105` and against the file
 the reader is in, with `gh#105` selected, is in front of them twice, and is
 shown twice, each instance saying which target it is; collapsing that to one
 would be this program picking. Selected references lead, in the canvas's order.
+
+### A click the picks set aside is said
+
+While containers are picked out and this container follows them, what is in
+front is what THOSE containers show (`inFrontOf` in `list/aim.ts`), so a ref
+clicked in References does not change the pane. The rule stays; the pane now
+says it (Jalez/kehikko-checklist#32). When the canvas selection holds a ref
+the pane is not showing because picks narrow it, one line above the lists —
+whether or not the picked containers have lists — says *"You clicked gh#105,
+but flows is picked out, so this shows what that container shows."*, with two
+ways out:
+
+- **Show gh#105 instead** — one press: this container's own aim filter goes to
+  *everything on this kehikko* (`filters.set`, capability `filters:set`). A host
+  that will not move it gets a line saying where to choose it by hand.
+- **Unpick flows** — a container's pick is the host's own control and no
+  method moves it, so the line names where it is: untick the box in its
+  header.
+
+The `whyEmpty` sentences are unchanged and still say what the picked
+containers hold.
 
 ### Focused on parts of the epic
 
