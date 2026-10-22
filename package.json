@@ -1,6 +1,6 @@
 {
   "name": "kehikko-checklist",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "private": true,
   "type": "module",
   "description": "Checklists somebody wrote, held against one issue, merge request, pull request or paper at a time. Nothing here ships a list. An app: its own store, its own page, its own port. A host may frame it, and then it learns which kehikko it is standing on.",
