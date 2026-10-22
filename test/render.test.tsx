@@ -624,7 +624,7 @@ describe('the edit page: what a list says, and what it is held against', () => {
     expect(container.querySelector('[data-targets="none"]')?.textContent).toContain('held for particular items by hand')
   })
 
-  test('types × roles come first: one row of type chips and one of roles, task shown and not choosable, every press the whole set', () => {
+  test('types × roles come first: one row of type chips and one of roles, task choosable, every press the whole set', () => {
     const sent: unknown[] = []
     const base = held()
     const ruled = { ...base, checklist: { ...base.checklist, applies: [{ types: ['mr'], roles: ['reviewer'], since: 'x' }] } } as Held
@@ -634,8 +634,8 @@ describe('the edit page: what a list says, and what it is held against', () => {
     expect(chosen('type')).toEqual(['mr'])
     expect(chosen('role')).toEqual(['reviewer'])
     const task = rule.querySelector('[data-type="task"]') as HTMLButtonElement
-    expect(task.disabled).toBe(true)
-    expect(task.getAttribute('title')).toContain('Tasks cannot be chosen yet')
+    expect(task.disabled).toBe(false)
+    expect(task.getAttribute('title')).toBe('For every task')
     /* Add pull requests; add author; any role stands alone; narrow to the open epic; a second rule. */
     fireEvent.click(rule.querySelector('[data-type="pr"]') as HTMLElement)
     fireEvent.click(rule.querySelector('[data-role="author"]') as HTMLElement)

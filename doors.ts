@@ -26,6 +26,7 @@ import {
   angleOf,
   ITEM_TYPES,
   NO_TASKS,
+  TASKS_KNOWN,
   nothingLine,
   ROLES,
   rolesFromMine,
@@ -295,10 +296,11 @@ const TARGET_PROPERTIES = {
     items: { type: 'string', enum: [...ITEM_TYPES] },
     description:
       'hold_checklist only, instead of a ref, a paper or a container: the TYPES of item the list applies to, '
-      + 'across the project — "issue", "mr" (merge request), "pr" (pull request), "paper". With roles, and with '
-      + 'epic to narrow it to the refs that epic names. The list is then in front of a person on any such item, '
-      + 'including ones opened later, read from that role. Which type a ref is, is the host\'s tracker reading\'s '
-      + `to say. "task" is not available yet: ${NO_TASKS} Ticks stay per item: to tick one, give its ref.`,
+      + 'across the project — "issue", "mr" (merge request), "pr" (pull request), "paper", "task" (a GitLab task, '
+      + 'which is not an issue here). With roles, and with epic to narrow it to the refs that epic names. The list is '
+      + 'then in front of a person on any such item, including ones opened later, read from that role. Which type a '
+      + 'ref is, is the host\'s tracker reading\'s to say.'
+      + `${TASKS_KNOWN ? '' : ` "task" is not available yet: ${NO_TASKS}`} Ticks stay per item: to tick one, give its ref.`,
   },
   roles: {
     type: 'array',
@@ -755,7 +757,8 @@ function listed() {
       description:
         'Say what a checklist applies to. Mostly: types and roles — types ["mr"] with roles ["reviewer"] puts it in '
         + 'front of a person on every merge request they read as reviewer, including ones opened later (types: '
-        + 'issue, mr, pr, paper; roles: assignee, reviewer, author, any; with epic, only the refs that epic names). '
+        + 'issue, mr, pr, paper, task — a GitLab task; roles: assignee, reviewer, author, any; with epic, only the refs '
+        + 'that epic names). '
         + 'Each item still keeps its own ticks. As an exception, hold it against one item by hand — an issue, merge '
         + 'request or pull request (ref); a paper, one of its files or one heading in it; or one module\'s container '
         + 'on one kehikko, whichever epic is open. With release: true, take a rule or a hold away; every tick made '

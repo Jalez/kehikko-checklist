@@ -1053,7 +1053,7 @@ function rulesFrom(input: readonly (RuleInput | Extract<Target, { kind: 'rule' }
   const rules: Rule[] = []
   for (const one of input) {
     const types = [...new Set(one.types)]
-    if (!types.length) return { error: 'a rule needs at least one type of item: issue, mr, pr or paper. Nothing was changed.' }
+    if (!types.length) return { error: `a rule needs at least one type of item: ${USABLE_TYPES.join(', ')}. Nothing was changed.` }
     if (types.includes('task') && !USABLE_TYPES.includes('task')) return { error: `${NO_TASKS} Nothing was changed.` }
     const unknown = types.filter((type) => !USABLE_TYPES.includes(type as ItemType))
     if (unknown.length) {

@@ -1179,14 +1179,14 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     expect((await tool('hold_checklist', { checklist: list, every: 'mr' })).isError).toBe(true)
   })
 
-  test('a type that is not one, task, a role that is not one, and a tick against a rule are refused in words', async () => {
+  test('a type that is not one, a role that is not one, and a tick against a rule are refused in words; task is taken', async () => {
     const { list, item } = await aList('What an issue owes')
     const typo = await tool('hold_checklist', { checklist: list, types: ['merge'] })
     expect(typo.isError).toBe(true)
-    expect(typo.text).toContain('types is one or more of issue, mr, pr, paper')
+    expect(typo.text).toContain('types is one or more of issue, mr, pr, paper, task')
     const task = await tool('hold_checklist', { checklist: list, types: ['task'] })
-    expect(task.isError).toBe(true)
-    expect(task.text).toContain('Tasks cannot be chosen yet')
+    expect(task.isError).toBeFalsy()
+    expect(task.text).toContain('now applies to tasks · any role')
     expect((await tool('hold_checklist', { checklist: list, types: ['issue'], roles: ['owner'] })).isError).toBe(true)
     await tool('hold_checklist', { checklist: list, types: ['issue'] })
     const tick = await tool('check_item', { checklist: list, item, types: ['issue'] })
@@ -1194,13 +1194,14 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     expect(tick.text).toContain('one item at a time')
   })
 
-  test('the schemas offer types, roles and the angle, and task is listed but said to be unavailable', async () => {
+  test('the schemas offer types, roles and the angle, task among the types', async () => {
     const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { properties: Record<string, { enum?: string[]; items?: { enum?: string[] }; description?: string }> } }[] } }).result.tools
     const hold = tools.find((one) => one.name === 'hold_checklist')!.inputSchema.properties
     expect(hold.types?.items?.enum).toEqual(['issue', 'mr', 'pr', 'paper', 'task'])
-    expect(hold.types?.description).toContain('"task" is not available yet')
+    expect(hold.types?.description).toContain('"task" (a GitLab task, which is not an issue here)')
+    expect(hold.types?.description).not.toContain('not available')
     expect(hold.roles?.items?.enum).toEqual(['any', 'assignee', 'reviewer', 'author'])
     expect(hold.every?.enum).toEqual(['issue', 'change'])
     for (const name of ['checklists', 'checklist_for']) {

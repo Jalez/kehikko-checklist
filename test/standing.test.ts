@@ -100,22 +100,22 @@ describe('the rule as a target', () => {
     expect(readKey('every:merge')).toBeNull()
   })
 
-  test('a door names it with types and roles; a word that is neither, or task, is refused', () => {
+  test('a door names it with types and roles, task among them; a word that is neither is refused', () => {
     expect(readTarget({ types: ['mr'], roles: ['reviewer'] })).toEqual(target(['mr'], ['reviewer']))
     expect(readTarget({ types: 'issue+paper' })).toEqual(target(['issue', 'paper']))
     expect(readTarget({ every: 'change', epic: 'thesis' })).toEqual(target(['mr', 'pr'], ['any'], 'thesis'))
     expect(readTarget({ types: ['merge'] })).toBeNull()
     expect(readTarget({ types: ['mr'], roles: ['owner'] })).toBeNull()
-    expect(TASKS_KNOWN).toBe(false)
-    expect(readTarget({ types: ['task'] })).toBeNull()
+    expect(TASKS_KNOWN).toBe(true)
+    expect(readTarget({ types: ['task'] })).toEqual(target(['task']))
     /* A ref still wins: the one target that names one piece of work. */
     expect(readTarget({ ref: 'gh#1', types: ['issue'] })).toEqual({ kind: 'ref', ref: 'gh#1' })
   })
 
   test('any role stands alone, and a rule read leniently drops what this version cannot use', () => {
     expect(readTarget({ types: ['issue'], roles: ['reviewer', 'any'] })).toEqual(target(['issue'], ['any']))
-    expect(ruleOf({ types: ['issue', 'task', 'epic'], roles: ['author', 'owner'] })).toEqual(rule(['issue'], ['author']))
-    expect(ruleOf({ types: ['task'] })).toBeNull()
+    expect(ruleOf({ types: ['issue', 'task', 'epic'], roles: ['author', 'owner'] })).toEqual(rule(['issue', 'task'], ['author']))
+    expect(ruleOf({ types: ['task'] })).toEqual(rule(['task']))
   })
 })
 
@@ -127,11 +127,52 @@ describe('the type: the tracker’s to say', () => {
   })
   test('a GitLab spelling says its own type; a GitHub one says issue or pull request; nothing else is guessed', () => {
     expect(possibleTypes('!7', NOTHING_READ)).toEqual(['mr'])
-    expect(possibleTypes('#12', NOTHING_READ)).toEqual(['issue'])
+    expect(possibleTypes('#12', NOTHING_READ)).toEqual(['issue', 'task'])
     expect(possibleTypes('gh#41', NOTHING_READ)).toEqual(['issue', 'pr'])
     expect(possibleTypes('gh#41', { ...NOTHING_READ, types: { 'gh#41': 'pr' } })).toEqual(['pr'])
     /* A name that is an Object property is not a type. */
-    expect(possibleTypes('constructor', NOTHING_READ)).toEqual(['issue', 'mr', 'pr'])
+    expect(possibleTypes('constructor', NOTHING_READ)).toEqual(['issue', 'task', 'mr', 'pr'])
+  })
+})
+
+describe('a GitLab task: the row’s work item type', () => {
+  /* #12 is a GitLab task, #13 a plain GitLab issue, #14 a GitLab incident. */
+  const TASKS: RefsRead = { types: { '#12': 'task', '#13': 'issue', '#14': 'issue' }, roles: {}, epics: {} }
+
+  test('a row whose workItem is task is a task; another work item type, or none, is an issue', () => {
+    expect(typeOfRow({ kind: 'issue', tracker: 'gitlab', workItem: 'task' })).toBe('task')
+    expect(typeOfRow({ kind: 'issue', tracker: 'gitlab', workItem: 'incident' })).toBe('issue')
+    expect(typeOfRow({ kind: 'issue', tracker: 'gitlab' })).toBe('issue')
+    expect(typeOfRow({ kind: 'issue', tracker: 'github' })).toBe('issue')
+    /* A change is never a task, whatever a row says. */
+    expect(typeOfRow({ kind: 'change', tracker: 'gitlab', workItem: 'task' })).toBe('mr')
+  })
+
+  test('a task matches the lists for tasks and NOT those for issues; an issue the other way round', () => {
+    expect(covers([rule(['task'])], '#12', TASKS, ['any']).answer).toBe('yes')
+    expect(covers([rule(['issue'])], '#12', TASKS, ['any']).answer).toBe('no')
+    expect(covers([rule(['issue'])], '#13', TASKS, ['any']).answer).toBe('yes')
+    expect(covers([rule(['task'])], '#13', TASKS, ['any']).answer).toBe('no')
+    expect(covers([rule(['issue', 'task'])], '#12', TASKS, ['any']).answer).toBe('yes')
+  })
+
+  test('a GitLab #12 nothing has read is an issue or a task: unknown unless the lists agree', () => {
+    expect(covers([rule(['issue'])], '#12', NOTHING_READ, ['any'])).toEqual({ answer: 'unknown', why: 'kind' })
+    expect(covers([rule(['issue', 'task'])], '#12', NOTHING_READ, ['any']).answer).toBe('yes')
+    expect(covers([rule(['mr'])], '#12', NOTHING_READ, ['any']).answer).toBe('no')
+  })
+
+  test('in front: a task list is in front of the task, says it is a task, and an issue list is not', () => {
+    const { list: forTasks } = made('What a task owes', ['Linked to its issue'])
+    const { list: forIssues } = made('What an issue owes', ['Has a label'])
+    ok(change({ op: 'hold', id: forTasks, target: target(['task']), by: 'a test' }, dir))
+    ok(change({ op: 'hold', id: forIssues, target: ISSUES, by: 'a test' }, dir))
+    const task = front(['#12'], TASKS)
+    expect(names(task)).toEqual([['What a task owes', '#12']])
+    expect(task.items[0]).toMatchObject({ target: { kind: 'ref', ref: '#12' }, type: 'task' })
+    const issue = front(['#13'], TASKS)
+    expect(names(issue)).toEqual([['What an issue owes', '#13']])
+    expect(issue.items[0]).toMatchObject({ type: 'issue' })
   })
 })
 
@@ -355,7 +396,7 @@ describe('a list that applies by type × role', () => {
     expect(front(['gh#105']).instances[0]!.done).toBe(1)
   })
 
-  test('applies replaces every rule at once, keeps when a rule was made, and refuses task and nonsense', () => {
+  test('applies replaces every rule at once, keeps when a rule was made, takes task and refuses nonsense', () => {
     const { list } = made('What a change owes', ['Has tests'])
     ok(change({ op: 'applies', id: list, rules: [{ types: ['mr'], roles: ['reviewer'] }], by: 'a test' }, dir))
     const since = (JSON.parse(readFileSync(join(folder(), 'lists.json'), 'utf8')) as { checklists: Record<string, { applies: { since: string }[] }> }).checklists[list]!.applies[0]!.since
@@ -363,9 +404,8 @@ describe('a list that applies by type × role', () => {
     expect(both.said).toBe('"What a change owes" applies to merge requests · as reviewer; issues and pull requests of thesis · any role')
     const file = JSON.parse(readFileSync(join(folder(), 'lists.json'), 'utf8')) as { checklists: Record<string, { applies: { since: string }[] }> }
     expect(file.checklists[list]!.applies[0]!.since).toBe(since)
-    const task = change({ op: 'applies', id: list, rules: [{ types: ['task'] }], by: 'a test' }, dir)
-    expect(task.ok).toBe(false)
-    expect(!task.ok && task.error).toContain('Tasks cannot be chosen yet')
+    const task = ok(change({ op: 'applies', id: list, rules: [{ types: ['task'] }], by: 'a test' }, dir))
+    expect(task.said).toContain('applies to tasks · any role')
     expect(change({ op: 'applies', id: list, rules: [{ types: ['merge'] }], by: 'a test' }, dir).ok).toBe(false)
     expect(change({ op: 'applies', id: list, rules: [{ types: ['mr'], roles: ['owner'] }], by: 'a test' }, dir).ok).toBe(false)
     const none = ok(change({ op: 'applies', id: list, rules: [], by: 'a test' }, dir))

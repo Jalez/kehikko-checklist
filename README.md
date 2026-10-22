@@ -76,11 +76,15 @@ The person, who owns this module:
   says so — "The tracker has not said what kind of item gh#41 is, so … is not
   shown for it until it does" — and does not guess. A paper is the paper an epic
   is aimed at, as a paper target always was.
-- **Task is not available yet.** A GitLab task is a work item whose type the
-  host's tracker reading does not carry (a row's `kind` is `issue` or `change`),
-  so a task reads as an issue. `TASKS_KNOWN` is false: the edit page shows Task
-  and says why it cannot be chosen, and the doors refuse it, until the host
-  reads a work item's type.
+- **Task is a GitLab task.** The host's tracker reading says when a GitLab
+  issue is a task (`workItem: 'task'` on the row, protocol 2.11.0), and
+  `typeOfRow` makes that row a `task`, never an `issue`: a list for tasks is in
+  front of it and a list for issues is not, and its section says "task". A
+  GitLab `#12` nothing has read yet may be either, so the pane waits for the
+  tracker unless the lists for issues and tasks agree. Other work item types
+  (incident, test case, …) are issues here. A host or a GitLab that does not
+  say a row's work item type gives a task as a plain issue. (`TASKS_KNOWN` is
+  true; with it false, `task` was refused and shown unavailable.)
 - **The angle** is the header's switch (View → Angle: *My role (automatic)*,
   *As assignee*, *As reviewer*, *As author*, *Any role*). Automatic is the
   person's own roles on each item from the host's `myRoles` (asked or done
