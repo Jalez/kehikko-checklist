@@ -4,13 +4,38 @@ import { z } from 'zod'
 
 import { dataDir, dataFile, makeDir, NAMES, oldPapersFile } from '../store.ts'
 import { Book, migrateLegacy, Unreadable } from './book.ts'
-import { countRows, type Item, type List, type Tick, type TickState } from './shapes.ts'
+import { countRows, type Item, type List, type StoredRule, type Tick, type TickState } from './shapes.ts'
 import { FACT_NAMES, type Evidence, type Fact } from './evidence.ts'
 import { everywhere, following, rungTarget, showing } from './holding.ts'
 import { rungsFrom } from './scope.ts'
 import { moduleNamed } from './aim.ts'
-import { heldAs, readKey, targetKey, targetName, type Target } from './targets.ts'
-import { covers, NOTHING_READ, standingTarget, standsAt, tickedUnheld, type RefsRead, type UndecidedRef } from './standing.ts'
+import { heldAs, part, readKey, targetKey, targetName, type Target } from './targets.ts'
+import {
+  angleRoles,
+  covers,
+  coversPaper,
+  elsewhere,
+  inEpic,
+  mayCover,
+  NO_TASKS,
+  normalRoles,
+  NOTHING_READ,
+  ruleName,
+  ruleOf,
+  rulesOf,
+  ruleTarget,
+  sameRule,
+  tickedUnheld,
+  typeOf,
+  USABLE_TYPES,
+  type Angle,
+  type ItemType,
+  type PersonRole,
+  type RefsRead,
+  type Role,
+  type Rule,
+  type UndecidedRef,
+} from './standing.ts'
 
 /**
  * Every checklist this app holds, and every tick anybody has made on one.
@@ -509,13 +534,18 @@ export interface Summary {
   /** Which ones, so the screen listing every checklist can say where each is in use. */
   held: Target[]
   /**
-   * Every issue or every change it stands against (Jalez/kehikko-checklist#31),
-   * which `targets` does not count: a standing hold is on the list, not in its
-   * folder. Empty for a list that stands nowhere; absent from an older server.
+   * The types × roles it applies to (`list/standing.ts`), which `targets` does
+   * not count: a rule is on the list, not in its folder. Empty for a list that
+   * applies by no rule.
    */
-  standing?: Target[]
+  applies?: Target[]
   /** The module whose work it is for. Absent for every module's. */
   for?: string
+  /**
+   * The one item this list's lines are for, as a target key, when it is the
+   * lines somebody added for that item alone rather than a list a person named.
+   */
+  only?: string
 }
 
 /** How many items are in each state for one target. They add up to `total`. */
@@ -531,11 +561,13 @@ export interface Held {
   /** The target these ticks are for, or null when the list is being read on its own. */
   target: Target | null
   /**
-   * The standing holds this instance is in front through — every issue, every
-   * change — when the list is not held against its ref by itself. Absent
-   * otherwise. The ticks are the ref's either way.
+   * The rules this instance is in front through — types × roles — when the
+   * list is not held against its item by itself. Absent otherwise. The ticks
+   * are the item's either way.
    */
   through?: Target[]
+  /** The roles of the angle it applies through: `['any']` for a list for any role. Absent with `through`. */
+  as?: Role[]
   rows: { item: Item; done: Tick | null }[]
   /** How many items are ticked `passed`. Failed and not applicable are in `counts`. */
   done: number
@@ -583,8 +615,9 @@ function summaries(book: Book): Summary[] {
       items: list.items.length,
       targets: list.holds,
       held: list.holds && list.holds <= SAMPLE ? sample(book, list.id) : [],
-      standing: (list.standing ?? []).map(standingTarget),
+      applies: rulesOf(list).map(ruleTarget),
       ...(list.for ? { for: list.for } : {}),
+      ...(list.only ? { only: list.only } : {}),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -652,8 +685,8 @@ export function targetsOf(id: string, projectPath: string | null | undefined): {
   return reading(projectPath, [] as { target: Target; done: number }[], (book) => {
     const list = book.lists[id]
     if (!list) return []
-    /* Standing holds first: they are on the list and have no ticks of their own — each ref's are its own. */
-    const standing = (list.standing ?? []).map((hold) => ({ target: standingTarget(hold), done: 0 }))
+    /* Rules first: they are on the list and have no ticks of their own — each item's are its own. */
+    const standing = rulesOf(list).map((rule) => ({ target: ruleTarget(rule) as Target, done: 0 }))
     return [
       ...standing,
       ...book
@@ -676,9 +709,25 @@ export function holds(id: string, target: Target, projectPath: string | null | u
   return reading(projectPath, false, (book) => {
     const list = book.lists[id]
     if (!list) return false
-    if (target.kind === 'every') return standsAt(list.standing, target) !== -1
+    if (target.kind === 'rule') return rulesOf(list).some((rule) => sameRule(rule, target))
     return book.holds(id, targetKey(target))
   }).value
+}
+
+/**
+ * One item picked on the canvas — a ref, or the paper an epic is aimed at — as
+ * the reading page draws a section for it: its type where it is known, the
+ * roles it is read as, and the other roles from which some list would apply.
+ */
+export interface ItemInFront {
+  /** The item: a ref, or the whole paper. */
+  target: Target
+  /** Its type, or null when the tracker has not said (`gh#41` with no row). */
+  type: ItemType | null
+  /** The roles of the angle it is read from: `['any']` for any role. */
+  as: Role[]
+  /** Roles outside the angle from which some list's rules would apply to it. */
+  elsewhere: PersonRole[]
 }
 
 /**
@@ -720,20 +769,38 @@ export function inFront(
     following?: { kehikko: string; modules: readonly string[]; epic: string | null } | null
     /**
      * What the host's tracker reading said about the refs in front: each
-     * one's kind, and which of them the epics a standing hold names name.
-     * What a list held against every issue or every change is asked by
-     * (`list/standing.ts`, Jalez/kehikko-checklist#31).
+     * one's type, the person's roles on it, and which of them the epics a
+     * rule names name. What a list that applies by type × role is asked by
+     * (`list/standing.ts`).
      */
     read?: RefsRead
+    /** The angle the items are read from. `auto`, the person's own roles, when not said. */
+    angle?: Angle
+    /**
+     * The epic whose paper is a picked item: what a list for papers is asked
+     * by, and what an item just for the paper is kept under. Null when no
+     * paper is picked.
+     */
+    paper?: string | null
   },
   projectPath: string | null | undefined,
-): { instances: Held[]; undecided: UndecidedRef[]; trouble: string | null; nowhere: boolean } {
+): { instances: Held[]; items: ItemInFront[]; undecided: UndecidedRef[]; trouble: string | null; nowhere: boolean } {
   const read = input.read ?? NOTHING_READ
+  const angle = input.angle ?? 'auto'
+  const asOf = (ref: string): Role[] => angleRoles(angle, Object.hasOwn(read.roles, ref) ? read.roles[ref] : null)
+  const paperAs = angleRoles(angle, null)
+  const items: ItemInFront[] = [
+    ...input.selection.map((ref) => ({ target: { kind: 'ref', ref } as Target, type: typeOf(ref, read), as: asOf(ref), elsewhere: [] as PersonRole[] })),
+    ...(input.paper
+      ? [{ target: { kind: 'paper', epic: input.paper, section: null } as Target, type: 'paper' as ItemType, as: paperAs, elsewhere: [] as PersonRole[] }]
+      : []),
+  ]
   const undecided = new Map<string, UndecidedRef>()
   const got = reading(projectPath, [] as Held[], (book) => {
     undecided.clear()
-    /* Which standing holds put a list in front of a ref, by `<list>|<key>`, for the row's label. */
-    const through = new Map<string, Target[]>()
+    const other = new Map<string, Set<PersonRole>>()
+    /* Which rules put a list in front of an item, by `<list>|<key>`, for the row's label. */
+    const through = new Map<string, { rules: Target[]; roles: Role[] }>()
     const ladders = input.ladders.length ? input.ladders : ['']
     /*
      * The keys anything in front could be held under: each reference, each
@@ -751,8 +818,9 @@ export function inFront(
         : []),
     ])
     const lists = Object.values(book.lists)
-      .filter((list) => list.holds > 0 || list.standing?.length)
+      .filter((list) => list.holds > 0 || list.applies?.length)
       .map((list) => {
+        const rules = rulesOf(list)
         const targets = list.holds > 0 ? [...asked].filter((key) => book.holds(list.id, key)) : []
         if (input.whole && list.holds > 0) {
           for (const [key, entry] of book.group(list.id, `paper:${input.whole}`)) {
@@ -761,17 +829,25 @@ export function inFront(
         }
         /*
          * Each ref in front that this list is not held against by itself, and
-         * that one of its standing holds covers, is in front as that ref: the
-         * same key and so the same ticks a hold by hand would have. One the
-         * tracker has not decided is said, never guessed.
+         * that one of its rules covers from the angle it is read at, is in
+         * front as that ref: the same key and so the same ticks a hold by hand
+         * would have. One the tracker has not decided is said, never guessed.
          */
-        for (const ref of list.standing?.length ? input.selection : []) {
+        for (const ref of rules.length ? input.selection : []) {
           const key = targetKey({ kind: 'ref', ref })
+          const as = asOf(ref)
+          const type = typeOf(ref, read)
+          const away = elsewhere(rules, type, as, (rule) => inEpic(rule, ref, read) === 'yes')
+          if (away.length) {
+            const seen = other.get(key) ?? new Set<PersonRole>()
+            for (const role of away) seen.add(role)
+            other.set(key, seen)
+          }
           if (targets.includes(key)) continue
-          const covered = covers(list.standing, ref, read)
+          const covered = covers(rules, ref, read, as)
           if (covered.answer === 'yes') {
             targets.push(key)
-            through.set(`${list.id}|${key}`, covered.through.map(standingTarget))
+            through.set(`${list.id}|${key}`, { rules: covered.rules.map(ruleTarget), roles: covered.roles })
           } else if (covered.answer === 'unknown') {
             const row = undecided.get(ref) ?? { ref, why: covered.why, lists: [] }
             if (covered.why === 'kind') row.why = 'kind'
@@ -779,10 +855,29 @@ export function inFront(
             undecided.set(ref, row)
           }
         }
+        /* And the paper, when one is picked: a list for papers, from the angle. */
+        if (input.paper && rules.length) {
+          const key = targetKey({ kind: 'paper', epic: input.paper, section: null })
+          const away = elsewhere(rules, 'paper', paperAs, (rule) => !rule.epic || rule.epic === input.paper)
+          if (away.length) {
+            const seen = other.get(key) ?? new Set<PersonRole>()
+            for (const role of away) seen.add(role)
+            other.set(key, seen)
+          }
+          const covered = coversPaper(rules, input.paper, paperAs)
+          if (covered && !targets.includes(key)) {
+            targets.push(key)
+            through.set(`${list.id}|${key}`, { rules: covered.rules.map(ruleTarget), roles: covered.roles })
+          }
+        }
         return { id: list.id, name: list.name, targets }
       })
       .filter((list) => list.targets.length > 0)
       .sort((a, b) => a.name.localeCompare(b.name))
+    for (const item of items) {
+      const roles = other.get(targetKey(item.target))
+      if (roles) item.elsewhere = (['assignee', 'reviewer', 'author'] as PersonRole[]).filter((role) => roles.has(role))
+    }
     const seen = new Set<string>()
     const found = [
       ...(input.whole
@@ -801,18 +896,38 @@ export function inFront(
         const list = book.lists[one.id]
         if (!list) return []
         const by = through.get(`${one.id}|${targetKey(one.target)}`)
-        return [by ? { ...heldOf(book, list, one.target), through: by } : heldOf(book, list, one.target)]
+        return [by ? { ...heldOf(book, list, one.target), through: by.rules, as: by.roles } : heldOf(book, list, one.target)]
       })
   })
-  return { instances: got.value, undecided: [...undecided.values()], trouble: got.trouble, nowhere: got.nowhere }
+  return { instances: got.value, items, undecided: [...undecided.values()], trouble: got.trouble, nowhere: got.nowhere }
 }
 
 /* ------------------------------------------------------------------ *
  * Writing
  * ------------------------------------------------------------------ */
 
+/** A rule as a door hands it to the store: words, read and refused here (`rulesFrom`). */
+export interface RuleInput {
+  types: readonly string[]
+  roles?: readonly string[]
+  epic?: string | null
+}
+
 export type Op =
-  | { op: 'create'; name: string; by: string; viaMcp?: boolean }
+  /** Start a list — and, with `rule`, say at once which types × roles it applies to. */
+  | { op: 'create'; name: string; rule?: RuleInput; by: string; viaMcp?: boolean }
+  /**
+   * Say what a list applies to, whole: every rule it has, replaced by these.
+   * The edit page's types × roles; an empty array is a list that applies by
+   * no rule. Every tick is kept.
+   */
+  | { op: 'applies'; id: string; rules: readonly RuleInput[]; by: string; viaMcp?: boolean }
+  /**
+   * Add a line for ONE item only — a ref, or a paper — on top of the lists
+   * that apply to it. Kept on a list of that item's own (`only`), made with
+   * its first line and gone with its last; ticked with the item's ticks.
+   */
+  | { op: 'add-for'; target: Target; text: string; by: string; viaMcp?: boolean }
   | { op: 'rename'; id: string; name: string; by: string; viaMcp?: boolean }
   /**
    * Say which module's work this list is for, or (with null) that it is every
@@ -923,6 +1038,61 @@ function hold(book: Book, list: List, key: string, at: string): void {
   book.touch()
 }
 
+/** A rule as `lists.json` keeps it. */
+function stored(rule: Rule, since: string): StoredRule {
+  return { types: [...rule.types], roles: [...rule.roles], ...(rule.epic ? { epic: rule.epic } : {}), since }
+}
+
+/**
+ * Rules from what a door handed over, or the sentence refusing them. Every
+ * type has to be one this app can use and every role one it knows: a typo is
+ * refused rather than read as fewer types, because a rule that silently
+ * covered less would leave items without the list somebody meant them to have.
+ */
+function rulesFrom(input: readonly (RuleInput | Extract<Target, { kind: 'rule' }>)[]): { rules: Rule[] } | { error: string } {
+  const rules: Rule[] = []
+  for (const one of input) {
+    const types = [...new Set(one.types)]
+    if (!types.length) return { error: 'a rule needs at least one type of item: issue, mr, pr or paper. Nothing was changed.' }
+    if (types.includes('task') && !USABLE_TYPES.includes('task')) return { error: `${NO_TASKS} Nothing was changed.` }
+    const unknown = types.filter((type) => !USABLE_TYPES.includes(type as ItemType))
+    if (unknown.length) {
+      return {
+        error:
+          `${unknown.map((type) => `"${String(type).slice(0, 40)}"`).join(', ')} ${unknown.length === 1 ? 'is not a type' : 'are not types'} `
+          + `a checklist applies to. The types are ${USABLE_TYPES.join(', ')} — mr is a merge request, pr a pull request. Nothing was changed.`,
+      }
+    }
+    const roles = one.roles ?? ['any']
+    const badRole = roles.filter((role) => !['any', 'assignee', 'reviewer', 'author'].includes(role))
+    if (badRole.length) {
+      return {
+        error: `${badRole.map((role) => `"${String(role).slice(0, 40)}"`).join(', ')} is not a role. The roles are any, assignee, reviewer and author. Nothing was changed.`,
+      }
+    }
+    const epic = one.epic ? part(one.epic) : null
+    if (one.epic && !epic) return { error: 'that epic is not a name: no spaces or slashes, at most 80 characters. Nothing was changed.' }
+    const rule = ruleOf({ types, roles: normalRoles(roles), epic })
+    if (rule && !rules.some((had) => sameRule(had, rule))) rules.push(rule)
+  }
+  return { rules }
+}
+
+/**
+ * The ticks made on items through a list's rules, marked released once the
+ * list applies by no rule: they are ticks on items it is no longer in front
+ * of, which is what Storage counts as kept and Purge measures an age by.
+ */
+function releaseThrough(book: Book, list: List, at: string): number {
+  let kept = 0
+  for (const [key, entry] of book.all(list.id)) {
+    if (!tickedUnheld(key, entry)) continue
+    kept += 1
+    book.set(list.id, key, { ...entry, released: at })
+  }
+  return kept
+}
+
 function apply(input: Op, projectPath: string | null | undefined): Result {
   const opened = read(projectPath)
   const book = opened.book
@@ -964,13 +1134,15 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
           + 'one is for — "what a merge request owes before review", "what a chapter owes before it is submitted".',
       }
     }
-    const lists = Object.values(book.lists)
+    const lists = Object.values(book.lists).filter((list) => !list.only)
     if (lists.length >= MAX_LISTS) {
       return {
         ok: false,
         error: `there are already ${lists.length} checklists, which is the most this app holds. Remove one first.`,
       }
     }
+    const rule = input.rule ? rulesFrom([input.rule]) : null
+    if (rule && 'error' in rule) return { ok: false, error: rule.error }
     const clash = lists.find((list) => list.name.toLowerCase() === name.toLowerCase())
     if (clash) {
       /* Refused rather than allowed, and refused with the id, because two lists
@@ -984,9 +1156,23 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
       }
     }
     const id = newId()
-    book.lists[id] = { id, name, at, by, origin: null, items: [], holds: 0, next: 0 }
+    book.lists[id] = {
+      id,
+      name,
+      at,
+      by,
+      origin: null,
+      items: [],
+      holds: 0,
+      next: 0,
+      ...(rule?.rules.length ? { applies: rule.rules.map((one) => stored(one, at)) } : {}),
+    }
     book.touch()
-    return answer(id, `created "${name}" as ${id}`, null)
+    return answer(
+      id,
+      `created "${name}" as ${id}${rule?.rules.length ? `, applying to ${rule.rules.map(ruleName).join('; ')}` : ''}`,
+      null,
+    )
   }
 
   /*
@@ -1017,7 +1203,7 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
           + 'project was read: ask for its checklists again and pick from what is there now.',
       }
     }
-    const lists = Object.values(book.lists)
+    const lists = Object.values(book.lists).filter((list) => !list.only)
     if (lists.length >= MAX_LISTS) {
       return {
         ok: false,
@@ -1133,6 +1319,42 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     )
   }
 
+  if (input.op === 'add-for') {
+    const target = input.target
+    if (target.kind !== 'ref' && target.kind !== 'paper') {
+      return {
+        ok: false,
+        error:
+          'a line just for one item is for an issue, a merge request, a pull request or a paper — name the ref, or '
+          + 'the epic whose paper it is. Nothing was added.',
+      }
+    }
+    const text = input.text.trim().slice(0, MAX_TEXT)
+    if (!text) return { ok: false, error: 'an item needs to say something: what is still owed on this one piece of work.' }
+    const key = targetKey(target)
+    let own = Object.values(book.lists).find((one) => one.only === key)
+    const made = !own
+    if (!own) {
+      const id = newId()
+      own = { id, name: `Only for ${targetName(target)}`, at, by, origin: null, items: [], holds: 0, next: 0, only: key }
+      book.lists[id] = own
+      /* Held against its item, so it is in front exactly where the item is and its ticks are the item's. */
+      hold(book, own, key, at)
+    }
+    if (own.items.length >= MAX_ITEMS) {
+      return { ok: false, error: `${targetName(target)} already has ${own.items.length} lines of its own, which is the most one list holds.` }
+    }
+    const item: Item = { id: newId(), text, at, by }
+    own.items = [...own.items, item]
+    book.touch()
+    return answer(
+      own.id,
+      `added "${item.text}" just for ${targetName(target)} as ${item.id}, on its own list ${own.id}`
+      + (made ? ' (made now: it holds the lines for that item alone, and goes with its last line)' : ''),
+      target,
+    )
+  }
+
   const list = book.lists[input.id]
   if (!list) {
     return {
@@ -1142,6 +1364,35 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
         + 'beside each name, not by the name itself — a name can be changed and an id cannot. Read the list of them '
         + 'again: somebody may have removed this one since you last looked.',
     }
+  }
+
+  if (list.only && (input.op === 'rename' || input.op === 'for' || input.op === 'hold' || input.op === 'release' || input.op === 'applies')) {
+    return {
+      ok: false,
+      error:
+        `"${list.name}" holds the lines added for one item alone, so it is not named, held or given types and roles: `
+        + 'add, reword, drop or tick its lines. To make a list that applies to every item of a type, create one. '
+        + 'Nothing was changed.',
+    }
+  }
+
+  if (input.op === 'applies') {
+    const got = rulesFrom(input.rules)
+    if ('error' in got) return { ok: false, error: got.error }
+    const before = list.applies ?? []
+    /* A rule that was there already keeps when it was made. */
+    const next = got.rules.map((rule) => before.find((one) => { const read = ruleOf(one); return read !== null && sameRule(read, rule) }) ?? stored(rule, at))
+    if (next.length) list.applies = next
+    else delete list.applies
+    book.touch()
+    const kept = next.length ? 0 : releaseThrough(book, list, at)
+    return answer(
+      list.id,
+      next.length
+        ? `"${list.name}" applies to ${got.rules.map(ruleName).join('; ')}`
+        : `"${list.name}" applies to no type of item now${kept ? `; the ticks made on ${kept === 1 ? 'one item are' : `${kept} items are`} kept` : ''}`,
+      null,
+    )
   }
 
   if (input.op === 'rename') {
@@ -1199,53 +1450,44 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     return answer(input.id, `"${list.name}" is gone, along with every tick made on it`, null)
   }
 
-  if ((input.op === 'hold' || input.op === 'release') && input.target.kind === 'every') {
+  if ((input.op === 'hold' || input.op === 'release') && input.target.kind === 'rule') {
     /*
-     * Every issue or every change: one line on the list in `lists.json`, and
-     * nothing in its folder (`list/standing.ts`). Holding writes no ref;
-     * releasing deletes no tick.
+     * Types × roles: one rule on the list in `lists.json`, and nothing in its
+     * folder (`list/standing.ts`). Holding writes no item; releasing deletes no
+     * tick.
      */
-    const target = input.target
-    const standing = list.standing ?? []
-    const was = standsAt(standing, target)
-    const name = targetName(target)
+    const got = rulesFrom([input.target])
+    if ('error' in got) return { ok: false, error: got.error }
+    const rule = got.rules[0] as Rule
+    const rules = list.applies ?? []
+    const was = rules.findIndex((one) => {
+      const read = ruleOf(one)
+      return read !== null && sameRule(read, rule)
+    })
+    const name = ruleName(rule)
     if (input.op === 'hold') {
-      if (was !== -1) return answer(list.id, `"${list.name}" is already held against ${name}`, null)
-      list.standing = [...standing, { of: target.of, ...(target.epic ? { epic: target.epic } : {}), since: at }]
+      if (was !== -1) return answer(list.id, `"${list.name}" already applies to ${name}`, null)
+      list.applies = [...rules, stored(rule, at)]
       book.touch()
       return answer(
         list.id,
-        `"${list.name}" is now held against ${name}: it is in front of every ${target.of === 'issue' ? 'issue' : 'merge request and pull request'}`
-        + `${target.epic ? ` ${target.epic} names` : ''} as the host's tracker reads it, and each keeps its own ticks`,
+        `"${list.name}" now applies to ${name}: it is in front of every such item${rule.epic ? ` ${rule.epic} names` : ''} `
+        + 'read from that angle, as the host\'s tracker says what each is, and each keeps its own ticks',
         null,
       )
     }
-    if (was === -1) return answer(list.id, `"${list.name}" was not held against ${name}`, null)
-    const left = standing.filter((_, at_) => at_ !== was)
-    if (left.length) list.standing = left
-    else delete list.standing
+    if (was === -1) return answer(list.id, `"${list.name}" did not apply to ${name}`, null)
+    const left = rules.filter((_, at_) => at_ !== was)
+    if (left.length) list.applies = left
+    else delete list.applies
     book.touch()
-    /*
-     * The ticks made on each ref stay under that ref, as a release always
-     * leaves them. With no standing hold left they are ticks on refs the list
-     * is not held against — released ones — and are marked so, which is what
-     * Storage counts as kept and what Purge measures an age by. With another
-     * standing hold left they may still be in front, and are left alone.
-     */
-    let kept = 0
-    if (!left.length) {
-      for (const [key, entry] of book.all(list.id)) {
-        if (!tickedUnheld(key, entry)) continue
-        kept += 1
-        book.set(list.id, key, { ...entry, released: at })
-      }
-    }
+    const kept = left.length ? 0 : releaseThrough(book, list, at)
     return answer(
       list.id,
-      `"${list.name}" is no longer held against ${name}`
+      `"${list.name}" no longer applies to ${name}`
       + (kept
-        ? `; the ticks made on ${kept === 1 ? 'one ref are' : `${kept} refs are`} kept and come back if it is held again`
-        : '; the ticks made on each ref are kept'),
+        ? `; the ticks made on ${kept === 1 ? 'one item are' : `${kept} items are`} kept and come back if it applies again`
+        : '; the ticks made on each item are kept'),
       null,
     )
   }
@@ -1393,9 +1635,13 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
       const { [input.item]: _gone, ...rest } = entry.ticks
       book.set(list.id, key, { ...entry, ticks: rest })
     }
+    /* A list of one item's own lines goes with its last line: it was made by the first. */
+    const emptied = Boolean(list.only) && list.items.length === 0
+    if (emptied) book.forget(list.id)
     return answer(
       list.id,
-      `"${gone.text}" is off "${list.name}"${ticked ? `, along with ${ticked === 1 ? 'the tick' : `${ticked} ticks`} on it` : ''}`,
+      `"${gone.text}" is off "${list.name}"${ticked ? `, along with ${ticked === 1 ? 'the tick' : `${ticked} ticks`} on it` : ''}`
+      + (emptied ? '; it was the last line just for that item' : ''),
       null,
     )
   }
@@ -1414,12 +1660,12 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
    * opposite of that, and the sentence it gets back says what it just did.
    * An untick holds nothing: taking a tick back is not a claim about the work.
    */
-  /* Every issue or every change is never what a tick is filed under: each ref keeps its own. */
-  if (input.target.kind === 'every') {
+  /* A rule is never what a tick is filed under: each item keeps its own. */
+  if (input.target.kind === 'rule') {
     return {
       ok: false,
       error:
-        `"${list.name}" held against ${targetName(input.target)} is ticked one ref at a time: the ticks on one issue `
+        `"${list.name}" applying to ${targetName(input.target)} is ticked one item at a time: the ticks on one issue `
         + 'say nothing about another. Name the ref the tick is for, e.g. "gh#105". Nothing was changed.',
     }
   }
@@ -1451,14 +1697,14 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
   const holdsNow = heldAs(input.target)
   const holdKey = targetKey(holdsNow)
   /*
-   * A ref a standing hold may cover is NOT held by its tick: the list is in
-   * front of it already, or will be once the tracker says what it is, and a
-   * hold by hand would keep it in front after the standing hold is released.
-   * "May": this store has no tracker reading, so a ref whose spelling does not
-   * say its kind is given the benefit of the doubt (`list/standing.ts`).
+   * An item a rule may cover — a ref of one of its types, the paper for a
+   * list for papers — is NOT held by its tick: the list is in front of it
+   * already, or will be once the tracker says what it is, and a hold by hand
+   * would keep it in front after the rule is gone. "May": this store has no
+   * tracker reading and no angle, so a ref whose spelling does not say its
+   * type is given the benefit of the doubt (`mayCover` in `list/standing.ts`).
    */
-  const standing =
-    input.target.kind === 'ref' && !book.holds(list.id, holdKey) && covers(list.standing, input.target.ref, NOTHING_READ).answer !== 'no'
+  const standing = !book.holds(list.id, holdKey) && mayCover(rulesOf(list), input.target)
   const newlyHeld = input.done && !standing && !book.holds(list.id, holdKey)
   if (newlyHeld) hold(book, list, holdKey, at)
   const was = book.entry(list.id, key)
@@ -1496,8 +1742,8 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
       ? `${item.id} on "${list.name}" is ${STATE_PHRASE[input.state ?? 'passed']} for ${key}, by ${by}`
         + (newlyHeld ? `, and "${list.name}" is now held against ${targetName(holdsNow)}` : '')
         + (standing
-          ? `; "${list.name}" stands against ${(list.standing ?? []).map((one) => targetName(standingTarget(one))).join(' and ')}, `
-            + `so ${key.slice(4)} was not held on its own: the list is in front of it while the host's tracker reads it as one of those`
+          ? `; "${list.name}" applies to ${rulesOf(list).map(ruleName).join(' and ')}, `
+            + `so ${targetName(input.target)} was not held on its own: the list is in front of it while it is one of those, from that angle`
           : '')
       : `${item.id} on "${list.name}" is no longer ticked for ${key}`,
     input.target,

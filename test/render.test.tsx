@@ -109,7 +109,6 @@ function here(instances: Held[], placed: Placed | null = null): Here {
 function Reading(props: Partial<ComponentProps<typeof HereView>> & { here: Here | null; room: Room }) {
   return (
     <HereView
-      somewhere
       onEdit={noop}
       onOpen={noop}
       onAll={noop}
@@ -190,7 +189,7 @@ describe('a list that says whose work it is for (Jalez/kehikko-checklist#15)', (
     const rows = [...container.querySelectorAll('[data-instance]')].map((one) => one.textContent ?? '')
     expect(rows).toHaveLength(2)
     expect(rows[0]).not.toContain('· for ')
-    expect(rows[1]).toContain('gh#105 · for screenplay')
+    expect(rows[1]).toContain('held for gh#105 · for screenplay')
   })
 
   test('lists put aside while others are drawn get no row: the hint on “All checklists” says it, and nothing does when nothing is drawn', () => {
@@ -256,9 +255,10 @@ describe('a list that says whose work it is for (Jalez/kehikko-checklist#15)', (
     ]
     const props = { onOpen: noop, onCreate: noop, onImport: noop, onBack: noop, importing: false, trouble: null, busy: false, said: null }
     const { container } = render(<AllView lists={lists} {...props} room={ROOMY} />)
-    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual([
-      '3 items, held against 2',
-      '1 item, held against 1, for screenplay',
+    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3 items', '1 item'])
+    expect([...container.querySelectorAll('[data-applies]')].map((one) => one.textContent)).toEqual([
+      'only for 2 items',
+      'only for 1 item · for screenplay',
     ])
     expect(container.querySelector('[data-checklist="two"]')?.getAttribute('data-for')).toBe('kehikot.screenplay')
     expect(container.querySelector('[data-checklist="one"]')?.hasAttribute('data-for')).toBe(false)
@@ -275,16 +275,104 @@ describe('the reading page: what is in front of the reader', () => {
     expect(container.querySelectorAll('[data-instance]')).toHaveLength(0)
   })
 
-  test('with nothing held here, says so in one line and offers the way to every checklist', () => {
+  test('with nothing picked, says one sentence and offers to manage the checklists — and lists no item to choose from', () => {
     const { container } = render(<Reading here={here([])} room={ROOMY} />)
-    expect(container.querySelector('[data-none="held"]')?.textContent).toBe('No checklist is held against what is in front of you.')
-    expect(container.querySelector('[data-all]')).toBeTruthy()
+    expect(container.querySelector('[data-none="picked"]')?.textContent).toBe('Pick an issue, MR, PR or paper to see its checklists.')
+    expect(container.querySelector('[data-all]')?.textContent).toBe('Manage checklists')
+    /* No section, no item, no button for one. */
+    expect(container.querySelectorAll('[data-section]')).toHaveLength(0)
+    expect(container.querySelectorAll('[data-add-for], [data-new-for]')).toHaveLength(0)
+    expect(container.querySelectorAll('button')).toHaveLength(1)
     nothingOld(container)
   })
 
-  test('with nothing in front at all, says the other sentence, which has a different remedy', () => {
-    const { container } = render(<Reading here={here([])} somewhere={false} room={ROOMY} />)
-    expect(container.querySelector('[data-none="front"]')?.textContent).toContain('no paper is open and nothing is selected')
+  test('with an item picked and nothing applying, says so from the angle and offers a checklist for its type and role, or a line just for it', () => {
+    const made: unknown[] = []
+    const added: unknown[] = []
+    const item = { target: { kind: 'ref', ref: '!123' } as Target, type: 'mr' as const, as: ['reviewer' as const], elsewhere: [] }
+    const { container } = render(
+      <Reading
+        here={here([])}
+        items={[item]}
+        onNewFor={(type, role) => made.push([type, role])}
+        onAddFor={(target, text) => added.push([target, text])}
+        room={ROOMY}
+      />,
+    )
+    expect(container.querySelector('[data-angle]')?.textContent).toContain('As reviewer on !123')
+    expect(container.querySelector('[data-type]')?.textContent).toBe('merge request')
+    expect(container.querySelector('[data-none="applies"]')?.textContent).toBe('No checklist applies to !123 as reviewer.')
+    fireEvent.click(screen.getByText('Add a checklist for merge requests as reviewer'))
+    expect(made).toEqual([['mr', 'reviewer']])
+    fireEvent.click(screen.getByText('Add an item just for !123'))
+    const box = screen.getByLabelText('A line just for !123')
+    fireEvent.change(box, { target: { value: 'Ask Sam about the flaky test' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(added).toEqual([[{ kind: 'ref', ref: '!123' }, 'Ask Sam about the flaky test']])
+    nothingOld(container)
+  })
+
+  test('several items picked: one section each, in order, each with its own angle', () => {
+    const pr = { target: { kind: 'ref', ref: 'gh#200' } as Target, type: 'pr' as const, as: ['reviewer' as const, 'author' as const], elsewhere: [] }
+    const issue = { target: REF, type: 'issue' as const, as: ['any' as const], elsewhere: ['assignee' as const] }
+    const angled: string[] = []
+    const { container } = render(
+      <Reading
+        here={here([held({ target: REF }), held({ checklist: { ...held().checklist, id: 'list2' }, target: { kind: 'ref', ref: 'gh#200' } })])}
+        items={[pr, issue]}
+        onAngle={(angle) => angled.push(angle)}
+        room={ROOMY}
+      />,
+    )
+    expect([...container.querySelectorAll('[data-section]')].map((one) => one.getAttribute('data-section'))).toEqual(['ref:gh#200', 'ref:gh#105'])
+    expect([...container.querySelectorAll('[data-angle]')].map((one) => one.firstElementChild?.textContent)).toEqual([
+      'As reviewer and author on gh#200',
+      'Any role on gh#105',
+    ])
+    expect(container.querySelector('[data-section="ref:gh#200"] [data-instance]')?.getAttribute('data-instance')).toBe('list2')
+    /* Another angle has lists for gh#105: one press reads from it. */
+    fireEvent.click(container.querySelector('[data-section="ref:gh#105"] [data-angle-to="assignee"]') as HTMLElement)
+    expect(angled).toEqual(['assignee'])
+  })
+
+  test('a list in front through a rule says which types and roles; an item’s own lines say they are its own, and are edited in place', () => {
+    const rule = { kind: 'rule', types: ['mr'], roles: ['reviewer'], epic: null } as Target
+    const through = held({ target: { kind: 'ref', ref: '!7' }, through: [rule], as: ['reviewer'] })
+    const ownBase = held({ target: { kind: 'ref', ref: '!7' } })
+    const own = { ...ownBase, checklist: { ...ownBase.checklist, id: 'own', name: 'Only for !7', only: 'ref:!7' } } as Held
+    const sent: unknown[] = []
+    const opened: string[] = []
+    const item = { target: { kind: 'ref', ref: '!7' } as Target, type: 'mr' as const, as: ['reviewer' as const], elsewhere: [] }
+    const { container } = render(
+      <Reading here={here([own, through])} items={[item]} onEdit={(e) => sent.push(e)} onOpen={(id) => opened.push(id)} room={ROOMY} />,
+    )
+    /* The item's own lines go last, under the lists that apply. */
+    expect([...container.querySelectorAll('[data-instance]')].map((one) => one.getAttribute('data-instance'))).toEqual(['list1', 'own'])
+    expect([...container.querySelectorAll('[data-label]')].map((one) => one.textContent)).toEqual(['merge requests · as reviewer', 'lines just for !7'])
+    /* No "add a line just for" press while it has some: they are added from its own Edit. */
+    expect(container.querySelector('[data-add-for]')).toBeNull()
+    /* Its Edit does not open an edit page: the lines become rewordable where they are. */
+    fireEvent.click(container.querySelector('[data-instance="own"] [data-edit]') as HTMLElement)
+    expect(opened).toEqual([])
+    expect(container.querySelector('[data-own-lines="own"]')).toBeTruthy()
+    fireEvent.click(container.querySelector('[data-own-lines="own"] [data-reword="bbb"]') as HTMLElement)
+    const box = screen.getByLabelText('Reword this line')
+    fireEvent.change(box, { target: { value: 'Second, sharper' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    const drop = container.querySelector('[data-own-lines="own"] [data-drop="aaa"]') as HTMLElement
+    fireEvent.click(drop)
+    fireEvent.click(drop)
+    const add = screen.getByLabelText('Add a line just for this item')
+    fireEvent.change(add, { target: { value: 'Third' } })
+    fireEvent.keyDown(add, { key: 'Enter' })
+    expect(sent).toEqual([
+      { op: 'reword', id: 'own', item: 'bbb', text: 'Second, sharper' },
+      { op: 'drop', id: 'own', item: 'aaa' },
+      { op: 'add', id: 'own', text: 'Third' },
+    ])
+    /* The list that applies by its rule still opens its edit page. */
+    fireEvent.click(container.querySelector('[data-instance="list1"] [data-edit]') as HTMLElement)
+    expect(opened).toEqual(['list1'])
   })
 
   test('when the picks emptied it, says which containers are picked out, ahead of either sentence', () => {
@@ -294,7 +382,7 @@ describe('the reading page: what is in front of the reader', () => {
     const why = 'paper and journeys are picked out; no checklist is held against what they show.'
     const { container } = render(<Reading here={here([])} why={why} room={ROOMY} />)
     expect(container.querySelector('[data-none="narrowed"]')?.textContent).toBe(why)
-    expect(container.querySelector('[data-none="held"]')).toBeNull()
+    expect(container.querySelector('[data-none="picked"]')).toBeNull()
     expect(container.querySelector('[data-all]')).toBeTruthy()
     nothingOld(container)
   })
@@ -302,7 +390,7 @@ describe('the reading page: what is in front of the reader', () => {
   test('one list: its name, which target these ticks belong to, and its items — and none of the old row', () => {
     const { container } = render(<Reading here={here([held()])} room={ROOMY} />)
     expect(screen.getByText('What a change owes')).toBeTruthy()
-    expect(container.querySelector('[data-label]')?.textContent).toBe('gh#105')
+    expect(container.querySelector('[data-label]')?.textContent).toBe('held for gh#105')
     expect(container.querySelector('[data-count]')?.textContent).toBe('1/2')
     expect(container.querySelectorAll('li[data-item]')).toHaveLength(2)
     /* One list needs no fold. */
@@ -463,7 +551,9 @@ describe('the reading page: what is in front of the reader', () => {
     const twice = [held({ target: REF }), held({ target: FILE, done: 0 })]
     const { container } = render(<Reading here={here(twice, PLACED)} room={ROOMY} />)
     expect(container.querySelectorAll('[data-instance="list1"]')).toHaveLength(2)
-    expect([...container.querySelectorAll('[data-label]')].map((one) => one.textContent)).toEqual(['gh#105', '3_methods.tex'])
+    expect([...container.querySelectorAll('[data-label]')].map((one) => one.textContent)).toEqual(['held for gh#105', '3_methods.tex'])
+    /* In two sections: the ref's, and the paper's. */
+    expect([...container.querySelectorAll('[data-section]')].map((one) => one.getAttribute('data-section'))).toEqual(['ref:gh#105', 'paper:thesis'])
   })
 
   test('the one press per instance leads to its edit page', () => {
@@ -528,9 +618,44 @@ describe('the edit page: what a list says, and what it is held against', () => {
     expect(sent[0]).toEqual({ op: 'release', id: 'list1', target: FILE })
   })
 
-  test('held against nothing says so, at every size, because it is the only thing explaining an absent list', () => {
+  test('applying to nothing says so, at every size, because it is the only thing explaining an absent list', () => {
     const { container } = render(<Editing held={held()} room={TIGHT} />)
-    expect(container.querySelector('[data-targets="none"]')?.textContent).toContain('shown nowhere until it is held')
+    expect(container.querySelector('[data-applies="0"]')?.textContent).toContain('Applies to nothing yet')
+    expect(container.querySelector('[data-targets="none"]')?.textContent).toContain('held for particular items by hand')
+  })
+
+  test('types × roles come first: one row of type chips and one of roles, task shown and not choosable, every press the whole set', () => {
+    const sent: unknown[] = []
+    const base = held()
+    const ruled = { ...base, checklist: { ...base.checklist, applies: [{ types: ['mr'], roles: ['reviewer'], since: 'x' }] } } as Held
+    const { container } = render(<Editing held={ruled} epic="thesis" onEdit={(e) => sent.push(e)} room={ROOMY} />)
+    const rule = container.querySelector('[data-rule="0"]')!
+    const chosen = (what: string) => [...rule.querySelectorAll(`[data-${what}]`)].filter((one) => one.getAttribute('data-chosen') === 'yes').map((one) => one.getAttribute(`data-${what}`))
+    expect(chosen('type')).toEqual(['mr'])
+    expect(chosen('role')).toEqual(['reviewer'])
+    const task = rule.querySelector('[data-type="task"]') as HTMLButtonElement
+    expect(task.disabled).toBe(true)
+    expect(task.getAttribute('title')).toContain('Tasks cannot be chosen yet')
+    /* Add pull requests; add author; any role stands alone; narrow to the open epic; a second rule. */
+    fireEvent.click(rule.querySelector('[data-type="pr"]') as HTMLElement)
+    fireEvent.click(rule.querySelector('[data-role="author"]') as HTMLElement)
+    fireEvent.click(rule.querySelector('[data-role="any"]') as HTMLElement)
+    fireEvent.change(rule.querySelector('select[data-rule-epic]') as HTMLSelectElement, { target: { value: 'thesis' } })
+    fireEvent.click(container.querySelector('[data-rule-add]') as HTMLElement)
+    fireEvent.click(container.querySelector('[data-rule="new"] [data-role="author"]') as HTMLElement)
+    fireEvent.click(container.querySelector('[data-rule="new"] [data-type="paper"]') as HTMLElement)
+    /* Taking its last type away removes the rule. */
+    fireEvent.click(rule.querySelector('[data-type="mr"]') as HTMLElement)
+    expect(sent).toEqual([
+      { op: 'applies', id: 'list1', rules: [{ types: ['mr', 'pr'], roles: ['reviewer'], epic: null }] },
+      { op: 'applies', id: 'list1', rules: [{ types: ['mr'], roles: ['reviewer', 'author'], epic: null }] },
+      { op: 'applies', id: 'list1', rules: [{ types: ['mr'], roles: ['any'], epic: null }] },
+      { op: 'applies', id: 'list1', rules: [{ types: ['mr'], roles: ['reviewer'], epic: 'thesis' }] },
+      { op: 'applies', id: 'list1', rules: [{ types: ['mr'], roles: ['reviewer'], epic: null }, { types: ['paper'], roles: ['author'], epic: null }] },
+      { op: 'applies', id: 'list1', rules: [] },
+    ])
+    /* The holds by hand are the exceptions, under their own heading. */
+    expect(container.textContent).toContain('Only for these items')
   })
 
   test('the picker offers the paper, its files and their headings, and pressing one holds the list against it', () => {
@@ -625,7 +750,9 @@ describe('the edit page: what a list says, and what it is held against', () => {
   test('nothing on this page is ticked, and Done goes back', () => {
     let done = 0
     const { container } = render(<Editing held={held()} onDone={() => (done += 1)} room={ROOMY} />)
-    expect(container.querySelector('button[aria-pressed]')).toBeNull()
+    /* The only pressed-or-not buttons are the type and role chips, which say what the list applies to. */
+    expect([...container.querySelectorAll('button[aria-pressed]')].every((one) => one.closest('[data-applies]'))).toBe(true)
+    expect(container.querySelector('li[data-item] button[aria-pressed]')).toBeNull()
     fireEvent.click(container.querySelector('[data-done]') as HTMLElement)
     expect(done).toBe(1)
   })
@@ -703,19 +830,24 @@ describe('every checklist in the project', () => {
   test('lists every checklist by name, and a press opens its edit page', () => {
     const opened: string[] = []
     render(<AllView lists={lists} onOpen={(id) => opened.push(id)} {...props} room={ROOMY} />)
-    expect(screen.getByText('All checklists')).toBeTruthy()
+    expect(screen.getByText('Manage checklists')).toBeTruthy()
     fireEvent.click(screen.getByText('What a change owes'))
     expect(opened).toEqual(['one'])
   })
 
-  test('says how many things each is held against, and says nothing where the name needs the width', () => {
-    /* A list held against nothing is shown nowhere on the reading page, and
+  test('says what each applies to, and leaves out the lines kept for one item alone', () => {
+    /* A list that applies to nothing is shown nowhere on the reading page, and
        this row is the one place that says so. */
-    const { container } = render(<AllView lists={lists} onOpen={noop} {...props} room={ROOMY} />)
-    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual([
-      '3 items, held against 2',
-      '1 item, held against nothing',
+    const ruled = { id: 'three', name: 'What a review owes', at: '', by: 'a test', items: 2, targets: 1, held: [REF], applies: [{ kind: 'rule', types: ['mr', 'pr'], roles: ['reviewer'], epic: null } as Target] }
+    const own = { id: 'own', name: 'Only for gh#105', at: '', by: 'a test', items: 1, targets: 1, held: [REF], only: 'ref:gh#105' }
+    const { container } = render(<AllView lists={[...lists, ruled, own]} onOpen={noop} {...props} room={ROOMY} />)
+    expect([...container.querySelectorAll('[data-applies]')].map((one) => one.textContent)).toEqual([
+      'only for 2 items',
+      'applies to nothing yet — open it to say which types and roles',
+      'merge requests and pull requests · as reviewer · also only for 1 item',
     ])
+    expect(container.querySelector('[data-checklist="own"]')).toBeNull()
+    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3 items', '1 item', '2 items'])
     cleanup()
     const tight = render(<AllView lists={lists} onOpen={noop} {...props} room={TIGHT} />)
     expect([...tight.container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3', '1'])
@@ -899,30 +1031,31 @@ describe('what the tracker says, beside a ref’s lists (Jalez/kehikko-checklist
   })
 })
 
-describe('every issue or every change, and a click set aside (Jalez/kehikko-checklist#31, #32)', () => {
-  test('a list in front through a standing hold says so on its row', () => {
-    const through = held({ through: [{ kind: 'every', of: 'issue', epic: null }] })
+describe('types × roles on the reading page, and a click set aside (Jalez/kehikko-checklist#32)', () => {
+  test('a list in front through a rule says which types and roles on its row', () => {
+    const through = held({ through: [{ kind: 'rule', types: ['issue'], roles: ['any'], epic: null }] })
     const { container } = render(<Reading here={here([through])} room={ROOMY} />)
-    expect(container.querySelector('[data-label]')?.textContent).toBe('gh#105 · every issue')
+    expect(container.querySelector('[data-label]')?.textContent).toBe('issues · any role')
   })
 
-  test('the empty pane tells nothing held from nothing that applies', () => {
-    const unheld = render(
-      <Reading here={here([])} none={{ why: 'nothing-held', said: 'Nothing is held against gh#106.' }} room={ROOMY} />,
+  test('a ref whose type is not known is said, in place of a sentence that would guess', () => {
+    const item = { target: { kind: 'ref', ref: 'gh#9' } as Target, type: null, as: ['any' as const], elsewhere: [] }
+    const { container } = render(
+      <Reading
+        here={{ ...here([]), undecided: [{ ref: 'gh#9', why: 'kind', lists: ['What an issue owes'] }] }}
+        items={[item]}
+        onNewFor={noop}
+        onAddFor={noop}
+        room={ROOMY}
+      />,
     )
-    expect(unheld.container.querySelector('[data-none="nothing-held"]')?.textContent).toBe('Nothing is held against gh#106.')
-    cleanup()
-    const applies = render(
-      <Reading here={here([])} none={{ why: 'none-applies', said: 'No checklist applies to gh#200.' }} room={ROOMY} />,
+    expect(container.querySelector('[data-undecided]')?.textContent).toBe(
+      'The tracker has not said what kind of item gh#9 is, so “What an issue owes” is not shown for it until it does.',
     )
-    expect(applies.container.querySelector('[data-none="none-applies"]')?.textContent).toBe('No checklist applies to gh#200.')
-  })
-
-  test('a ref whose kind is not known is said, in place of a sentence that would guess', () => {
-    const said = 'The tracker has not said whether gh#9 is an issue or a change.'
-    const { container } = render(<Reading here={here([])} undecided={said} room={ROOMY} />)
-    expect(container.querySelector('[data-undecided]')?.textContent).toBe(said)
-    expect(container.querySelector('[data-none]')).toBeNull()
+    expect(container.querySelector('[data-none="applies"]')?.textContent).toBe('')
+    /* No type, so no checklist to offer for one; a line just for it still can be. */
+    expect(container.querySelector('[data-new-for]')).toBeNull()
+    expect(container.querySelector('[data-add-for]')).toBeTruthy()
   })
 
   test.each([ROOMY, TIGHT])('a click set aside: the line and both ways out, above the lists', async (size) => {
@@ -956,29 +1089,3 @@ describe('every issue or every change, and a click set aside (Jalez/kehikko-chec
   })
 })
 
-describe('the edit page offers every issue and every change (Jalez/kehikko-checklist#31)', () => {
-  test('of the project and of the open epic; pressing holds, and a held one is a chip that releases', () => {
-    const sent: unknown[] = []
-    const EVERY_ISSUE: Target = { kind: 'every', of: 'issue', epic: null }
-    const { container } = render(
-      <Editing held={held()} targets={[{ target: EVERY_ISSUE, done: 0 }]} onEdit={(e) => sent.push(e)} room={ROOMY} />,
-    )
-    fireEvent.click(container.querySelector('[data-switch]') as HTMLElement)
-    const offered = [...container.querySelectorAll('[data-pick-every] [data-pick-target]')].map((one) => [
-      one.getAttribute('data-pick-target'),
-      one.textContent,
-      one.getAttribute('data-held'),
-    ])
-    expect(offered).toEqual([
-      ['every:issue', 'Every issue', 'yes'],
-      ['every:change', 'Every change', 'no'],
-      ['every:issue/thesis', 'Every issue of thesis', 'no'],
-      ['every:change/thesis', 'Every change of thesis', 'no'],
-    ])
-    fireEvent.click(container.querySelector('[data-pick-target="every:change"]') as HTMLElement)
-    expect(sent[0]).toEqual({ op: 'hold', id: 'list1', target: { kind: 'every', of: 'change', epic: null } })
-    fireEvent.click(container.querySelector('[data-release="every:issue"]') as HTMLElement)
-    expect(sent[1]).toEqual({ op: 'release', id: 'list1', target: EVERY_ISSUE })
-    expect(container.querySelector('[data-release="every:issue"]')?.textContent).toContain('every issue')
-  })
-})

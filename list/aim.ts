@@ -176,7 +176,14 @@ export function inFrontOf(input: {
   const byParts = input.focused === true && !narrowed
   const from = narrowed ? picked : containers
 
-  const refs = dedupe([...(narrowed ? [] : selection), ...from.flatMap((one) => one.refs)])
+  /*
+   * The refs in front are the ones somebody PICKED: the selection, or — while
+   * containers are picked out — what those show. Not the union of what every
+   * container shows: a References pane lists forty refs, and drawing a section
+   * for each would be a list of items to choose from, which is the browsing the
+   * person asked this pane never to do (see `list/standing.ts`).
+   */
+  const refs = dedupe(narrowed ? picked.flatMap((one) => one.refs) : [...selection])
   const documents = byParts
     ? []
     : dedupePlaces([...(narrowed || !passage ? [] : [passage]), ...from.flatMap((one) => one.documents)])

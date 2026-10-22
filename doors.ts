@@ -17,16 +17,32 @@ import {
   holds,
   inFront,
   targetsOf,
+  type ItemInFront,
   type Op,
 } from './list/checklists.ts'
 import { moduleNamed } from './list/aim.ts'
-import type { RefsRead } from './list/standing.ts'
+import {
+  angleLine,
+  angleOf,
+  ITEM_TYPES,
+  NO_TASKS,
+  nothingLine,
+  ROLES,
+  rolesFromMine,
+  rolesPhrase,
+  typeName,
+  undecidedLine,
+  type Angle,
+  type ItemType,
+  type RefsRead,
+  type Role,
+} from './list/standing.ts'
 import { stateOf, TICK_STATES, type TickState } from './list/shapes.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, since } from './list/outbox.ts'
 import { discard, preview, purge, restore, SCOPES, usage, usageText, type Finished, type Rule } from './list/storage.ts'
 import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
-import { MAX_TARGET_PART, part, readTarget, REF_KINDS, targetKey, targetName, type RefKind, type Target } from './list/targets.ts'
+import { MAX_TARGET_PART, part, readTarget, ruleRefusal, targetKey, targetName, type Target } from './list/targets.ts'
 import { filesNamed, placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 
@@ -226,6 +242,35 @@ const PROJECT_PROPERTY = {
   },
 } as const
 
+/**
+ * How a reading tool says which angle an item is read from: one role, or the
+ * person's own roles as the host reads them, or neither — then any role. This
+ * door reads no tracker, so it cannot know a person's roles itself.
+ */
+const ANGLE_PROPERTIES = {
+  role: {
+    type: 'string',
+    enum: ['assignee', 'reviewer', 'author', 'any'],
+    description:
+      'The angle: read the item as its assignee, reviewer or author, or "any" role. Defaults to the person\'s own '
+      + 'roles from my_roles, and to any role when neither is given.',
+  },
+  my_roles: {
+    type: 'array',
+    items: { type: 'string' },
+    description:
+      'The person\'s roles on the item as the host\'s tracker reading says them (kehikko\'s read_tracker prints '
+      + '"my roles:"): reviewer-asked, reviewer-done, author, assignee. Used when role is not given.',
+  },
+  type: {
+    type: 'string',
+    enum: ['issue', 'mr', 'pr'],
+    description:
+      'What kind of item the ref is, when its spelling does not say: gh#41 is an issue or a pull request, and '
+      + 'this door reads no tracker. !7 is a merge request and #12 a GitLab issue by their spelling.',
+  },
+} as const
+
 const TARGET_PROPERTIES = {
   ref: {
     type: 'string',
@@ -237,23 +282,36 @@ const TARGET_PROPERTIES = {
     type: 'string',
     description:
       'The epic whose paper this list is being held against, as list_epics spells it. Give this OR a ref. With '
-      + 'kehikko and module, the epic whose run of that container is being ticked or read instead. With every, '
-      + 'the epic whose issues or changes the list stands against, instead of the whole project\'s.',
+      + 'kehikko and module, the epic whose run of that container is being ticked or read instead. With types, '
+      + 'the epic whose refs the list applies to, instead of the whole project\'s.',
   },
   /*
-   * Every issue or every change of the project, or of one epic
-   * (Jalez/kehikko-checklist#31): a standing hold. See the fourth kind in
-   * `list/targets.ts` and `list/standing.ts`.
+   * Types of item × roles, of the project or of one epic: a rule, held once
+   * and in front of every such item. See the fourth kind in `list/targets.ts`
+   * and `list/standing.ts`.
    */
+  types: {
+    type: 'array',
+    items: { type: 'string', enum: [...ITEM_TYPES] },
+    description:
+      'hold_checklist only, instead of a ref, a paper or a container: the TYPES of item the list applies to, '
+      + 'across the project — "issue", "mr" (merge request), "pr" (pull request), "paper". With roles, and with '
+      + 'epic to narrow it to the refs that epic names. The list is then in front of a person on any such item, '
+      + 'including ones opened later, read from that role. Which type a ref is, is the host\'s tracker reading\'s '
+      + `to say. "task" is not available yet: ${NO_TASKS} Ticks stay per item: to tick one, give its ref.`,
+  },
+  roles: {
+    type: 'array',
+    items: { type: 'string', enum: [...ROLES] },
+    description:
+      'hold_checklist only, with types: the roles the list is for — "assignee", "reviewer", "author", or "any" '
+      + '(every role, the default). A role is the person\'s angle on an item, not a fact about it.',
+  },
   every: {
     type: 'string',
-    enum: [...REF_KINDS],
+    enum: ['issue', 'change'],
     description:
-      'Instead of a ref, a paper or a container: "issue" to hold the list against EVERY issue of the project, '
-      + '"change" against every merge request and pull request — with epic, only those that epic names. The list '
-      + 'is then in front of a person on any such ref, including ones opened later, with nobody holding it ref by '
-      + 'ref; which kind a ref is, is the host\'s tracker reading\'s to say. Ticks stay per ref: to tick or read '
-      + 'one, give its ref, not every. Releasing keeps every tick made on each ref.',
+      'The older spelling of types: "issue" is types ["issue"], "change" is types ["mr", "pr"], for any role.',
   },
   /*
    * A module's container on one kehikko, whichever epic is open
@@ -404,8 +462,8 @@ function aimed(args: Record<string, unknown>, where: string, id: string, minting
   if (named.kind === 'kehikko') {
     return { target: { ...named, module: moduleNamed(named.module, modulesHere()) ?? named.module }, also: null }
   }
-  /* Every issue or every change is no place in a file either, and its epic is a name, never read off disk. */
-  if (named.kind === 'every') return { target: named, also: null }
+  /* Types × roles is no place in a file either, and its epic is a name, never read off disk. */
+  if (named.kind === 'rule') return { target: named, also: null }
   if (named.kind === 'ref' || named.section) return settle(named, where, id, minting, 'paper')
   const path = str(args.path, MAX_PROJECT)
   if (!path) return { target: named, also: null }
@@ -501,19 +559,26 @@ const MAX_EPICS_READ = 16
 
 /**
  * What the page's tracker reading said about the refs in front, off the
- * query (Jalez/kehikko-checklist#31): `kind` is `<ref>\t<issue|change>`,
- * `epic-read` an epic whose refs the page read, and `in-epic`
- * `<epic>\t<ref>` for each ref in front that epic names. Bounded to the refs
- * in front and read leniently: a row that does not parse is a ref whose kind
- * is not known, which the page then says.
+ * query: `type` is `<ref>\t<issue|mr|pr>`, `roles` is `<ref>\t<role,role>`
+ * (the person's roles there, as `rolesFromMine` reads `myRoles`; a ref with
+ * no `roles` row has none known), `epic-read` an epic whose refs the page
+ * read, and `in-epic` `<epic>\t<ref>` for each ref in front that epic names.
+ * Bounded to the refs in front and read leniently: a row that does not parse
+ * is a ref whose type or roles are not known, which the page then says.
  */
 function refsRead(query: URLSearchParams, selection: readonly string[]): RefsRead {
   const front = new Set(selection)
   /* No prototype: a ref or an epic is a name somebody spelled, and `__proto__` is one. */
-  const kinds: Record<string, RefKind> = Object.create(null)
-  for (const row of query.getAll('kind').slice(0, MAX_KINDS)) {
-    const [ref, kind] = str(row, MAX_PROJECT).split('\t')
-    if (ref && front.has(ref) && REF_KINDS.includes(kind as RefKind)) kinds[ref] = kind as RefKind
+  const types: Record<string, ItemType> = Object.create(null)
+  for (const row of query.getAll('type').slice(0, MAX_KINDS)) {
+    const [ref, type] = str(row, MAX_PROJECT).split('\t')
+    if (ref && front.has(ref) && (['issue', 'mr', 'pr'] as string[]).includes(type ?? '')) types[ref] = type as ItemType
+  }
+  const roles: Record<string, Role[]> = Object.create(null)
+  for (const row of query.getAll('roles').slice(0, MAX_KINDS)) {
+    const [ref, said] = str(row, MAX_PROJECT).split('\t')
+    if (!ref || !front.has(ref)) continue
+    roles[ref] = rolesFromMine((said ?? '').split(',').filter(Boolean)) ?? []
   }
   const epics: Record<string, string[]> = Object.create(null)
   for (const row of query.getAll('epic-read').slice(0, MAX_EPICS_READ)) {
@@ -524,7 +589,22 @@ function refsRead(query: URLSearchParams, selection: readonly string[]): RefsRea
     const [epic, ref] = str(row, MAX_PROJECT).split('\t')
     if (epic && ref && front.has(ref) && Object.hasOwn(epics, epic) && !epics[epic]!.includes(ref)) epics[epic]!.push(ref)
   }
-  return { kinds, epics }
+  return { types, roles, epics }
+}
+
+/**
+ * A rule off a page's body: `{ types, roles, epic }`, bounded, or null when it
+ * is not that shape. Which words are types and roles is the store's to say.
+ */
+function ruleBody(value: unknown): { types: string[]; roles: string[]; epic: string | null } | null {
+  if (typeof value !== 'object' || value === null) return null
+  const one = value as { types?: unknown; roles?: unknown; epic?: unknown }
+  const list = (words: unknown) =>
+    Array.isArray(words) ? words.slice(0, 8).map((word) => (typeof word === 'string' ? str(word, 16) : '')).filter(Boolean) : null
+  const types = list(one.types)
+  const roles = one.roles === undefined ? ['any'] : list(one.roles)
+  if (!types || !roles) return null
+  return { types, roles, epic: typeof one.epic === 'string' && one.epic ? str(one.epic, MAX_TARGET_PART) : null }
 }
 
 /** How many refs' kinds one request may say: as many refs as it may name. */
@@ -616,6 +696,7 @@ const ANNOTATIONS: Record<string, Record<string, boolean>> = {
   hold_checklist: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   checklist_for: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   add_checklist_item: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  add_item_for: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   /* With done: false it takes a tick back, and the tick's record goes with it. A person's tick is refused. */
   check_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   reword_checklist_item: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
@@ -633,19 +714,21 @@ function listed() {
     {
       name: 'checklists',
       description:
-        'Every checklist this app holds, or one of them in full. Nothing here ships a list: each one was created by '
-        + 'a person or by an agent, so what comes back is exactly what somebody has written down and no more. Every '
-        + 'list says what it is HELD AGAINST — the issues, changes, paper files and sections somebody assigned it to, '
-        + 'which is where a person sees it, including standing holds on every issue or every change. Give a '
-        + 'checklist id to read that list; add a ref or an epic to see what '
-        + 'has been ticked on it FOR that target — the same list held against two issues keeps two separate sets. '
-        + 'Read this before starting work and again before saying you are done.',
+        'Every checklist this app holds, what applies to one item, or one list in full. Nothing here ships a list: '
+        + 'each one was created by a person or by an agent. A list APPLIES to types of item × roles (issues as '
+        + 'reviewer, merge requests for any role, papers…), across the project or one epic, and may also be held '
+        + 'against particular items by hand; an item can have lines of its own on top. Give a ref (or an epic, for '
+        + 'its paper) and no checklist to get every checklist that applies to that item from an angle — role, or the '
+        + 'person\'s own my_roles — with what is ticked there. Give a checklist id to read that list, and a ref or an '
+        + 'epic with it to see what is ticked on it FOR that item — two issues keep two separate sets. Read this '
+        + 'before starting work and again before saying you are done.',
       inputSchema: {
         type: 'object',
         properties: {
           ...PROJECT_PROPERTY,
-          checklist: { type: 'string', description: 'The checklist id. Omit to list every checklist.' },
+          checklist: { type: 'string', description: 'The checklist id. Omit to list every checklist, or — with a ref or an epic — to read what applies to that item.' },
           ...TARGET_PROPERTIES,
+          ...ANGLE_PROPERTIES,
         },
         required: ['project'],
       },
@@ -670,16 +753,14 @@ function listed() {
     {
       name: 'hold_checklist',
       description:
-        'Hold a checklist against one more target — an issue, merge request or pull request; every issue or every '
-        + 'change of the project or of one epic (every: "issue" | "change", optionally with epic); a paper, one of its '
-        + 'files, or one heading in it; or one module\'s container on one kehikko, whichever epic is open — or, with '
-        + 'release: true, stop holding it against one. What a list is held against is what decides where a PERSON '
-        + 'sees it: reading that file or section, selecting that reference, or being on that kehikko while that '
-        + 'container is in front, puts the list in front of them. Every issue or every change is for a list every '
-        + 'such ref owes — each ref still keeps its own ticks. The last is for a list about how a module\'s work '
-        + 'is run in every epic. A list held against nothing is shown nowhere. Releasing keeps '
-        + 'every tick made there; holding it again brings them back. On a paper, give path (and from/to) to mean '
-        + 'the file or heading being looked at, exactly as check_item does.',
+        'Say what a checklist applies to. Mostly: types and roles — types ["mr"] with roles ["reviewer"] puts it in '
+        + 'front of a person on every merge request they read as reviewer, including ones opened later (types: '
+        + 'issue, mr, pr, paper; roles: assignee, reviewer, author, any; with epic, only the refs that epic names). '
+        + 'Each item still keeps its own ticks. As an exception, hold it against one item by hand — an issue, merge '
+        + 'request or pull request (ref); a paper, one of its files or one heading in it; or one module\'s container '
+        + 'on one kehikko, whichever epic is open. With release: true, take a rule or a hold away; every tick made '
+        + 'there is kept and comes back if it applies again. A list that applies to nothing is shown nowhere. On a '
+        + 'paper, give path (and from/to) to mean the file or heading being looked at, exactly as check_item does.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -695,27 +776,51 @@ function listed() {
     {
       name: 'checklist_for',
       description:
-        'Say which module’s work a checklist is for, or — with module: null — that it is for every module’s, which '
-        + 'is what a list is until somebody says. Several modules can show the same place in a paper: Paper the '
-        + 'section being read, Slides the section a slide is linked to, Screenplay the chapter its narration is '
-        + 'about. A list about narration held against that chapter would be in front of all three. Said to be for '
-        + 'one module, it is in front of a PERSON only while that module’s container is among the ones they picked '
-        + 'out, or while they have picked none. What the list is held against and every tick on it are untouched.',
+        'Two questions. (1) With a ref (or an epic, for its paper) and no module: the checklists FOR that item — every '
+        + 'list whose types × roles apply to it from an angle (role, or the person\'s own my_roles; any role when '
+        + 'neither is given), the lists held against it by hand, and its own lines, with what is ticked there. Read-'
+        + 'only. (2) With a checklist and module: say which module’s work that checklist is for, or — with module: '
+        + 'null — that it is for every module’s. Several modules can show the same place in a paper; said to be for '
+        + 'one module, a list is in front of a PERSON only while that module’s container is among the ones they '
+        + 'picked out, or while they have picked none. Nothing else about the list changes.',
       inputSchema: {
         type: 'object',
         properties: {
           ...PROJECT_PROPERTY,
-          checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
+          checklist: { type: 'string', description: 'With module: the checklist id, as the checklists tool prints it' },
+          ref: TARGET_PROPERTIES.ref,
+          epic: TARGET_PROPERTIES.epic,
+          ...ANGLE_PROPERTIES,
           module: {
             type: ['string', 'null'],
             description:
               'The module’s id as the host spells it, e.g. "kehikot.screenplay" — its short name, "screenplay", is '
               + 'read as that id when one module here has it. Or null, to say the list is for every module’s work '
-              + 'again. Leaving it out is refused, so a call that lost the id cannot clear what a list is for.',
+              + 'again. Leave it out to ask what applies to a ref or an epic instead.',
           },
           agent: { type: 'string' },
         },
-        required: ['project', 'checklist', 'module'],
+        required: ['project'],
+      },
+    },
+    {
+      name: 'add_item_for',
+      description:
+        'Add a line for ONE item only — an issue, merge request or pull request (ref), or the paper an epic is '
+        + 'aimed at (epic) — on top of the checklists that apply to it. It is shown under them as "Only for <ref>", '
+        + 'is ticked with check_item like any line (the checklist id comes back with it), and is kept whatever '
+        + 'happens to the other lists. For something every such item owes, add it to a checklist that applies to '
+        + 'the type instead.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ...PROJECT_PROPERTY,
+          ref: { type: 'string', description: 'The issue, merge request or pull request, e.g. "gh#105", "!44". Or give epic.' },
+          epic: { type: 'string', description: 'Instead of ref: the epic whose paper the line is for.' },
+          text: { type: 'string', description: `What this one item still owes. Up to ${MAX_TEXT} characters.` },
+          agent: { type: 'string', description: 'Your own name, so the line says who wrote it' },
+        },
+        required: ['project', 'text'],
       },
     },
     {
@@ -845,16 +950,26 @@ function listsText(where: string): string {
       + 'first, and then add_checklist_item puts lines on it.'
     )
   }
+  const own = lists.filter((list) => list.only)
+  const named = lists.filter((list) => !list.only)
   return [
     `Checklists in ${where}:`,
-    ...lists.map(
+    ...named.map(
       (list) =>
         `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
         + (list.for ? `for ${list.for}’s work; ` : '')
         + heldPhrase(list),
     ),
+    ...(own.length
+      ? [
+          '',
+          'Lines added for one item alone (add_item_for), each on a list of that item\'s own:',
+          ...own.map((list) => `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'})`),
+        ]
+      : []),
     '',
-    'Ticks live per (checklist, target, item): ask again with a ref or an epic to see what is ticked for it.',
+    'Ticks live per (checklist, item): ask again with a ref or an epic, and no checklist, to see what applies to it '
+    + 'and what is ticked there.',
   ].join('\n')
 }
 
@@ -862,17 +977,17 @@ function listsText(where: string): string {
  * What one list is held against, for the listing: its standing holds by name
  * (`every issue`), then its targets by name or, past a few, by count.
  */
-function heldPhrase(list: { held: Target[]; targets: number; standing?: Target[] }): string {
-  const standing = (list.standing ?? []).map(targetName)
+function heldPhrase(list: { held: Target[]; targets: number; applies?: Target[] }): string {
+  const standing = (list.applies ?? []).map(targetName)
   const named = list.held.length
     ? list.held.map(targetName)
     : list.targets
       ? [`${list.targets} target${list.targets === 1 ? '' : 's'} — ask with its id to see them`]
       : []
   if (!standing.length && !named.length) {
-    return 'held against nothing yet, so shown nowhere — hold_checklist puts it in front of somebody)'
+    return 'applies to nothing yet, so shown nowhere — hold_checklist with types and roles puts it in front of somebody)'
   }
-  return `held against ${[...standing, ...named].join(', ')})`
+  return `${standing.length ? `applies to ${standing.join('; ')}` : ''}${standing.length && named.length ? '; ' : ''}${named.length ? `only for ${named.join(', ')}` : ''})`
 }
 
 /** What each state looks like in the listing: x passed, ! failed, - not applicable, a space unchecked. */
@@ -890,6 +1005,102 @@ function stateFrom(value: unknown): TickState | null | undefined {
 }
 const STATE_REFUSAL = 'state is one of passed, failed or na (not applicable). Nothing was changed.'
 
+/** One line of a list as an agent reads it: position, state, id, words, evidence, who. */
+function rowLine(row: { item: { id: string; text: string; fact?: Fact }; done: { by: string; viaMcp?: boolean; note?: string; evidence?: { said: string }; state?: TickState } | null }, at: number): string {
+  const done = row.done
+  const who = done
+    ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''}`
+      + `${done.evidence ? `; ticked on "${done.evidence.said}"` : ''})`
+    : ''
+  /* The fact an item is checked against, so an agent knows which part of the
+     issue or change to read before ticking it. This door reads no tracker,
+     so what the fact SAYS is the agent's to find out. */
+  const fact = row.item.fact ? `  [evidence: the tracker's ${FACT_NAMES[row.item.fact]}]` : ''
+  return `${at + 1}. [${MARKS[stateOf(done)]}] ${row.item.id} — ${row.item.text}${fact}${who}`
+}
+
+/**
+ * The angle a reading tool was handed: `role`, else the person's own roles
+ * from `my_roles`, else any role — this door reads no tracker, so it cannot
+ * find a person's roles itself. Null with the refusal when `role` is not one.
+ */
+function angleFrom(args: Record<string, unknown>): { angle: Angle; mine: Role[] | null } | { refusal: string } {
+  if (args.role !== undefined && args.role !== null && args.role !== '') {
+    if (typeof args.role !== 'string' || !(['assignee', 'reviewer', 'author', 'any'] as string[]).includes(args.role)) {
+      return { refusal: 'role is one of assignee, reviewer, author or any. Leave it out to read from the person\'s own roles (my_roles).' }
+    }
+    return { angle: angleOf(args.role), mine: null }
+  }
+  const said = Array.isArray(args.my_roles) ? args.my_roles.filter((one): one is string => typeof one === 'string').slice(0, 8) : null
+  return { angle: 'auto', mine: said ? rolesFromMine(said) : null }
+}
+
+/**
+ * What applies to one item — a ref, or the paper an epic is aimed at — read
+ * from an angle: every list whose types × roles cover it, every list held
+ * against it by hand, and its own lines, each with what is ticked there. The
+ * same question the reading page asks (`inFront`), answered in words.
+ */
+function appliesText(where: string, target: Target, args: Record<string, unknown>): string {
+  const angled = angleFrom(args)
+  if ('refusal' in angled) throw new Error(angled.refusal)
+  if (target.kind !== 'ref' && target.kind !== 'paper') {
+    throw new Error('what applies is asked about one item: a ref (e.g. "gh#105", "!44") or an epic, for its paper.')
+  }
+  const ref = target.kind === 'ref' ? target.ref : null
+  const epic = target.kind === 'paper' ? target.epic : null
+  const said = typeof args.type === 'string' && (['issue', 'mr', 'pr'] as string[]).includes(args.type) ? (args.type as ItemType) : null
+  const read: RefsRead = {
+    types: ref && said ? { [ref]: said } : {},
+    roles: ref && angled.mine ? { [ref]: angled.mine } : {},
+    epics: {},
+  }
+  const { instances, items, undecided, trouble } = inFront(
+    { ladders: [], selection: ref ? [ref] : [], whole: epic, read, angle: angled.angle, paper: epic },
+    where,
+  )
+  if (trouble) return trouble
+  const item = items[0] as ItemInFront
+  const name = ref ?? `the paper ${epic}`
+  const kind = item.type ? ` (${item.type === 'paper' ? 'a paper' : `a ${typeName(item.type)}`})` : ''
+  const mine = instances.filter((one) => (ref ? one.target?.kind === 'ref' && one.target.ref === ref : one.target?.kind === 'paper'))
+  const rules = mine.filter((one) => !one.checklist.only)
+  const own = mine.filter((one) => one.checklist.only)
+  const block = (one: (typeof mine)[number]) => {
+    const why = one.checklist.only
+      ? 'lines just for this item'
+      : one.through?.length
+        ? `applies to ${one.through.map(targetName).join('; ')}`
+        : `held for ${targetName(one.target as Target)} by hand`
+    return [
+      `  ${one.checklist.id} — "${one.checklist.name}" (${why}) — ${countsLine(one.counts)}`,
+      ...(one.rows.length ? one.rows.map((row, at) => `    ${rowLine(row, at)}`) : ['    (no lines yet)']),
+    ].join('\n')
+  }
+  const head = `${angleLine(item.as, name)}${kind}${angled.angle === 'auto' && !angled.mine && !args.role ? ' — no role was given, so any role' : ''}:`
+  const parts = [head]
+  if (rules.length || own.length) {
+    parts.push(...rules.map(block), ...own.map(block))
+  } else {
+    parts.push(`  ${nothingLine(name, item.as)}`)
+  }
+  const unsure = undecidedLine(undecided)
+  if (unsure) parts.push('', `${unsure} Pass type to say what it is.`)
+  if (item.elsewhere.length) {
+    parts.push(
+      '',
+      `Lists for ${rolesPhrase(item.elsewhere).replace(/^as /, '')} apply to ${name} too: ask again with role `
+      + `${item.elsewhere.map((role) => `"${role}"`).join(' or ')} to read from that angle.`,
+    )
+  }
+  parts.push(
+    '',
+    'Tick a line with check_item, naming the checklist id above and this item. add_item_for adds a line just for '
+    + 'this item; hold_checklist with types and roles makes a list apply to every item of a type.',
+  )
+  return parts.join('\n')
+}
+
 /** One checklist, with the ticks for a target where one was named. */
 function listText(id: string, target: Target | null, where: string): string {
   const { held: on, trouble } = held(id, target, where)
@@ -901,9 +1112,9 @@ function listText(id: string, target: Target | null, where: string): string {
       + 'checklists with just the project to see what exists.'
     )
   }
-  const head = target?.kind === 'every'
+  const head = target?.kind === 'rule'
     ? `"${on.checklist.name}" (${on.checklist.id}) — ${on.total} item${on.total === 1 ? '' : 's'}, `
-      + `${holds(id, target, where) ? 'held' : 'NOT held'} against ${targetName(target)}. Ticks are per ref, so nothing below is `
+      + `${holds(id, target, where) ? 'applies' : 'does NOT apply'} to ${targetName(target)}. Ticks are per item, so nothing below is `
       + 'ticked or unticked: ask with a ref to see what is ticked for it.'
     : target
     ? `"${on.checklist.name}" (${on.checklist.id}) held against ${targetName(target)} — ${on.done}/${on.total} ticked\n${countsLine(on.counts)}`
@@ -911,18 +1122,7 @@ function listText(id: string, target: Target | null, where: string): string {
   if (!on.rows.length) {
     return `${head}\nThis list has no items yet. add_checklist_item puts the first line on it.`
   }
-  const lines = on.rows.map((row, at) => {
-    const done = row.done
-    const who = done
-      ? `  (${done.by}${done.viaMcp ? ', over MCP' : ''}${done.note ? `: ${done.note}` : ''}`
-        + `${done.evidence ? `; ticked on "${done.evidence.said}"` : ''})`
-      : ''
-    /* The fact an item is checked against, so an agent knows which part of the
-       issue or change to read before ticking it. This door reads no tracker,
-       so what the fact SAYS is the agent's to find out. */
-    const fact = row.item.fact ? `  [evidence: the tracker's ${FACT_NAMES[row.item.fact]}]` : ''
-    return `${at + 1}. [${MARKS[stateOf(done)]}] ${row.item.id} — ${row.item.text}${fact}${who}`
-  })
+  const lines = on.rows.map((row, at) => rowLine(row, at))
   /*
    * Where else this list is held, with what is ticked there. Every target the
    * list is ASSIGNED to, whether or not anything is ticked on it — an agent
@@ -933,19 +1133,23 @@ function listText(id: string, target: Target | null, where: string): string {
   const others = all.filter((row) => !target || targetKey(row.target) !== targetKey(target))
   /* The most recently held first when there are many: a list held against every issue
      a project ever had is named by count past `NAMED_TARGETS`, not printed whole. */
-  /* Standing holds (every issue, every change) are always named, first: there are at most a few. */
-  const standing = others.filter((row) => row.target.kind === 'every')
-  const each = others.filter((row) => row.target.kind !== 'every')
+  /* Rules (types × roles) are always named, first: there are at most a few. */
+  const standing = others.filter((row) => row.target.kind === 'rule')
+  const each = others.filter((row) => row.target.kind !== 'rule')
   const named = [...standing, ...(each.length > NAMED_TARGETS ? each.slice(-NAMED_TARGETS).reverse() : each)]
   const more = others.length - named.length
+  const byHand = named.filter((row) => row.target.kind !== 'rule')
   const tail = others.length
-    ? `\n\n${target ? 'Also held' : 'Held'} against: ${named
-      .map((row) => `${targetName(row.target)} (${row.target.kind === 'every' ? 'each ref its own ticks' : `${row.done} ticked`})`)
-      .join(', ')}`
-      + (more ? `, and ${more} more (${others.length} in all; the ${named.length - standing.length} named are the most recently held)` : '')
+    ? (standing.length
+      ? `\n\nApplies to: ${standing.map((row) => targetName(row.target)).join('; ')} (each item keeps its own ticks)`
+      : '')
+      + (byHand.length || more
+        ? `\n\n${target ? 'Also held' : 'Held'} against: ${byHand.map((row) => `${targetName(row.target)} (${row.done} ticked)`).join(', ')}`
+          + (more ? `, and ${more} more (${others.length - standing.length} in all; the ${byHand.length} named are the most recently held)` : '')
+        : '')
     : target
       ? ''
-      : '\n\nHeld against nothing yet, so nobody sees it anywhere: hold_checklist puts it in front of somebody.'
+      : '\n\nApplies to nothing yet, so nobody sees it anywhere: hold_checklist with types and roles puts it in front of somebody.'
   return `${head}\n${lines.join('\n')}${tail}`
 }
 
@@ -974,6 +1178,36 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     return `${out.said}.\n\n${listText(out.id, null, where)}`
   }
 
+  if (name === 'add_item_for') {
+    const text = str(args.text, MAX_TEXT)
+    if (!text) throw new Error('add_item_for needs text: the line this one item still owes.')
+    const ref = part(args.ref)
+    const epic = ref ? null : part(args.epic)
+    if (!ref && !epic) {
+      throw new Error(
+        'add_item_for needs the item: a ref (an issue, merge request or pull request, e.g. "gh#105") or an epic, for '
+        + 'its paper. Nothing was added.',
+      )
+    }
+    const target: Target = ref ? { kind: 'ref', ref } : { kind: 'paper', epic: epic as string, section: null }
+    const out = change({ op: 'add-for', target, text, by, viaMcp: true }, where)
+    if (!out.ok) throw new Error(out.error)
+    return `${out.said}.\n\n${appliesText(where, target, args)}`
+  }
+
+  if (name === 'checklist_for' && !('module' in args)) {
+    /* The first question: what applies to this item. Read-only. */
+    const ref = part(args.ref)
+    const epic = ref ? null : part(args.epic)
+    if (!ref && !epic) {
+      throw new Error(
+        'checklist_for needs a ref (or an epic, for its paper) to say which checklists are for that item — or a '
+        + 'checklist and module, to say whose work a checklist is for. Nothing was changed.',
+      )
+    }
+    return appliesText(where, ref ? { kind: 'ref', ref } : { kind: 'paper', epic: epic as string, section: null }, args)
+  }
+
   const id = str(args.checklist, MAX_ID)
   if (!id) {
     throw new Error(
@@ -985,10 +1219,12 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     /* The same passage resolution as `check_item`, so an agent that was told
        what is owed "here" can hold a list here without spelling the section id
        this program mints. */
+    const typed = args.types !== undefined || args.every !== undefined
     const aim = aimed(args, where, id, args.release !== true)
+    if (!aim && typed) throw new Error(`hold_checklist: ${ruleRefusal(args)} Nothing was changed.`)
     if (!aim) {
       throw new Error(
-        'hold_checklist needs to say WHAT to hold the list against: a ref (an issue, merge request or pull request, '
+        'hold_checklist needs to say WHAT to hold the list against: types (with roles) for every item of a type, a ref (an issue, merge request or pull request, '
         + 'e.g. "gh#105"), an epic whose paper this is, optionally with a section of it or a path into it, or a '
         + 'kehikko\'s key and a module, for that module\'s container there whichever epic is open, or every: "issue" '
         + 'or "change" (with epic to mean only that epic\'s), for every such ref. What a '
@@ -1215,6 +1451,12 @@ function mcp(rpc: Rpc): Reply {
       if (PERSON_ONLY.test(name)) return text(PURGE_IS_A_PERSONS, true)
       if (name === 'checklists') {
         const id = str(args.checklist, MAX_ID)
+        const ref = part(args.ref)
+        const epic = part(args.epic)
+        if (!id && (ref || epic)) {
+          /* No checklist and an item: what applies to it, from the angle. */
+          return text(appliesText(where, ref ? { kind: 'ref', ref } : { kind: 'paper', epic: epic as string, section: null }, args))
+        }
         if (!id) return text(listsText(where))
         /* A target is optional here and refused only when it was GIVEN and is
            not a name. Asking about a list with no target is a perfectly good
@@ -1238,6 +1480,7 @@ function mcp(rpc: Rpc): Reply {
         || name === 'hold_checklist'
         || name === 'checklist_for'
         || name === 'add_checklist_item'
+        || name === 'add_item_for'
         || name === 'check_item'
         || name === 'reword_checklist_item'
         || name === 'move_checklist_item'
@@ -1466,7 +1709,11 @@ export function answerAt(
     const modules = heard(query.getAll('module'))
     const following = kehikko && modules.length ? { kehikko, modules, epic: part(query.get('open')) } : null
     const read = refsRead(query, selection)
-    const { instances, undecided, trouble, nowhere } = inFront({ ladders, selection, whole, following, read }, where)
+    /* The angle the items are read from, and whether the paper is one of them: the page says so when a reader
+       is in it or parts of it are picked, and then a list for papers is asked about. */
+    const angle = angleOf(query.get('angle'))
+    const paper = query.get('paper') === '1' ? epic : null
+    const { instances, items, undecided, trouble, nowhere } = inFront({ ladders, selection, whole, following, read, angle, paper }, where)
     /*
      * And for the whole paper, the file each list is held against, as a place.
      *
@@ -1489,7 +1736,7 @@ export function answerAt(
         }
       }
     }
-    return ok({ ok: true, placed, positions, instances, undecided, trouble, nowhere, whole: whole !== null })
+    return ok({ ok: true, placed, positions, instances, items, undecided, trouble, nowhere, whole: whole !== null })
   }
 
   /*
@@ -1690,7 +1937,16 @@ export function answerAt(
       const text = str(body.text, MAX_TEXT)
       const by = OWNER
 
-      if (op === 'create') return ok(change({ op: 'create', name: str(body.name, MAX_NAME), by }, where))
+      if (op === 'create') {
+        const rule = ruleBody(body.rule)
+        return ok(change({ op: 'create', name: str(body.name, MAX_NAME), ...(rule ? { rule } : {}), by }, where))
+      }
+      /* A line for one item alone: the item is the target the body names, a ref or a paper. */
+      if (op === 'add-for') {
+        const target = readTarget(body)
+        if (!target) return bad('that did not say which item the line is for: a ref, or an epic for its paper.')
+        return ok(change({ op: 'add-for', target, text, by }, where))
+      }
       /*
        * An import, which is the one write that names two projects.
        *
@@ -1720,6 +1976,12 @@ export function answerAt(
       if (!id) return bad('that edit did not say which checklist it was about.')
       if (op === 'rename') return ok(change({ op: 'rename', id, name: str(body.name, MAX_NAME), by }, where))
       if (op === 'forget') return ok(change({ op: 'forget', id, by }, where))
+      if (op === 'applies') {
+        if (!Array.isArray(body.rules)) return bad('that did not say what the list applies to: a list of types × roles.')
+        const rules = body.rules.slice(0, 16).map(ruleBody)
+        if (rules.some((one) => one === null)) return bad('one of those rules was not types × roles. Nothing was changed.')
+        return ok(change({ op: 'applies', id, rules: rules as NonNullable<ReturnType<typeof ruleBody>>[], by }, where))
+      }
       if (op === 'for') {
         /* `null` says the list is every module's again. Anything else has to
            be a module's id, and an empty one is refused rather than read as
@@ -1759,7 +2021,7 @@ export function answerAt(
         if (!named) {
           return bad(
             `that ${op} did not say which target. A checklist is held against an issue, a merge request, a pull `
-            + 'request, every issue or every change, or a paper, one of its files or one heading in it.',
+            + 'request, types of item × roles, or a paper, one of its files or one heading in it.',
           )
         }
         let target = named
@@ -1812,7 +2074,7 @@ export function answerAt(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, import, rename, for, forget, hold, release, add, reword, cite, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, import, rename, applies, for, forget, hold, release, add, add-for, reword, cite, move, drop or tick.`,
       )
     }
   }

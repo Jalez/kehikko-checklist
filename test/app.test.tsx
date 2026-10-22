@@ -33,6 +33,8 @@ mock.module('../src/wire/use-kehikot.ts', () => ({
     parts: '',
     readTracker: async () => null,
     readProject: async () => null,
+    readSummary: async () => null,
+    choose: async () => false,
     header: () => {},
     ...wire,
   }),
@@ -63,7 +65,7 @@ test('a late read of every checklist for the previous project does not replace t
   /* Switching project returns to the reading page, so the All view is opened after. */
   wire = { projectPath: '/new' }
   rerender(<App />)
-  fireEvent.click(await screen.findByText('All checklists'))
+  fireEvent.click(await screen.findByText('Manage checklists'))
 
   /* The new project answers first, the old one last. */
   await waitFor(() => expect(waiting.has('/new')).toBe(true))
@@ -229,7 +231,7 @@ describe('the not-ready moments, each as the one shared cover', () => {
   const cover = () => document.querySelector('[data-cover]')?.getAttribute('data-cover') ?? null
   const settle = (ms = 30) => act(async () => void (await new Promise((done) => setTimeout(done, ms))))
   const openAll = async () => {
-    fireEvent.click(await screen.findByText('All checklists'))
+    fireEvent.click(await screen.findByText('Manage checklists'))
     await screen.findByText('one list')
   }
 
@@ -265,7 +267,7 @@ describe('the not-ready moments, each as the one shared cover', () => {
     expect(cover()).toBe('loading')
     await settle()
     expect(cover()).toBeNull()
-    expect(screen.getByText('All checklists')).toBeTruthy()
+    expect(screen.getByText('Manage checklists')).toBeTruthy()
   })
 
   test('its own server not answering is the cover — not "Reading." for ever — with the page mounted under it, and Try again asks again', async () => {

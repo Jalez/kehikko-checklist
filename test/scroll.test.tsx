@@ -82,7 +82,7 @@ const TWO: Here = {
 
 function reading(here: Here, size = TIGHT) {
   return render(
-    <HereView here={here} somewhere onEdit={noop} onOpen={noop} onAll={noop} trouble={null} busy={false} room={size} />,
+    <HereView here={here} onEdit={noop} onOpen={noop} onAll={noop} trouble={null} busy={false} room={size} />,
   ).container
 }
 
@@ -98,8 +98,10 @@ describe('a snapping scroller can rest at its top', () => {
       for (const name of ['before:snap-start', 'before:block', 'before:h-0']) {
         expect(scroller.classList.contains(name)).toBe(true)
       }
-      /* Nothing was put in the scroller to do it: the lists are still its only children. */
-      expect([...scroller.children].every((one) => one.hasAttribute('data-instance'))).toBe(true)
+      /* Nothing was put in the scroller to do it: the items' sections are still its only children, and each one's
+         first line — the angle — is a place to rest too. */
+      expect([...scroller.children].every((one) => one.hasAttribute('data-section'))).toBe(true)
+      expect([...scroller.querySelectorAll('[data-angle]')].every((one) => one.classList.contains('snap-start'))).toBe(true)
       cleanup()
     }
   })

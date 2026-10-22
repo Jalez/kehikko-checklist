@@ -304,7 +304,7 @@ describe('a click the picks set aside is said (Jalez/kehikko-checklist#32)', () 
         await new Promise((resolve) => setTimeout(resolve, 20))
       })
       const asked = posted.find((one) => (one as { method?: string }).method === 'filters.set') as { params?: unknown } | undefined
-      expect(asked?.params).toEqual({ filters: { aim: 'all' } })
+      expect(asked?.params).toEqual({ filters: { aim: 'all', angle: 'auto' } })
     } finally {
       ;(HOST as { postMessage: unknown }).postMessage = was
     }

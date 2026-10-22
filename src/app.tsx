@@ -6,7 +6,7 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 import { ID } from '../manifest.ts'
 
 import { aimOf, aimOffer, forPicked, inFrontOf, moduleLabels, setAside, whyAside, whyEmpty } from '../list/aim.ts'
-import { noneLine, undecidedLine, type RefsRead } from '../list/standing.ts'
+import { angleOf, rolesFromMine, typeOfRow, typesName, type Angle, type ItemType, type RefsRead, type Role } from '../list/standing.ts'
 import { NOUN, anchorOf, readParts } from '../list/focus.ts'
 import {
   edit,
@@ -19,13 +19,15 @@ import {
   whatIsHere,
   type Edit,
   type Here,
+  type ItemInFront,
+  type Target,
   type Opened,
   type Outline,
   type Summary,
 } from '@/store/ask.ts'
 import type { TrackerReading } from 'kehikot-module-protocol'
 import { marksOf, useKehikot, type GotoHandler, type PressHandler } from '@/wire/use-kehikot.ts'
-import { headerFor, viewPressed } from '@/wire/header.ts'
+import { ANGLE_FILTER, angleOffer, headerFor, pressed } from '@/wire/header.ts'
 import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
 import { AllView } from '@/view/all.tsx'
@@ -185,11 +187,15 @@ export function App() {
     )
   }, [])
 
-  /* A press in the host's View menu: the same three screens the page's own buttons reach. */
+  /* What a press of the angle does, filled in below once the host's choice is known; a ref, so the press handler is made once. */
+  const angleTo = useRef<(next: Angle) => void>(() => {})
+
+  /* A press in the host's View menu: the same three screens the page's own buttons reach, or the angle. */
   const onPress = useCallback<PressHandler>((press) => {
-    const wanted = viewPressed(press)
-    if (wanted !== 'here' && wanted !== 'all' && wanted !== 'storage') return wanted
-    setView({ kind: wanted })
+    const wanted = pressed(press)
+    if (typeof wanted === 'string') return wanted
+    if ('angle' in wanted) angleTo.current(wanted.angle)
+    else setView({ kind: wanted.view })
     return undefined
   }, [])
 
@@ -213,9 +219,30 @@ export function App() {
     readTracker,
     readProject,
     readSummary,
-    setAim,
+    choose,
     header,
   } = useKehikot(ID, onGoto, bump, onPress)
+
+  /**
+   * The angle the picked items are read from: the person's own roles on each
+   * (`auto`), one role, or any role. Remembered per container as this
+   * container's filter choice, which is the one thing a host keeps per
+   * container; a press of the header's switch writes it there, and holds it
+   * for the session when the host will not.
+   */
+  const choice = useMemo(() => (chosen ? (JSON.parse(chosen) as Record<string, string>) : {}), [chosen])
+  const kept = angleOf(choice[ANGLE_FILTER])
+  const [angleNow, setAngleNow] = useState<Angle | null>(null)
+  useEffect(() => setAngleNow(null), [kept])
+  const angle = angleNow ?? kept
+  const onAngle = useCallback(
+    (next: Angle) => {
+      setAngleNow(next)
+      void choose?.({ ...choice, [ANGLE_FILTER]: next })
+    },
+    [choose, choice],
+  )
+  angleTo.current = onAngle
 
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.
@@ -279,26 +306,29 @@ export function App() {
     [kehikkoKey, front, epic],
   )
   /**
-   * Every standing hold in the project — every issue, every change, of the
-   * project or of one epic — off the list of every checklist
-   * (Jalez/kehikko-checklist#31). With none, nothing below asks anything.
+   * Every rule in the project — types × roles, of the project or of one epic
+   * — off the list of every checklist. With none, nothing below asks anything.
    */
-  const standingAll = useMemo(() => lists.flatMap((one) => one.standing ?? []), [lists])
+  const standingAll = useMemo(() => lists.flatMap((one) => one.applies ?? []), [lists])
   const standingEpics = useMemo(
-    () => [...new Set(standingAll.flatMap((one) => (one.kind === 'every' && one.epic ? [one.epic] : [])))].sort().join(' '),
+    () => [...new Set(standingAll.flatMap((one) => (one.kind === 'rule' && one.epic ? [one.epic] : [])))].sort().join(' '),
     [standingAll],
   )
   /**
    * What the host's tracker reading says about the refs in front: each one's
-   * kind, and which of them each epic a standing hold names names. Asked only
-   * while some list stands somewhere, and again when the reading moves — a
-   * ref that came back `pending` is decided then. Null without a host: then a
-   * ref's own spelling is all there is, and the pane says what is not known.
+   * type (its kind, and for a change its tracker: a GitLab merge request or a
+   * GitHub pull request), the person's roles on it (`myRoles`), and which of
+   * them each epic a rule names names. Asked whenever a ref is picked — the
+   * angle line over its section says the person's role there, whatever list
+   * it has — and again when the reading moves: a ref that came back `pending`
+   * is decided then. The summary only, which is cheap at the tracker. Null
+   * without a host: then a ref's own spelling is all there is, and the pane
+   * says what is not known.
    */
   const refsInFront = front.refs.join(' ')
   const [refsRead, setRefsRead] = useState<RefsRead | null>(null)
   useEffect(() => {
-    if (where !== 'hosted' || !standingAll.length || !refsInFront) {
+    if (where !== 'hosted' || !refsInFront) {
       setRefsRead(null)
       return
     }
@@ -307,8 +337,14 @@ export function App() {
     const epics = standingEpics ? standingEpics.split(' ') : []
     void Promise.all([readSummary({ refs }), ...epics.map((one) => readSummary({ epic: one }))]).then(([mine, ...byEpic]) => {
       if (!alive) return
-      const kinds: Record<string, 'issue' | 'change'> = Object.create(null)
-      for (const row of mine?.rows ?? []) if (refs.includes(row.ref)) kinds[row.ref] = row.kind
+      const types: Record<string, ItemType> = Object.create(null)
+      const roles: Record<string, Role[]> = Object.create(null)
+      for (const row of mine?.rows ?? []) {
+        if (!refs.includes(row.ref)) continue
+        types[row.ref] = typeOfRow(row)
+        const own = rolesFromMine(row.myRoles)
+        if (own) roles[row.ref] = own
+      }
       const named: Record<string, string[]> = Object.create(null)
       epics.forEach((one, at) => {
         const got = byEpic[at]
@@ -317,16 +353,24 @@ export function App() {
         const names = new Set([...got.rows.map((row) => row.ref), ...got.missing.map((row) => row.ref)])
         named[one] = refs.filter((ref) => names.has(ref))
       })
-      setRefsRead({ kinds, epics: named })
+      setRefsRead({ types, roles, epics: named })
     })
     return () => {
       alive = false
     }
-  }, [where, standingAll.length > 0, refsInFront, standingEpics, trackerAt, readSummary])
+  }, [where, refsInFront, standingEpics, trackerAt, readSummary])
   const readKey = refsRead ? JSON.stringify(refsRead) : ''
 
+  /**
+   * Whether the paper is a picked item: a reader is in it, a container picked
+   * out shows a place in it, or parts of it are picked. An epic open with no
+   * page of its paper in front is not a paper picked — the pane does not list
+   * what could be picked, it shows what was.
+   */
+  const paperPicked = Boolean(epic) && (documents.length > 0 || front.byParts)
+
   /** And the same, as one string, for the fetch to depend on. */
-  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following, read: readKey })
+  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following, read: readKey, angle, paper: paperPicked })
 
   /**
    * Whether there is anywhere at all to read from or write to.
@@ -342,17 +386,18 @@ export function App() {
   /* The words of a write that could not be delivered — the server was away, or is a newer one — or null. */
   const [unsent, setUnsent] = useState<string | null>(null)
 
-  /* The one offer, once hosted, and again whenever the count in its label
-     changes. `[]` on a host that lists no containers. See the essay above. */
+  /* The offer, once hosted, and again whenever the count in its label
+     changes: the aim (none on a host that lists no containers — see the essay
+     above), and the angle, which is how the host remembers it per container. */
   useEffect(() => {
-    if (where === 'hosted') filters(aimOffer(shown(containers)))
+    if (where === 'hosted') filters([...aimOffer(shown(containers)), ...angleOffer()])
   }, [where, filters, containers])
 
-  /* The header says which screen is showing; the edit page counts as the one it was opened from. */
+  /* The header says which screen is showing — the edit page counts as the one it was opened from — and the angle. */
   const showing = view.kind === 'edit' ? view.back : view.kind
   useEffect(() => {
-    if (where === 'hosted') header(headerFor(showing))
-  }, [where, header, showing])
+    if (where === 'hosted') header(headerFor(showing, angle))
+  }, [where, header, showing, angle])
 
   /* Every checklist that exists. This app's own material, read at load, after
      every change, and on the doorbell. */
@@ -391,7 +436,7 @@ export function App() {
        `InFront`. The server builds the whole-paper rung from the epic alone,
        and a page narrowed to containers showing no document must not hand it
        one. */
-    void whatIsHere(projectPath, front.paper ? epic : null, documents, front.refs, front.byParts, following, refsRead)
+    void whatIsHere(projectPath, paperPicked ? epic : null, documents, front.refs, front.byParts, following, refsRead, angle, paperPicked)
       .then((got) => {
         if (alive) setHere(got)
       })
@@ -513,14 +558,40 @@ export function App() {
    * stays until the answer in hand is to the question now being asked.
    */
   const settled = !here || here.whole === front.byParts
+  /*
+   * The items picked, a section each: what the server said, or — from a
+   * server that does not say — what was asked about, read from any role.
+   */
+  const itemsNow = useMemo<ItemInFront[]>(() => {
+    if (here?.items?.length) return here.items
+    const any: Role[] = ['any']
+    return [
+      ...front.refs.map((ref) => ({ target: { kind: 'ref', ref } as Target, type: null, as: any, elsewhere: [] })),
+      ...(paperPicked && epic ? [{ target: { kind: 'paper', epic, section: null } as Target, type: 'paper' as ItemType, as: any, elsewhere: [] }] : []),
+    ]
+  }, [here, front, paperPicked, epic])
+  /*
+   * The items whose every list the parts focus put aside: their section says
+   * the protocol's sentence rather than that nothing applies to them.
+   */
+  const asideNow = useMemo(() => {
+    if (!focus.focused || !here) return [] as string[]
+    const keyOf = (target: Target | null) =>
+      target?.kind === 'ref' ? `ref:${target.ref}` : target?.kind === 'paper' ? `paper:${target.epic}` : ''
+    const before = new Set(here.instances.map((one) => keyOf(one.target)))
+    const after = new Set((inFocus?.instances ?? []).map((one) => keyOf(one.target)))
+    return [...before].filter((key) => key && !after.has(key))
+  }, [focus, here, inFocus])
   const drawnNow = {
+    items: itemsNow,
+    aside: asideNow,
     here: inSight,
     /* The focus first: when it put lists aside and none is left, that is the
        cause, whatever the picked-out containers were also doing. */
     why: focused.empty || whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
     /* And with lists left, the ones put aside for another module's work are
        counted in the hint on "All checklists": no row is drawn for them. */
-    aside: whyAside((inFocus?.instances.length ?? 0) - forThese.instances.length, forThese.aside),
+    putAside: whyAside((inFocus?.instances.length ?? 0) - forThese.instances.length, forThese.aside),
   }
   const drawn = useRef(drawnNow)
   if (settled) drawn.current = drawnNow
@@ -528,18 +599,27 @@ export function App() {
   const editing = view.kind === 'edit' ? view.id : null
 
   /*
-   * What the reading page says beside its lists (Jalez/kehikko-checklist#31,
-   * #32): refs a standing hold could not be decided for; why a pane with refs
-   * in front is empty; and refs somebody clicked that the picks set aside.
+   * What the reading page says beside its lists (Jalez/kehikko-checklist#32):
+   * refs somebody clicked that the picks set aside, with the way to show them —
+   * this container's aim on everything, the angle kept as it is.
    */
-  const undecided = drawn.current.here?.undecided ?? []
-  const undecidedSaid = undecidedLine(undecided)
-  const none = noneLine(
-    front.refs.filter((ref) => !undecided.some((row) => row.ref === ref)),
-    standingAll,
-  )
   const clicked = useMemo(() => setAside(front, selected ? selected.split(' ') : []), [front, selected])
-  const onShowClicked = useCallback(() => setAim('all'), [setAim])
+  const onShowClicked = useCallback(() => choose({ ...choice, aim: 'all', [ANGLE_FILTER]: angle }), [choose, choice, angle])
+
+  /*
+   * "Add a checklist for merge requests as reviewer": a list made with its
+   * rule said at once, opened on its edit page for its first line.
+   */
+  const onNewFor = useCallback(
+    (type: ItemType, role: Role) => {
+      const words = typesName([type])
+      const name = `${words.charAt(0).toUpperCase()}${words.slice(1)} ${role === 'any' ? 'for any role' : `as ${role}`}`
+      void onEditRef.current({ op: 'create', name, rule: { types: [type], roles: [role] } })
+    },
+    [],
+  )
+  /* A line for one item alone. */
+  const onAddFor = useCallback((target: Target, text: string) => void onEditRef.current({ op: 'add-for', target, text }), [])
 
   /**
    * The list being edited, on its own.
@@ -624,6 +704,7 @@ export function App() {
     }
   }, [editing !== null, reading, projectPath])
 
+  const onEditRef = useRef<(change: Edit) => Promise<void>>(async () => {})
   const onEdit = useCallback(
     async (change: Edit) => {
       setBusy(true)
@@ -662,6 +743,7 @@ export function App() {
   )
 
   const onCreate = useCallback((name: string) => void onEdit({ op: 'create', name }), [onEdit])
+  onEditRef.current = onEdit
 
   /**
    * Ask the host to ask the person which project, then read what is in it.
@@ -834,9 +916,10 @@ export function App() {
   ) : (
     <HereView
       here={drawn.current.here}
-      somewhere={Boolean(epic) || front.refs.length > 0 || front.documents.length > 0}
+      items={drawn.current.items}
+      focusAside={drawn.current.aside}
       why={drawn.current.why}
-      aside={drawn.current.aside}
+      aside={drawn.current.putAside}
       onEdit={(change) => void onEdit(change)}
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
       onAll={() => setView({ kind: 'all' })}
@@ -845,10 +928,11 @@ export function App() {
       room={room}
       facts={facts}
       kehikko={kehikko}
-      none={none}
-      undecided={undecidedSaid}
       clicked={clicked}
       onShowClicked={where === 'hosted' ? onShowClicked : undefined}
+      onAngle={onAngle}
+      onNewFor={onNewFor}
+      onAddFor={onAddFor}
     />
   )
 

@@ -1,5 +1,6 @@
 import { nameOf } from './aim.ts'
-import { everyName, MAX_TARGET_PART, part, type Target } from './targets.ts'
+import { MAX_TARGET_PART, part, type Target } from './targets.ts'
+import { ruleName } from './standing.ts'
 
 /**
  * Where in a paper a reader is standing, as a ladder of the places a checklist
@@ -451,7 +452,7 @@ export function labelOf(
     const on = kehikko?.key === target.kehikko && kehikko.name ? kehikko.name : `kehikko ${target.kehikko}`
     return `${nameOf(target.module)} on ${on}${target.epic ? ` · ${target.epic}` : ''}`
   }
-  if (target.kind === 'every') return everyName(target.of, target.epic)
+  if (target.kind === 'rule') return ruleName(target)
   if (!target.section) return 'the whole paper'
   if (outline) {
     for (const file of outline.files) {
