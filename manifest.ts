@@ -248,8 +248,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   /* Where a host files this module in its list, most fitting first. */
   tags: ['planning', 'review'],
   summary:
-    'Checklists somebody wrote, held against the issues, changes, paper files and sections a person assigned them '
-    + 'to, and shown where one of those is in front of you. Nothing here ships a list.',
+    'Checklists for a type of item and a role — merge requests as reviewer, issues, papers — plus lines for one '
+    + 'item, shown for the item you pick, from your angle.',
   /**
    * What an agent should do about this module, given that it is here.
    *
@@ -265,15 +265,15 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * nothing else would still act correctly on.
    */
   guidance:
-    'Work here is held to checklists somebody wrote — nothing is hardcoded, so read them rather than assuming. '
-    + 'Call `checklists` to see what exists and where each is held, then call it again with a checklist id and '
-    + 'the thing you are working on (a ref like gh#105, or an epic whose paper it is) to see what is still owed '
-    + 'FOR THAT TARGET. Answers are per target: the same list held against two issues keeps two separate sets. '
-    + 'Before calling anything done, answer each item or say plainly which you could not, and why. With '
-    + '`check_item` you MAY answer under your own name: `state` passed (default), failed or na, plus a note. '
-    + 'An answer a person set is theirs: you cannot change or remove it; say what you found in words. On a paper, '
-    + 'give `path` instead of a section to mean the file or heading being looked at. A person sees a list only '
-    + 'where it is held: `hold_checklist` puts it in front of them. If no list fits, `create_checklist` — but look first.',
+    'Work here is held to checklists somebody wrote — nothing is hardcoded, so read them. A checklist applies to '
+    + 'types of item × roles (merge requests as reviewer, issues for any role, papers), and an item may have lines '
+    + 'of its own. Call `checklists` with the item you work on (a ref like gh#105, or an epic for its paper) and no '
+    + 'checklist id to get all that applies, with what is ticked there; pass `role`, or the person’s `my_roles` as '
+    + 'the host’s read_tracker says them. Answers are per item: two issues keep separate ticks. Before calling '
+    + 'anything done, answer each line or say plainly which you could not, and why. `check_item` answers under '
+    + 'your own name: state passed (default), failed or na, plus a note. An answer a person set is theirs: say '
+    + 'what you found in words. `add_item_for` adds a line just for one item; `hold_checklist` with types and roles '
+    + 'makes a list apply. If none fits, `create_checklist` — but look first.',
   entry: '/app',
   modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
   mcp: {

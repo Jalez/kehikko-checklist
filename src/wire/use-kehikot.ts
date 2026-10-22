@@ -260,12 +260,16 @@ export interface Kehikot {
    */
   readSummary: (scope: { refs: readonly string[] } | { epic: string }) => Promise<TrackerReading | null>
   /**
-   * Ask the host to put this container's aim on `all` — everything on this
-   * kehikko — or back on following the picks (`filters.set`). True when the
-   * host settled on it; false for every no, which the page then says in words
-   * (Jalez/kehikko-checklist#32).
+   * Ask the host to set this container's filter choice (`filters.set`): the
+   * aim — everything on this kehikko, or following the picks
+   * (Jalez/kehikko-checklist#32) — and the angle the items are read from,
+   * which is how the angle is remembered per container. The WHOLE choice
+   * every time, because a host settles a choice against the whole offer and an
+   * offered group left out goes back to rest. True when the host settled on
+   * it; false for every no, which the page then says in words or holds for
+   * the session.
    */
-  setAim: (aim: 'follow' | 'all') => Promise<boolean>
+  choose: (choice: Record<string, string>) => Promise<boolean>
   /** Declare this page's header (`kehikot.header`): the host draws it and relays a press to `onPress`. */
   header: (items: HeaderItemInput[]) => void
 }
@@ -394,16 +398,17 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
     [request],
   )
 
-  const setAim = useCallback(
-    async (aim: 'follow' | 'all'): Promise<boolean> => {
+  const choose = useCallback(
+    async (choice: Record<string, string>): Promise<boolean> => {
       try {
-        const answered: unknown = await request('filters.set', { filters: { aim } })
+        const answered: unknown = await request('filters.set', { filters: choice })
         /* The answer is unspecified by the protocol beyond "what it settled on": the choice itself, or
-           one under `filters`. One that names another aim is a no; anything else is taken at its word,
-           and the next context says what is true either way. */
+           one under `filters`. One that names another value for a group asked about is a no — a group on
+           its resting option is left out, which is a yes; anything else is taken at its word, and the
+           next context says what is true either way. */
         const box = answered && typeof answered === 'object' ? (answered as Record<string, unknown>) : {}
         const settled = box.filters && typeof box.filters === 'object' ? (box.filters as Record<string, unknown>) : box
-        return typeof settled.aim !== 'string' || settled.aim === aim
+        return Object.entries(choice).every(([group, value]) => typeof settled[group] !== 'string' || settled[group] === value)
       } catch {
         return false
       }
@@ -442,7 +447,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       readTracker,
       readProject,
       readSummary,
-      setAim,
+      choose,
       header,
     }),
     [
@@ -465,7 +470,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       readTracker,
       readProject,
       readSummary,
-      setAim,
+      choose,
       header,
     ],
   )

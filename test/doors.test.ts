@@ -344,6 +344,7 @@ describe('the agent’s door', () => {
       hold_checklist: 'destroys',
       checklist_for: 'writes',
       add_checklist_item: 'writes',
+      add_item_for: 'writes',
       check_item: 'destroys',
       reword_checklist_item: 'destroys',
       move_checklist_item: 'writes',
@@ -357,7 +358,7 @@ describe('the agent’s door', () => {
     }
   })
 
-  test('lists exactly the ten tools this app now has, and none of them purges', async () => {
+  test('lists exactly the eleven tools this app now has, and none of them purges', async () => {
     const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const names = (reply?.body as { result: { tools: { name: string }[] } }).result.tools.map((t) => t.name)
@@ -366,6 +367,7 @@ describe('the agent’s door', () => {
       'create_checklist',
       'hold_checklist',
       'checklist_for',
+      'add_item_for',
       'add_checklist_item',
       'check_item',
       'reword_checklist_item',
@@ -480,7 +482,7 @@ describe('the agent’s door', () => {
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is now held against thesis · chapters:3_methods')
     const all = await tool('checklists', {})
-    expect(all.text).toContain('held against thesis · chapters:3_methods')
+    expect(all.text).toContain('only for thesis · chapters:3_methods')
     const one = await tool('checklists', { checklist: list })
     expect(one.text).toContain('Held against: thesis · chapters:3_methods (0 ticked)')
   })
@@ -492,7 +494,7 @@ describe('the agent’s door', () => {
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is no longer held against gh#105')
     expect(out.text).toContain('kept')
-    expect(out.text).toContain('Held against nothing yet')
+    expect(out.text).toContain('Applies to nothing yet')
   })
 
   test('hold_checklist resolves a path into the heading being looked at, like check_item does', async () => {
@@ -528,7 +530,7 @@ describe('the agent’s door', () => {
     expect(tick.isError).toBe(true)
     const read = await tool('checklists', { checklist: list, epic: 'thesis', path: 'chapters/nowhere.tex' })
     expect(read.isError).toBe(true)
-    expect((await tool('checklists', {})).text).toContain('held against nothing yet')
+    expect((await tool('checklists', {})).text).toContain('applies to nothing yet')
   })
 
   test('a section that names no file or heading is refused, so a typo cannot become a target nothing shows', async () => {
@@ -544,7 +546,7 @@ describe('the agent’s door', () => {
     expect(typo.isError).toBe(true)
     expect(typo.text).toContain('has no heading with the id "sec:design"')
     expect(typo.text).toContain('Its headings are: .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
-    expect((await tool('checklists', {})).text).toContain('held against nothing yet')
+    expect((await tool('checklists', {})).text).toContain('applies to nothing yet')
   })
 
   test('a section spelled from the paper’s folder or from the project’s is one target, the one a reader arrives at', async () => {
@@ -797,7 +799,7 @@ describe('the agent’s door', () => {
     const out = await tool('checklist_for', { checklist: list, module: 'kehikot.screenplay' })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is for kehikot.screenplay’s work')
-    expect((await tool('checklists', {})).text).toContain('for kehikot.screenplay’s work; held against gh#105')
+    expect((await tool('checklists', {})).text).toContain('for kehikot.screenplay’s work; only for gh#105')
     expect((await tool('checklists', { checklist: list, ref: 'gh#105' })).text).toContain('1/1 ticked')
 
     const { answerAt: answer } = await import('../doors.ts')
@@ -906,7 +908,7 @@ describe('the agent’s door', () => {
     const out = await tool('check_item', { checklist: list, item, ref: 'gh#105' })
     expect(out.text).toContain('is now held against gh#105')
     const listed = await tool('checklists', {})
-    expect(listed.text).toContain('held against gh#105')
+    expect(listed.text).toContain('only for gh#105')
   })
 
   test('a tick with no target is refused in a sentence that says why there is nothing to record', async () => {
@@ -1155,58 +1157,166 @@ describe('states over MCP and the page', () => {
   })
 })
 
-describe('every issue or every change (Jalez/kehikko-checklist#31)', () => {
-  test('hold_checklist takes every, and checklists lists the standing hold', async () => {
+describe('types × roles, and lines just for one item, at the doors', () => {
+  test('hold_checklist takes types and roles, and checklists lists the rule', async () => {
+    const { list } = await aList('What a review owes')
+    const held = await tool('hold_checklist', { checklist: list, types: ['mr', 'pr'], roles: ['reviewer'] })
+    expect(held.isError).toBe(false)
+    expect(held.text).toContain('now applies to merge requests and pull requests · as reviewer')
+    expect((await tool('checklists', {})).text).toContain('applies to merge requests and pull requests · as reviewer)')
+    const one = await tool('checklists', { checklist: list })
+    expect(one.text).toContain('Applies to: merge requests and pull requests · as reviewer (each item keeps its own ticks)')
+    const epic = await tool('hold_checklist', { checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis' })
+    expect(epic.text).toContain('now applies to papers of thesis · as author')
+    const released = await tool('hold_checklist', { checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis', release: true })
+    expect(released.text).toContain('no longer applies to papers of thesis · as author')
+  })
+
+  test('#31’s every still works, as issue × any role', async () => {
     const { list } = await aList('What an issue owes')
     const held = await tool('hold_checklist', { checklist: list, every: 'issue' })
-    expect(held.isError).toBe(false)
-    expect(held.text).toContain('is now held against every issue')
-    const all = await tool('checklists', {})
-    expect(all.text).toContain('held against every issue)')
-    const one = await tool('checklists', { checklist: list })
-    expect(one.text).toContain('Held against: every issue (each ref its own ticks)')
-    const epic = await tool('hold_checklist', { checklist: list, every: 'change', epic: 'thesis' })
-    expect(epic.text).toContain('is now held against every change of thesis')
-    expect((await tool('checklists', {})).text).toContain('held against every issue, every change of thesis)')
-  })
-
-  test('a word that is neither kind is refused, and so is a tick against every', async () => {
-    const { list, item } = await aList('What an issue owes')
+    expect(held.text).toContain('now applies to issues · any role')
     expect((await tool('hold_checklist', { checklist: list, every: 'mr' })).isError).toBe(true)
-    await tool('hold_checklist', { checklist: list, every: 'issue' })
-    const tick = await tool('check_item', { checklist: list, item, every: 'issue' })
-    expect(tick.isError).toBe(true)
-    expect(tick.text).toContain('one ref at a time')
   })
 
-  test('the list schema offers every as issue or change', async () => {
+  test('a type that is not one, task, a role that is not one, and a tick against a rule are refused in words', async () => {
+    const { list, item } = await aList('What an issue owes')
+    const typo = await tool('hold_checklist', { checklist: list, types: ['merge'] })
+    expect(typo.isError).toBe(true)
+    expect(typo.text).toContain('types is one or more of issue, mr, pr, paper')
+    const task = await tool('hold_checklist', { checklist: list, types: ['task'] })
+    expect(task.isError).toBe(true)
+    expect(task.text).toContain('Tasks cannot be chosen yet')
+    expect((await tool('hold_checklist', { checklist: list, types: ['issue'], roles: ['owner'] })).isError).toBe(true)
+    await tool('hold_checklist', { checklist: list, types: ['issue'] })
+    const tick = await tool('check_item', { checklist: list, item, types: ['issue'] })
+    expect(tick.isError).toBe(true)
+    expect(tick.text).toContain('one item at a time')
+  })
+
+  test('the schemas offer types, roles and the angle, and task is listed but said to be unavailable', async () => {
     const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
-    const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }[] } }).result.tools
-    expect(tools.find((one) => one.name === 'hold_checklist')?.inputSchema.properties.every?.enum).toEqual(['issue', 'change'])
+    const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { properties: Record<string, { enum?: string[]; items?: { enum?: string[] }; description?: string }> } }[] } }).result.tools
+    const hold = tools.find((one) => one.name === 'hold_checklist')!.inputSchema.properties
+    expect(hold.types?.items?.enum).toEqual(['issue', 'mr', 'pr', 'paper', 'task'])
+    expect(hold.types?.description).toContain('"task" is not available yet')
+    expect(hold.roles?.items?.enum).toEqual(['any', 'assignee', 'reviewer', 'author'])
+    expect(hold.every?.enum).toEqual(['issue', 'change'])
+    for (const name of ['checklists', 'checklist_for']) {
+      const props = tools.find((one) => one.name === name)!.inputSchema.properties
+      expect(props.role?.enum).toEqual(['assignee', 'reviewer', 'author', 'any'])
+      expect(Object.keys(props)).toContain('my_roles')
+    }
   })
 
-  test('/api/here puts the list in front of a ref the page read as an issue, and says one it could not', async () => {
-    const { TICKET, answerAt: answer } = await import('../doors.ts')
-    const { list, item } = await aList('What an issue owes')
-    expect(answer('POST', '/api/checklist', query, { op: 'hold', id: list, every: 'issue', project: dir }, TICKET)?.status).toBe(200)
-    answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, ref: 'gh#105', done: true, project: dir }, TICKET)
+  test('checklists and checklist_for with an item say what applies, from the angle — my_roles by default', async () => {
+    const review = await aList('What a review owes')
+    const author = await aList('Before asking for review')
+    const anyone = await aList('What every MR owes')
+    await tool('hold_checklist', { checklist: review.list, types: ['mr'], roles: ['reviewer'] })
+    await tool('hold_checklist', { checklist: author.list, types: ['mr'], roles: ['author'] })
+    await tool('hold_checklist', { checklist: anyone.list, types: ['mr'] })
 
-    const here = (refs: string, kinds: string[]) => {
-      const ask = asking({ refs })
-      for (const one of kinds) ask.append('kind', one)
+    /* No role given: any role, and the role lists are named as elsewhere. */
+    const plain = await tool('checklists', { ref: '!7' })
+    expect(plain.isError).toBe(false)
+    expect(plain.text).toContain('Any role on !7 (a merge request) — no role was given, so any role:')
+    expect(plain.text).toContain('"What every MR owes"')
+    expect(plain.text).not.toContain('"What a review owes"')
+    expect(plain.text).toContain('Lists for reviewer or author apply to !7 too')
+
+    /* The person's own roles, as the host's read_tracker says them. */
+    const mine = await tool('checklist_for', { ref: '!7', my_roles: ['reviewer-asked'] })
+    expect(mine.text).toContain('As reviewer on !7')
+    expect(mine.text).toContain('"What a review owes" (applies to merge requests · as reviewer)')
+    expect(mine.text).toContain('"What every MR owes"')
+    expect(mine.text).not.toContain('"Before asking for review"')
+
+    /* role wins over my_roles. */
+    const asAuthor = await tool('checklists', { ref: '!7', role: 'author', my_roles: ['reviewer-asked'] })
+    expect(asAuthor.text).toContain('As author on !7')
+    expect(asAuthor.text).toContain('"Before asking for review"')
+    expect((await tool('checklists', { ref: '!7', role: 'owner' })).isError).toBe(true)
+
+    /* A PR is not a merge request: nothing applies, said from the angle, with what to do. */
+    const pr = await tool('checklist_for', { ref: 'gh#200', type: 'pr', role: 'reviewer' })
+    expect(pr.text).toContain('No checklist applies to gh#200 as reviewer.')
+    expect(pr.text).toContain('add_item_for adds a line just for this item')
+    /* A GitHub ref whose type nobody said is not guessed, where it would decide something. */
+    await tool('hold_checklist', { checklist: anyone.list, types: ['issue'] })
+    const unknown = await tool('checklists', { ref: 'gh#9' })
+    expect(unknown.text).toContain('Pass type')
+  })
+
+  test('add_item_for adds a line just for one item; it is ticked with check_item, and a person’s tick is safe', async () => {
+    const { list } = await aList('What every MR owes')
+    await tool('hold_checklist', { checklist: list, types: ['mr'] })
+    const added = await tool('add_item_for', { ref: '!7', text: 'Squash before merge', agent: 'claude' })
+    expect(added.isError).toBe(false)
+    expect(added.text).toContain('added "Squash before merge" just for !7')
+    expect(added.text).toContain('"Only for !7" (lines just for this item)')
+    const own = /on its own list (\w+)/.exec(added.text)![1]!
+    const line = new RegExp(`\\[ \\] (\\w+) — Squash before merge`).exec(added.text)![1]!
+
+    const ticked = await tool('check_item', { checklist: own, item: line, ref: '!7', note: 'squashed', agent: 'claude' })
+    expect(ticked.isError).toBe(false)
+    expect((await tool('checklists', { ref: '!7' })).text).toContain(`[x] ${line} — Squash before merge  (claude, over MCP: squashed)`)
+
+    /* The person ticks it on the page; the agent cannot take it back. */
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
+    answer('POST', '/api/checklist', query, { op: 'tick', id: own, item: line, ref: '!7', done: true, project: dir }, TICKET)
+    const refused = await tool('check_item', { checklist: own, item: line, ref: '!7', done: false })
+    expect(refused.isError).toBe(true)
+    expect(refused.text).toContain('only a person can change or take back what a person ticked')
+
+    /* Listed apart from the named lists. */
+    expect((await tool('checklists', {})).text).toContain('Lines added for one item alone')
+    expect((await tool('add_item_for', { text: 'x' })).isError).toBe(true)
+    const paper = await tool('add_item_for', { epic: 'thesis', text: 'Ask the supervisor' })
+    expect(paper.text).toContain('just for thesis (the paper)')
+  })
+
+  test('/api/here reads each ref’s type and the person’s roles, and answers the items with their angle', async () => {
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
+    const { list, item } = await aList('What a review owes')
+    expect(answer('POST', '/api/checklist', query, { op: 'applies', id: list, rules: [{ types: ['pr'], roles: ['reviewer'] }], project: dir }, TICKET)?.status).toBe(200)
+    answer('POST', '/api/checklist', query, { op: 'tick', id: list, item, ref: 'gh#200', done: true, project: dir }, TICKET)
+    expect(answer('POST', '/api/checklist', query, { op: 'add-for', ref: 'gh#105', text: 'Ask Sam', project: dir }, TICKET)?.status).toBe(200)
+
+    const here = (refs: string, rows: [string, string][], angle?: string) => {
+      const ask = asking({ refs, ...(angle ? { angle } : {}) })
+      for (const [key, value] of rows) ask.append(key, value)
       return answer('GET', '/api/here', ask, null, null)?.body as {
-        instances: { target: { ref: string }; done: number; through?: { kind: string }[] }[]
+        instances: { checklist: { name: string }; target: { ref: string }; done: number; through?: { kind: string }[]; as?: string[] }[]
+        items: { target: { ref: string }; type: string | null; as: string[]; elsewhere: string[] }[]
         undecided: { ref: string }[]
       }
     }
-    const read = here('gh#105 gh#106 gh#9', ['gh#105\tissue', 'gh#106\tissue'])
-    expect(read.instances.map((one) => [one.target.ref, one.done, one.through?.[0]?.kind])).toEqual([
-      ['gh#105', 1, 'every'],
-      ['gh#106', 0, 'every'],
+    const read = here('gh#200 gh#105 gh#9', [['type', 'gh#200\tpr'], ['type', 'gh#105\tissue'], ['roles', 'gh#200\treviewer-asked,author']])
+    expect(read.items.map((one) => [one.target.ref, one.type, one.as])).toEqual([
+      ['gh#200', 'pr', ['reviewer', 'author']],
+      ['gh#105', 'issue', ['any']],
+      ['gh#9', null, ['any']],
     ])
-    expect(read.undecided.map((one) => one.ref)).toEqual(['gh#9'])
-    /* A kind for a ref that is not in front is not read. */
-    expect(here('gh#9', ['gh#105\tissue']).instances).toEqual([])
+    expect(read.instances.map((one) => [one.checklist.name, one.target.ref, one.done, one.through?.[0]?.kind, one.as])).toEqual([
+      ['What a review owes', 'gh#200', 1, 'rule', ['reviewer']],
+      ['Only for gh#105', 'gh#105', 0, undefined, undefined],
+    ])
+    /* From the author's angle, the reviewer list is elsewhere. */
+    const asAuthor = here('gh#200', [['type', 'gh#200\tpr'], ['roles', 'gh#200\treviewer-asked,author']], 'author')
+    expect(asAuthor.instances).toEqual([])
+    expect(asAuthor.items[0]!.elsewhere).toEqual(['reviewer'])
+    /* A type for a ref that is not in front is not read. */
+    expect(here('gh#9', [['type', 'gh#200\tpr']]).items[0]!.type).toBeNull()
+  })
+
+  test('/api/checklist creates a list with its rule, and refuses a rule that is not one', async () => {
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
+    const made = answer('POST', '/api/checklist', query, { op: 'create', name: 'Merge requests as reviewer', rule: { types: ['mr'], roles: ['reviewer'] }, project: dir }, TICKET)?.body as { ok: boolean; lists: { applies: unknown[] }[] }
+    expect(made.ok).toBe(true)
+    expect(made.lists[0]!.applies).toEqual([{ kind: 'rule', types: ['mr'], roles: ['reviewer'], epic: null }])
+    const bad = answer('POST', '/api/checklist', query, { op: 'applies', id: 'x', rules: ['issue'], project: dir }, TICKET)
+    expect(bad?.status).toBe(400)
   })
 })

@@ -1,10 +1,11 @@
 # Checklist
 
-Checklists somebody wrote, each **held against** the things a person assigned it
-to — issues, merge requests, pull requests, every issue or every change, a paper,
-one file of it, one heading in it — and shown wherever one of those is in front
-of the reader. **Nothing
-here ships a list.**
+Checklists somebody wrote for a **type of item × a role** — merge requests as
+reviewer, issues for any role, papers as author — across the project or one epic,
+with **lines just for one item** on top, and shown for the item a person picks,
+**from the angle they want**. As exceptions, a list can still be held against
+particular items by hand: a ref, a paper, one file or heading of it, a module's
+container on a kehikko. **Nothing here ships a list.**
 
 An app first. It holds every checklist a person or an agent has made, what each
 is held against, and every tick anybody has filed on one — **inside the project
@@ -49,38 +50,86 @@ is no limit**. That is a stored property of the list — one entry per target un
 nothing else. When the folder grows, a person sees it and decides what to purge
 (View → Storage).
 
-### Every issue, or every change
+### A type of item × a role, and lines just for one item
 
-A list meant for **every issue** or **every change** (merge request or pull
-request) is held against that once, not ref by ref (Jalez/kehikko-checklist#31):
-a **standing hold**, `{ kind: 'every', of: 'issue' | 'change', epic }` in
-`list/targets.ts`, optionally narrowed to the refs one epic names. It lives in
-`lists.json` with the list (`standing`), and nothing per ref is written for it —
-an issue opened tomorrow is covered without anybody holding it.
+The person, who owns this module:
 
-- **On any ref of that kind the list is in front, as that ref.** Its ticks are
-  filed under the ref's own key (`ref:gh#105`) exactly as a held ref's are, so
-  `gh#105` and `gh#106` keep separate ticks, and the row's label says how it
-  got there: `gh#105 · every issue`. A tick through a standing hold holds no
-  ref; Storage counts those ticks as in use and Purge never takes them as
-  released.
-- **Releasing keeps the ticks**, as releasing any target does. With no standing
-  hold left they become released ticks; holding it again brings them back.
-- **Which kind a ref is, is the tracker's to say.** The page asks the host
-  (`tracker.get`, a row's `kind`) for the refs in front, and for the refs an
-  epic names where a standing hold is narrowed to one; a GitLab spelling (`!7`)
-  says its own kind. When nothing has said, the pane says so — "The tracker has
-  not said whether gh#9 is an issue or a change, so … is not shown for it" —
-  and does not guess. A list standing against both kinds needs no kind.
-  `list/standing.ts` is the rule.
-- **An empty pane says which emptiness it is.** "Nothing is held against
-  gh#106" — nobody put a list there, not that it owes nothing — is a different
-  sentence from "No checklist applies to gh#200: … the ones held against every
-  issue are for other refs".
-- **Doors.** The edit page offers *Every issue*, *Every change*, and the open
-  epic's of each. `hold_checklist` takes `every: 'issue' | 'change'` (with
-  `epic` to narrow, `release: true` to let go); `checklists` lists standing
-  holds beside the rest. `check_item` refuses `every` — name the ref.
+> "The idea in the Checklist module is that you can create checklists specific
+> to a type (issue, paper, MR, PR, task) + role (assignee, reviewer, etc.)
+> combination across the project, while also being able to add
+> instance-specific checklist items on top. I don't want to see a list of
+> specific items to pick their checklist; it should always show the
+> checklist(s) for an item we have picked, from the angle we want."
+
+`list/standing.ts` is the rule.
+
+- **A list applies by rules: types × roles**, each across the project or the
+  refs one epic names (`applies` on the list in `lists.json`; nothing per item
+  is written for one). Types: **issue**, **merge request** (`mr`), **pull
+  request** (`pr`), **paper**. Roles: **assignee**, **reviewer**, **author**, or
+  **any** role — the person's angle on the item, not a fact about it. A rule for
+  any role applies from every angle.
+- **Which type an item is, is the tracker's to say.** The page asks the host
+  (`tracker.get`): a row's `kind`, and for a change its `tracker` — a GitLab
+  change is a merge request, a GitHub one a pull request. A GitLab spelling says
+  its own (`!7`, `#12`). When nothing has said (`gh#41` with no row), the pane
+  says so — "The tracker has not said what kind of item gh#41 is, so … is not
+  shown for it until it does" — and does not guess. A paper is the paper an epic
+  is aimed at, as a paper target always was.
+- **Task is not available yet.** A GitLab task is a work item whose type the
+  host's tracker reading does not carry (a row's `kind` is `issue` or `change`),
+  so a task reads as an issue. `TASKS_KNOWN` is false: the edit page shows Task
+  and says why it cannot be chosen, and the doors refuse it, until the host
+  reads a work item's type.
+- **The angle** is the header's switch (View → Angle: *My role (automatic)*,
+  *As assignee*, *As reviewer*, *As author*, *Any role*). Automatic is the
+  person's own roles on each item from the host's `myRoles` (asked or done
+  reviewing is reviewer); several roles are each read, and each list says
+  through which; none, or none known, is any role. The choice is remembered per
+  container: a host keeps nothing of a header, and the one thing it keeps per
+  container is the filter choice, so the angle is offered as a filter group too
+  and a press writes it there (`filters.set`). Lists that would apply from
+  another role are not drawn; the item's section names those angles, one press
+  each.
+- **Ticks are each item's**, whatever the angle and whichever rule put the list
+  in front: filed under the item's own key (`ref:gh#105`, `paper:thesis`)
+  exactly as a list held by hand. A tick through a rule holds nothing; Storage
+  counts such ticks as in use and Purge never takes them as released. Removing a
+  rule keeps them; applying again brings them back.
+- **Lines just for one item** (`add-for`, `add_item_for`) live on a list of that
+  item's own (`only` in `list/shapes.ts`), made with the first line, held against
+  the item, gone with the last. They are drawn last in the item's section as
+  "Only for gh#105", ticked with the item's ticks, reworded and dropped in place
+  (its Edit press edits the lines where they are), and kept whatever happens to
+  the lists that apply. A person's tick on one is safe from an agent like any
+  other.
+- **Jalez/kehikko-checklist#31's holds carried over.** Every issue is
+  issue × any role; every change is merge request + pull request × any role, each
+  keeping its epic and when it was made. `lists.json` is read that way
+  (`migrateStanding`) and written as rules at its next write; the ticks never
+  moved.
+
+### What the reading page shows
+
+- **Nothing picked**: one sentence — "Pick an issue, MR, PR or paper to see its
+  checklists." — and *Manage checklists* in the strip below. Never a list of
+  items to choose from.
+- **An item picked** — a ref selected on the canvas, or what the containers
+  somebody picked out show (not every ref every container lists), or the paper
+  while a reader is in it or parts of it are picked: one section per item, its
+  first line saying the angle ("As reviewer on !123"), then every list that
+  applies to it from that angle, every list held against it by hand, and its
+  own lines.
+- **Nothing applies**: said from the angle ("No checklist applies to !123 as
+  reviewer."), with *Add a checklist for merge requests as reviewer* — a list
+  made with that rule and opened for its first line — and *Add an item just for
+  !123*.
+- **Doors.** The edit page sets each rule's types and roles (multi-select) and
+  its epic; the holds by hand are under *Only for these items*. `hold_checklist`
+  takes `types` and `roles` (and `every`, the old spelling); `checklists` and
+  `checklist_for` with a ref or an epic and no checklist answer what applies, from
+  `role` or the person's `my_roles`; `add_item_for` adds a line just for one
+  item. `check_item` refuses a rule — name the item.
 
 ## A list's targets are assigned, and the reading page shows what is in front
 
@@ -257,16 +306,19 @@ there at every size**, because a reference must not be blocked by a picker.
 
 ## Three screens: what is in front, one list's edit page, and every list
 
-The **reading page** is the default and answers "what is in front of me":
-every instance — a list's name, its count, which target these ticks belong to,
-and the items, tickable. Nothing on it changes a list, a row is a mark and a
-line of text with no furniture beside it at any size, and one press per instance
-leads to its edit page. A strip at the bottom leads to every checklist.
+The **reading page** is the default and answers "what do the items I picked
+owe, from my angle": a section per item, and in it every instance — a list's
+name, its count, why it is there (which types × roles, or held by hand), and the
+items, tickable. Nothing on it changes a list, a row is a mark and a line of
+text with no furniture beside it at any size, and one press per instance leads
+to its edit page — except an item's own lines, which are edited where they are.
+A strip at the bottom leads to *Manage checklists*.
 
-The **edit page** is where a list is changed: what it is **held against** — the
-targets it has, each releasable with one press, and a picker of the paper's
-files and headings, the canvas's selected references, and a box for a reference
-— and then add a line, press one to reword it, move it up or down, take it off,
+The **edit page** is where a list is changed: what it **applies to** — types ×
+roles, and the epic each is narrowed to — then what it is held against by hand,
+under *Only for these items* — the targets it has, each releasable with one
+press, and a picker of the paper's files and headings, the canvas's selected
+references, and a box for a reference — and then add a line, press one to reword it, move it up or down, take it off,
 and remove the checklist. Nothing on it is ticked, because an edit is a change to
 the LIST: an item added is added for every target it is held against, and an
 item removed takes every tick on it with it. The sentence explaining how ticks
@@ -275,24 +327,25 @@ the reader came from.
 
 **Storage** is the fourth: what every list takes up, and Purge — see
 [Storage and Purge](#storage-and-purge). A host draws a **View** menu in the
-container header (`kehikot.header`) with *In front*, *All checklists* and
-*Storage*; the option id `storage` is the one a host's own Storage overview
+container header (`kehikot.header`) with *In front*, *Manage checklists* and
+*Storage*, and the Angle; the option id `storage` is the one a host's own Storage overview
 presses to open this page's. Unframed, *Storage* is a press on the list of every
 checklist.
 
-**Every checklist** is the third screen, reached on purpose from the reading
-page and never in front of it: every list by name, how many targets each is held
-against — a list held against nothing is shown nowhere on the reading page, and
-this row is the one place that says so — a press to open one, a box to start
-one, and the way to copy one from another project. A new list opens on its edit
+**Manage checklists** is the third screen, reached on purpose from the reading
+page and never in front of it: every list by name, what each applies to and how
+many items it is held for by hand — a list that applies to nothing is shown
+nowhere on the reading page, and this row is the one place that says so — a
+press to open one, a box to start one, and the way to copy one from another
+project. An item's own lines are not listed here; they are that item's. A new list opens on its edit
 page, because the next thing to do with it is say what it is held against.
 
 ## What it does with nothing else running
 
-- **What is in front, and only that.** No pick-or-create screen on first view,
-  no remembered choice, no default and no guess: the reading page opens on the
-  lists a person assigned to where they are, which may be none, and says so in
-  one line. The screen that lists every checklist is one press away.
+- **The picked item's checklists, and only those.** No pick-or-create screen on
+  first view, no list of items, no default and no guess: the reading page opens
+  on the lists that apply to what a person picked, from their angle, which may
+  be none, and says so in one line. Managing the checklists is one press away.
 - **A store inside the project.**
   `<projectPath>/.kehikot/checklist/` holds every list, every item, every hold
   and every tick for that project (`lists.json` and `targets/`), with the
@@ -332,13 +385,17 @@ page, because the next thing to do with it is say what it is held against.
   honours a `.gitignore` in any directory, so a rule beside the folder does the
   job without this app editing a file three levels up. A project with no `.git`
   anywhere above it gets nothing.
-- **Its MCP door**, `/mcp`, with nine tools:
+- **Its MCP door**, `/mcp`, with eleven tools:
 
 ```
-checklists             every list and where each is held, or one of them held against a target
+checklists             every list; with a ref or an epic and no id, what applies to that item from
+                       an angle (role, or my_roles); with an id, that list held against a target
 create_checklist       start one under a name
-hold_checklist         hold it against a ref, a paper, a file or a heading — or release: true
-checklist_for          say which module's work it is for — or, with module: null, every module's
+hold_checklist         types × roles (types, roles, epic), or a ref, a paper, a file, a heading or a
+                       container by hand — or release: true
+checklist_for          with a ref or an epic: what applies to it, as checklists does; with a checklist
+                       and module: which module's work it is for (null: every module's)
+add_item_for           a line just for one item (ref, or epic for its paper)
 add_checklist_item     a line on the end
 check_item             answer it FOR A TARGET (state: passed | failed | na), or done: false to take your answer back
 reword_checklist_item  the same item, sharper words, same id and same ticks

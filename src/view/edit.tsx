@@ -5,6 +5,7 @@ import { labelOf } from '../../list/scope.ts'
 import { targetKey, targetNoun } from '../../list/targets.ts'
 import { FACT_NAMES, FACTS, type Fact } from '../../list/evidence.ts'
 import { moduleLabels, moduleNamed } from '../../list/aim.ts'
+import { ITEM_TYPES, NO_TASKS, normalRoles, ROLES, ruleOf, USABLE_TYPES, type ItemType, type Role, type Rule } from '../../list/standing.ts'
 
 import { Button } from '@/components/ui/button.tsx'
 import { Sheet } from '@/view/sheet.tsx'
@@ -172,9 +173,11 @@ export function EditView({
         </Button>
       </div>
 
+      <Applies list={held.checklist.id} stored={held.checklist.applies ?? []} epic={epic} onEdit={onEdit} busy={busy} />
+
       <Holding
         list={held.checklist.id}
-        targets={targets}
+        targets={targets.filter((one) => one.target.kind !== 'rule')}
         more={Math.max(0, (heldTotal ?? targets.length) - targets.length)}
         modules={modules}
         kehikko={kehikko}
@@ -369,40 +372,6 @@ function Holding({
         </div>
       ) : null}
 
-      {/* Every issue or every change, of the project or of the open epic: a
-          standing hold, for a list every such ref owes, with no hold per ref
-          and each ref keeping its own ticks (Jalez/kehikko-checklist#31). */}
-      <div className="flex flex-col gap-0.5" data-pick-every>
-        <span className="text-[0.65rem] leading-4 text-muted-foreground">
-          Every issue or change, including ones opened later
-        </span>
-        <div className="flex flex-wrap gap-1">
-          {everyOffered(epic).map(({ target, label }) => {
-            const on = isHeld(target)
-            return (
-              <Button
-                key={targetKey(target)}
-                type="button"
-                variant={on ? 'default' : 'outline'}
-                size="container"
-                disabled={busy}
-                data-pick-target={targetKey(target)}
-                data-held={on ? 'yes' : 'no'}
-                className="max-w-full"
-                title={
-                  on
-                    ? `Release ${label.toLowerCase()}; the ticks made on each ref are kept`
-                    : `Hold this list against ${label.toLowerCase()}: it is in front of each one, as the host's tracker reads it, and each keeps its own ticks`
-                }
-                onClick={() => toggle(target)}
-              >
-                <span className="min-w-0 truncate">{label}</span>
-              </Button>
-            )
-          })}
-        </div>
-      </div>
-
       {/* A module's container on this kehikko, whichever epic is open: for a
           list about how a module's work is run in every epic
           (Jalez/kehikko-checklist#27). Offered only where the host says which
@@ -483,14 +452,14 @@ function Holding({
   return (
     <div className="shrink-0 border-t bg-muted/40 px-2 py-1.5" data-holding={targets.length}>
       <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-        <span className="shrink-0 text-[0.65rem] text-muted-foreground">Held against</span>
+        <span className="shrink-0 text-[0.65rem] text-muted-foreground">Only for these items</span>
         <span className="min-w-0 flex-1" />
         <Button
           type="button"
           variant="ghost"
           size="container"
           data-switch
-          title="Change what this list is held against: the paper's files and headings, a reference, or a module on this kehikko."
+          title="Exceptions: hold this list against particular items by hand — the paper's files and headings, a reference, or a module on this kehikko — whatever type they are."
           onClick={() => onOpen(!open)}
         >
           {open && !overlaid ? 'done' : 'change'}
@@ -532,13 +501,13 @@ function Holding({
         /* Never folds away at any size: it is the only thing explaining why a
            list somebody just made is not on the reading page. */
         <p className="mt-0.5 text-[0.65rem] leading-4 text-muted-foreground" data-targets="none">
-          Nothing yet. This list is shown nowhere until it is held against a file, a heading, a reference or a module on this kehikko.
+          None. Besides the types and roles above, a list can be held for particular items by hand: a file, a heading, a reference or a module on this kehikko.
         </p>
       )}
 
       {open && !overlaid ? picker : null}
       {open && overlaid ? (
-        <Sheet title="Hold this list against" onClose={() => onOpen(false)}>
+        <Sheet title="Only for these items" onClose={() => onOpen(false)}>
           {picker}
         </Sheet>
       ) : null}
@@ -937,16 +906,167 @@ function EditRow({
   )
 }
 
-/** The standing holds the edit page offers: every issue and every change, and the open epic's of each. */
-function everyOffered(epic: string | null): { target: Target; label: string }[] {
-  const project: { target: Target; label: string }[] = [
-    { target: { kind: 'every', of: 'issue', epic: null }, label: 'Every issue' },
-    { target: { kind: 'every', of: 'change', epic: null }, label: 'Every change' },
-  ]
-  if (!epic) return project
-  return [
-    ...project,
-    { target: { kind: 'every', of: 'issue', epic }, label: `Every issue of ${epic}` },
-    { target: { kind: 'every', of: 'change', epic }, label: `Every change of ${epic}` },
-  ]
+const TYPE_LABELS: Record<ItemType, string> = {
+  issue: 'Issue',
+  mr: 'Merge request',
+  pr: 'Pull request',
+  paper: 'Paper',
+  task: 'Task',
+}
+const ROLE_LABELS: Record<Role, string> = { any: 'Any role', assignee: 'Assignee', reviewer: 'Reviewer', author: 'Author' }
+
+/**
+ * What this list applies to: types of item × roles, across the project or the
+ * refs one epic names. The main way a list is put in front of somebody — on
+ * every such item, including ones opened later, read from that role
+ * (`list/standing.ts`) — so it comes first on this page.
+ *
+ * Each rule is a row of type chips and a row of role chips, both multi-select,
+ * and where it reaches: the whole project, or one epic. Every press writes the
+ * whole set (`applies`), and nothing is ticked or unticked by it: the ticks are
+ * each item's. A rule left with no type goes; "any role" is every role at once,
+ * so it stands alone. Task is shown and cannot be chosen, with the reason.
+ */
+function Applies({
+  list,
+  stored,
+  epic,
+  onEdit,
+  busy,
+}: {
+  list: string
+  stored: readonly { types?: readonly string[]; roles?: readonly string[]; epic?: string }[]
+  epic: string | null
+  onEdit: (edit: Edit) => void
+  busy: boolean
+}) {
+  const rules = stored.flatMap((one) => ruleOf(one) ?? [])
+  /* A rule being started: its roles and reach, until a type is pressed and it is written. */
+  const [draft, setDraft] = useState<{ roles: Role[]; epic: string | null } | null>(null)
+  const drafting = draft ?? (rules.length ? null : { roles: ['any'], epic: null })
+  const send = (next: Rule[]) =>
+    onEdit({ op: 'applies', id: list, rules: next.map((rule) => ({ types: rule.types, roles: rule.roles, epic: rule.epic })) })
+  const withRule = (at: number, rule: Rule | null) =>
+    send(rule ? rules.map((one, i) => (i === at ? rule : one)) : rules.filter((_, i) => i !== at))
+  const toggleType = (types: readonly ItemType[], type: ItemType) =>
+    types.includes(type) ? types.filter((one) => one !== type) : ITEM_TYPES.filter((one) => one === type || types.includes(one))
+  const toggleRole = (roles: readonly Role[], role: Role): Role[] =>
+    role === 'any' ? ['any'] : normalRoles(roles.includes(role) ? roles.filter((one) => one !== role && one !== 'any') : [...roles.filter((one) => one !== 'any'), role])
+
+  const row = (
+    key: string,
+    types: readonly ItemType[],
+    roles: readonly Role[],
+    reach: string | null,
+    on: { type: (type: ItemType) => void; role: (role: Role) => void; epic: (epic: string | null) => void; remove?: () => void },
+  ) => (
+    <div key={key} className="flex flex-col gap-1 rounded border bg-background px-1.5 py-1" data-rule={key}>
+      <div className="flex flex-wrap items-center gap-1" data-rule-types>
+        {ITEM_TYPES.map((type) => {
+          const usable = USABLE_TYPES.includes(type)
+          const chosen = types.includes(type)
+          return (
+            <Button
+              key={type}
+              type="button"
+              variant={chosen ? 'default' : 'outline'}
+              size="container"
+              disabled={busy || !usable}
+              data-type={type}
+              data-chosen={chosen ? 'yes' : 'no'}
+              aria-pressed={chosen}
+              title={usable ? (chosen ? `Not for ${TYPE_LABELS[type].toLowerCase()}s` : `For every ${TYPE_LABELS[type].toLowerCase()}`) : NO_TASKS}
+              onClick={() => on.type(type)}
+            >
+              {TYPE_LABELS[type]}
+            </Button>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-1" data-rule-roles>
+        {ROLES.map((role) => {
+          const chosen = roles.includes(role)
+          return (
+            <Button
+              key={role}
+              type="button"
+              variant={chosen ? 'default' : 'outline'}
+              size="container"
+              disabled={busy}
+              data-role={role}
+              data-chosen={chosen ? 'yes' : 'no'}
+              aria-pressed={chosen}
+              title={role === 'any' ? 'For whoever is looking, whatever their role' : `For the item's ${role}, read from that angle`}
+              onClick={() => on.role(role)}
+            >
+              {ROLE_LABELS[role]}
+            </Button>
+          )
+        })}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 text-[0.65rem] leading-4 text-muted-foreground">
+        <label className="flex items-center gap-1">
+          <span>In</span>
+          <select
+            data-rule-epic
+            disabled={busy}
+            value={reach ?? ''}
+            onChange={(e) => on.epic(e.target.value || null)}
+            className="min-w-0 rounded border bg-background px-1 py-px text-[0.65rem] text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          >
+            <option value="">the whole project</option>
+            {[...new Set([epic, reach].filter((one): one is string => Boolean(one)))].map((one) => (
+              <option key={one} value={one}>
+                {`epic ${one} only`}
+              </option>
+            ))}
+          </select>
+        </label>
+        <span className="min-w-0 flex-1" />
+        {on.remove ? (
+          <Button type="button" variant="ghost" size="container" disabled={busy} data-rule-remove title="Not by this rule any more. Every tick is kept." onClick={on.remove}>
+            Remove
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="flex shrink-0 flex-col gap-1 border-t bg-muted/40 px-2 py-1.5" data-applies={rules.length}>
+      <span className="text-[0.65rem] leading-4 text-muted-foreground">
+        {rules.length
+          ? 'Applies to — on every such item, read from that role, including ones opened later'
+          : 'Applies to nothing yet: choose the types of item it is for, and the roles'}
+      </span>
+      {rules.map((rule, at) =>
+        row(`${at}`, rule.types, rule.roles, rule.epic, {
+          type: (type) => {
+            const types = toggleType(rule.types, type)
+            withRule(at, types.length ? { ...rule, types } : null)
+          },
+          role: (role) => withRule(at, { ...rule, roles: toggleRole(rule.roles, role) }),
+          epic: (reach) => withRule(at, { ...rule, epic: reach }),
+          remove: () => withRule(at, null),
+        }),
+      )}
+      {drafting
+        ? row('new', [], drafting.roles, drafting.epic, {
+            type: (type) => {
+              setDraft(null)
+              send([...rules, { types: [type], roles: drafting.roles, epic: drafting.epic }])
+            },
+            role: (role) => setDraft({ ...drafting, roles: toggleRole(drafting.roles, role) }),
+            epic: (reach) => setDraft({ ...drafting, epic: reach }),
+            ...(rules.length ? { remove: () => setDraft(null) } : {}),
+          })
+        : (
+          <div>
+            <Button type="button" variant="ghost" size="container" disabled={busy} data-rule-add onClick={() => setDraft({ roles: ['any'], epic: null })}>
+              Another type × role
+            </Button>
+          </div>
+        )}
+    </div>
+  )
 }

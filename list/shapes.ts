@@ -282,13 +282,36 @@ export type Legacy = z.infer<typeof legacySchema>
  * Layout 2: what `list/book.ts` writes
  * ------------------------------------------------------------------ */
 
-/** One standing hold: which kind of ref, which epic's (absent: the whole project's), and since when. */
+/**
+ * One standing hold as Jalez/kehikko-checklist#31 wrote it: every issue or
+ * every change, of the project or of one epic. Read only to be turned into a
+ * rule (`migrateStanding` in `list/standing.ts`) and never written again.
+ * Lenient about `of`, so a word this version does not know is dropped by the
+ * migration rather than making `lists.json` unreadable.
+ */
 export const standingSchema = z.object({
-  of: z.enum(['issue', 'change']),
+  of: z.string(),
   epic: z.string().optional(),
   since: z.string(),
 })
 export type StandingHold = z.infer<typeof standingSchema>
+
+/**
+ * One rule a list applies by: some types of item × some roles, across the
+ * project or the refs one epic names, and since when. See `list/standing.ts`.
+ *
+ * Types and roles are stored as the strings they were written as and read
+ * leniently (`ruleOf`), so a type a later version adds — or `task`, once the
+ * host can say which issues are tasks — does not make this file unreadable to
+ * an older one.
+ */
+export const ruleSchema = z.object({
+  types: z.array(z.string()).default([]),
+  roles: z.array(z.string()).default(['any']),
+  epic: z.string().optional(),
+  since: z.string(),
+})
+export type StoredRule = z.infer<typeof ruleSchema>
 
 /**
  * One checklist as `lists.json` holds it: what the list SAYS, and none of
@@ -308,16 +331,27 @@ export const listSchema = checklistSchema.omit({ targets: true }).extend({
   holds: z.number().int().min(0).default(0),
   next: z.number().int().min(0).default(0),
   /**
-   * What this list STANDS against: every issue, or every change, of the
-   * project — or of one epic (Jalez/kehikko-checklist#31). See
-   * `list/standing.ts`.
-   *
-   * Here, with what the list says, and never in its folder: a standing hold
-   * names no one target, so it has no bucket, and nothing per ref is written
-   * for it until somebody ticks one. Optional, so every `lists.json` written
-   * before it reads as it did: no list stands anywhere.
+   * Jalez/kehikko-checklist#31's standing holds: every issue, or every change.
+   * Read only to be turned into `applies` when `lists.json` is opened
+   * (`settleStanding` in `list/book.ts`), and never written again.
    */
   standing: z.array(standingSchema).optional(),
+  /**
+   * What this list APPLIES to: types of item × roles, across the project or
+   * one epic (`list/standing.ts`). Here, with what the list says, and never in
+   * its folder: a rule names no one item, and nothing per item is written for
+   * it until somebody ticks one. Optional, so every `lists.json` written before
+   * it reads as it did; a `standing` hold is turned into one on read.
+   */
+  applies: z.array(ruleSchema).optional(),
+  /**
+   * The one item this list's lines are FOR, as a target key (`ref:gh#105`,
+   * `paper:thesis`): lines somebody added for that item alone, shown under
+   * the lists that apply to it as "Only for gh#105". Absent on every list a
+   * person made and named; such a list is made by adding its first line, is
+   * held against its item, and goes with its last line.
+   */
+  only: z.string().optional(),
 })
 export type List = z.infer<typeof listSchema>
 

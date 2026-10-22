@@ -94,6 +94,8 @@ export function AllView({
   const [typing, setTyping] = useState('')
   const [sheet, setSheet] = useState(false)
   const overlaid = room.compose === 'overlay'
+  /* The lines somebody added for one item alone are that item's, edited where the item is: not lists to manage here. */
+  const named = lists.filter((list) => !list.only)
 
   const create = () => {
     const name = typing.trim()
@@ -144,11 +146,11 @@ export function AllView({
   return (
     <section
       className={cn('relative overflow-hidden', room.pinned && 'flex min-h-0 flex-1 flex-col')}
-      data-all={lists.length}
+      data-all={named.length}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
       <div className="flex shrink-0 items-baseline gap-1.5 px-2 py-1.5">
-        <h2 className="min-w-0 flex-1 text-[0.8rem] font-semibold">All checklists</h2>
+        <h2 className="min-w-0 flex-1 text-[0.8rem] font-semibold">Manage checklists</h2>
         {overlaid ? (
           <Button type="button" variant="outline" size="container" data-open-create onClick={() => setSheet(true)}>
             Start one
@@ -171,7 +173,7 @@ export function AllView({
         </p>
       ) : null}
 
-      {lists.length ? (
+      {named.length ? (
         <ul
           className={cn(
             'border-t',
@@ -180,7 +182,7 @@ export function AllView({
           )}
           data-scroller={room.pinned ? 'lists' : undefined}
         >
-          {lists.map((list) => (
+          {named.map((list) => (
             <li key={list.id} className={cn('border-t first:border-t-0', room.snap && 'snap-start')}>
               <button
                 type="button"
@@ -190,17 +192,20 @@ export function AllView({
                 onClick={() => onOpen(list.id)}
                 className="flex w-full items-start gap-1.5 px-2 py-1.5 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
               >
-                <span className="min-w-0 flex-1 break-words text-[0.8rem] leading-5">{list.name}</span>
-                {/* How many things it is HELD AGAINST, where there is room for
-                    the words. At 220 pixels a second number takes the width the
-                    NAME needs, and the name is how somebody tells one list from
-                    another. */}
+                <span className="min-w-0 flex-1">
+                  <span className="block break-words text-[0.8rem] leading-5">{list.name}</span>
+                  {/* What it applies to — types × roles — and the items it is held for by hand. A
+                      list that applies to nothing is shown nowhere on the reading page, and this
+                      row is the one place that says so. */}
+                  <span className="block break-words text-[0.65rem] leading-4 text-muted-foreground" data-applies>
+                    {appliesSaid(list)}
+                    {/* Whose work it is for, as the reading page's row says it. */}
+                    {list.for ? ` · for ${nameOf(list.for)}` : ''}
+                  </span>
+                </span>
                 <span className="shrink-0 text-[0.7rem] tabular-nums text-muted-foreground" data-summary>
                   {list.items}
                   {room.prose ? ` item${list.items === 1 ? '' : 's'}` : ''}
-                  {room.prose ? heldSaid(list) : ''}
-                  {/* Whose work it is for, as the reading page's row says it. */}
-                  {room.prose && list.for ? `, for ${nameOf(list.for)}` : ''}
                 </span>
               </button>
             </li>
@@ -244,9 +249,10 @@ export function AllView({
   )
 }
 
-/** What a row says a list is held against: its standing holds by name, then how many targets besides. */
-function heldSaid(list: Summary): string {
-  const standing = (list.standing ?? []).map(targetName)
-  if (!standing.length) return list.targets ? `, held against ${list.targets}` : ', held against nothing'
-  return `, held against ${standing.join(', ')}${list.targets ? ` and ${list.targets} more` : ''}`
+/** What a row says a list applies to: its types × roles by name, then the items it is held for by hand. */
+export function appliesSaid(list: Summary): string {
+  const rules = (list.applies ?? []).map(targetName)
+  const only = list.targets ? `only for ${list.targets} item${list.targets === 1 ? '' : 's'}` : ''
+  if (!rules.length) return only || 'applies to nothing yet — open it to say which types and roles'
+  return `${rules.join('; ')}${only ? ` · also ${only}` : ''}`
 }

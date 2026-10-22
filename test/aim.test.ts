@@ -43,12 +43,13 @@ function canvas(picked: string[] = []): Shown[] {
 }
 
 describe('nothing picked out means everything on the kehikko', () => {
-  test('the passage and the selection lead, and every container\'s showing follows', () => {
+  test('the passage and the selection lead, every container\'s documents follow, and the refs are the ones picked', () => {
     const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(), aim: 'follow' })
     expect(front.narrowed).toBe(false)
     expect(front.paper).toBe(true)
     expect(front.picked).toEqual([])
-    expect(front.refs).toEqual(['gh#7', 'gh#10', 'gh#11'])
+    /* Only the selection: the refs Journeys lists are a list to choose from, not a pick — the pane never draws one. */
+    expect(front.refs).toEqual(['gh#7'])
     /* The reader's own passage first and once, though the paper says it too. */
     expect(front.documents).toEqual([PARAGRAPH, CHAPTER, INTRO])
   })
@@ -111,7 +112,7 @@ describe('some picked out means only what those show', () => {
     const front = inFrontOf({ passage: PARAGRAPH, selection: ['gh#7'], containers: canvas(['kehikot.journeys']), aim: 'all' })
     expect(front.narrowed).toBe(false)
     expect(front.picked).toEqual(['kehikot.journeys'])
-    expect(front.refs).toEqual(['gh#7', 'gh#10', 'gh#11'])
+    expect(front.refs).toEqual(['gh#7'])
     expect(whyEmpty(front)).toBeNull()
   })
 })
@@ -126,7 +127,7 @@ describe('picked parts say what is in front, ahead of what the canvas happens to
     expect(front.documents).toEqual([])
     expect(front.paper).toBe(true)
     expect(front.narrowed).toBe(false)
-    expect(front.refs).toEqual(['gh#7', 'gh#10', 'gh#11'])
+    expect(front.refs).toEqual(['gh#7'])
     expect(whyEmpty(front)).toBeNull()
   })
 

@@ -1,13 +1,13 @@
 import { AskFailed, PAGE_STALE, ask, replied } from 'kehikot-module-protocol/client'
 
-import type { Held, Summary } from '../../list/checklists.ts'
+import type { Held, ItemInFront, RuleInput, Summary } from '../../list/checklists.ts'
 import type { Outline, OutlineFile, OutlineSection } from '../../file/outline.ts'
 import type { Placed } from '../../list/scope.ts'
 import type { Target } from '../../list/targets.ts'
 import type { Evidence, Fact } from '../../list/evidence.ts'
 import type { TickState } from '../../list/shapes.ts'
 import type { Shown } from '../../list/aim.ts'
-import type { RefsRead, UndecidedRef } from '../../list/standing.ts'
+import type { Angle, RefsRead, UndecidedRef } from '../../list/standing.ts'
 import type { Finished, Plan, Report, Scope } from '../../list/storage.ts'
 
 /**
@@ -58,7 +58,7 @@ export function unanswered(caught: unknown): boolean {
   return caught instanceof AskFailed && caught.kind !== 'refused'
 }
 
-export type { Held, Outline, OutlineFile, OutlineSection, Placed, Shown, Summary, Target }
+export type { Held, ItemInFront, Outline, OutlineFile, OutlineSection, Placed, RuleInput, Shown, Summary, Target }
 
 /**
  * Which project every request below is about.
@@ -139,9 +139,15 @@ export interface Here {
   /** One entry per (checklist, target) pairing in front of the reader. `held.target` is never null here. */
   instances: Held[]
   /**
-   * Refs in front a list standing against every issue or every change could
-   * not be decided for — the tracker has not said what they are — with those
-   * lists' names. Said on the pane, never guessed (`list/standing.ts`).
+   * The items picked — each ref, and the paper when it is one — with the type
+   * and the angle each is read from, in the order the pane draws a section for
+   * each. Absent from an older server.
+   */
+  items?: ItemInFront[]
+  /**
+   * Refs in front a list that applies by type × role could not be decided for
+   * — the tracker has not said what they are — with those lists' names. Said
+   * on the pane, never guessed (`list/standing.ts`).
    */
   undecided?: UndecidedRef[]
   trouble: string | null
@@ -181,14 +187,18 @@ export async function whatIsHere(
    */
   following: { kehikko: string; modules: readonly string[]; epic: string | null } | null = null,
   /**
-   * What the host's tracker reading said about those refs: each one's kind,
-   * and which of them the epics a standing hold names name. What a list held
-   * against every issue or every change is asked by (Jalez/kehikko-checklist#31).
+   * What the host's tracker reading said about those refs: each one's type,
+   * the person's roles on it, and which of them the epics a rule names name.
+   * What a list that applies by type × role is asked by (`list/standing.ts`).
    */
   read: RefsRead | null = null,
+  /** The angle the items are read from: the person's own roles (`auto`), one role, or any. */
+  angle: Angle = 'auto',
+  /** Whether the paper the epic is aimed at is a picked item: a reader is in it, or parts of it are picked. */
+  paper = false,
 ): Promise<Here> {
   const body = replied(
-    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; undecided?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
+    await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; items?: unknown; undecided?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
       query: {
         epic: epic || null,
         doc: epic ? documents.map((at) => (at.from !== null && at.to !== null ? `${at.path}\t${at.from}\t${at.to}` : at.path)) : [],
@@ -197,7 +207,10 @@ export async function whatIsHere(
         kehikko: following && following.modules.length ? following.kehikko : null,
         module: following ? [...following.modules] : [],
         open: following?.epic || null,
-        kind: read ? Object.entries(read.kinds).map(([ref, kind]) => `${ref}\t${kind}`) : [],
+        type: read ? Object.entries(read.types).map(([ref, type]) => `${ref}\t${type}`) : [],
+        roles: read ? Object.entries(read.roles).map(([ref, roles]) => `${ref}\t${roles.join(',')}`) : [],
+        angle: angle === 'auto' ? null : angle,
+        paper: paper && epic ? '1' : null,
         'epic-read': read ? Object.keys(read.epics) : [],
         'in-epic': read ? Object.entries(read.epics).flatMap(([epic, refs]) => refs.map((ref) => `${epic}\t${ref}`)) : [],
         project: projectPath || null,
@@ -208,6 +221,7 @@ export async function whatIsHere(
     placed: (body.placed as Placed | null) ?? null,
     positions: Array.isArray(body.positions) ? (body.positions as (Placed | null)[]) : [],
     instances: Array.isArray(body.instances) ? (body.instances as Held[]) : [],
+    items: Array.isArray(body.items) ? (body.items as ItemInFront[]) : [],
     undecided: Array.isArray(body.undecided) ? (body.undecided as UndecidedRef[]) : [],
     trouble: typeof body.trouble === 'string' ? body.trouble : null,
     nowhere: body.nowhere === true,
@@ -307,7 +321,12 @@ export async function paperOutline(projectPath: string | null, path: string): Pr
 }
 
 export type Edit =
-  | { op: 'create'; name: string }
+  /* `rule`: what the new list applies to, said at once — the pane's "Add a checklist for <type> as <role>". */
+  | { op: 'create'; name: string; rule?: RuleInput }
+  /** Every rule the list applies by, whole: types × roles, and the epic each is narrowed to. */
+  | { op: 'applies'; id: string; rules: RuleInput[] }
+  /** A line for one item alone — a ref, or a paper — on top of the lists that apply to it. */
+  | { op: 'add-for'; target: Target; text: string }
   /**
    * Copy a list out of another project into the open one.
    *
@@ -351,13 +370,13 @@ export async function edit(change: Edit, projectPath: string | null): Promise<An
      target across both doors is what stops the page and an agent naming the same
      work two ways. */
   const target =
-    change.op === 'tick' || change.op === 'hold' || change.op === 'release'
+    change.op === 'tick' || change.op === 'hold' || change.op === 'release' || change.op === 'add-for'
       ? change.target.kind === 'ref'
         ? { ref: change.target.ref }
         : change.target.kind === 'kehikko'
           ? { kehikko: change.target.kehikko, module: change.target.module, ...(change.target.epic ? { epic: change.target.epic } : {}) }
-          : change.target.kind === 'every'
-            ? { every: change.target.of, ...(change.target.epic ? { epic: change.target.epic } : {}) }
+          : change.target.kind === 'rule'
+            ? { types: change.target.types, roles: change.target.roles, ...(change.target.epic ? { epic: change.target.epic } : {}) }
             : { epic: change.target.epic, ...(change.target.section ? { section: change.target.section } : {}) }
       : {}
   const { ...sent } = change as Record<string, unknown>

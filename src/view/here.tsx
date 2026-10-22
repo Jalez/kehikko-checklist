@@ -1,11 +1,25 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import type { Edit, Held, Here } from '@/store/ask.ts'
+import type { Edit, Held, Here, ItemInFront } from '@/store/ask.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetName, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
 import { countRows, stateOf, type TickState } from '../../list/shapes.ts'
 import { clickedLine, nameOf, unpickLine } from '../../list/aim.ts'
+import {
+  angleLine,
+  ANGLE_LABELS,
+  NOTHING_PICKED,
+  nothingLine,
+  ruleName,
+  typeName,
+  typesName,
+  undecidedLine,
+  type Angle,
+  type ItemType,
+  type Role,
+  type UndecidedRef,
+} from '../../list/standing.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -14,97 +28,63 @@ import type { Room } from '@/view/room.ts'
 import { cn } from '@/lib/utils.ts'
 
 /**
- * The reading page: every checklist held against what is in front of the
- * reader, and nothing else.
+ * The reading page: the checklists for the item somebody picked, from the
+ * angle they want — and never a list of items to pick from.
  *
  * ## The sentence this page is
  *
- * > "by default when I am scrolling in a paper i want to see the checklist(s)
- * > that I have assigned for that section/file in question. I dont want to see
- * > it swapping its mind on what its connected to — infact I dont need the
- * > information on 'Reading x, Nothing has been ticked yet'-bullshit, or 'hold
- * > it against x.tex' its completely useless information, I just want to see
- * > the instances of the checklists connected to that section of the paper
- * > that is being scrolled through. Or, in the case of selecting a specific
- * > issue or an mr or a pr, I want to see the checklists specific to those
- * > issues etc."
+ * > "The idea in the Checklist module is that you can create checklists
+ * > specific to a type (issue, paper, MR, PR, task) + role (assignee,
+ * > reviewer, etc.) combination across the project, while also being able to
+ * > add instance-specific checklist items on top. I don't want to see a list of
+ * > specific items to pick their checklist; it should always show the
+ * > checklist(s) for an item we have picked, from the angle we want."
  *
- * So this page draws instances. An instance is one checklist against one of
- * its targets — `showing` in `list/holding.ts` decides which, from where the
- * reader is and what every list is held against — and each is its name, its
- * count, one short line saying WHICH of its targets these ticks belong to, and
- * its items, tickable. Nothing here changes what a list is connected to: the
- * one press per instance leads to the edit page, which is where that lives.
+ * So the page draws one SECTION per item picked on the canvas — the refs
+ * somebody selected (or what the containers they picked out show), and the
+ * paper when a reader is in it — and nothing for an item nobody picked. A
+ * section says the angle in its first line ("As reviewer on !123"), then every
+ * checklist that applies to the item from that angle (`list/standing.ts`),
+ * every list held against it by hand, and last its own lines, "Only for !123".
  *
- * ## What is deliberately not on it
+ * Each list is an instance — one checklist against one item, `inFront` in
+ * `list/checklists.ts` decides which — with its name, its count, one short
+ * line saying why it is here (which types × roles, or held by hand), and its
+ * items, tickable. Nothing here changes what a list applies to: the one press
+ * per instance leads to the edit page, which is where that lives. The item's
+ * own lines are the exception, and are edited where they are, because they
+ * belong to the item and to nothing else.
  *
- * The row that said `Reading <file>` and the press that said `change`. The
- * screen that said "not held here" with a press to hold the list there. The
- * sentence about nothing having been ticked yet. All of them were the previous
- * model explaining, on every scroll, a decision it was making on the reader's
- * behalf — and once the decision is a person's, made once on the edit page,
- * none of them has anything to say. The owner called them useless; they were,
- * because the thing they were about no longer happens.
+ * ## The empty sentences
  *
- * What survives of that row is ONE muted line under each name, and it says
- * something different: not where the reader is, but which target this
- * instance IS. It is there because several instances can be on screen at once
- * — the chapter's list and the whole thesis's — and two lists of ticks with
- * nothing saying which is which would be the two-halves-disagreeing failure
- * this workspace keeps finding. It is a label, not a sentence, and it never
- * offers anything.
+ * - **Nothing picked**: one sentence, `NOTHING_PICKED`, and the way to manage
+ *   the checklists in the strip below. No list of items, ever.
+ * - **Nothing applies** to an item: said in its section, from its angle, with
+ *   the two things to do about it — a checklist for that type and role, or a
+ *   line just for that item.
+ * - **The picks emptied it**: `why`, which names the picked-out containers.
+ * - **The parts focus put it aside**: the protocol's sentence, in the section.
+ *
+ * ## Several roles, other angles
+ *
+ * Read automatically, an item is read from every role the person has on it,
+ * and each list says through which role it is there. Lists that would apply
+ * from a role outside the angle are not drawn; the section says which angles
+ * have them and switches to one in a press.
  *
  * ## Zero, one, several
  *
- * None: one line, and the way to every checklist beside it. Which line
- * depends on whether there is anything in front of the reader at all — "no
- * list is held against this" and "nothing is open or selected" send a person
- * to two different places, and only the first is fixed on an edit page. And a
- * third line, ahead of both, when it was the PICKS that emptied the page:
- * "paper and journeys are picked out; no checklist is held against what they
- * show". A pane that went empty because a neighbour was ticked has to say so,
- * or its emptiness has no visible cause — the sentence names the containers,
- * says which of them show nothing, and the way out is the filter in this
- * container's own header. `list/aim.ts` writes it.
- *
- * One: the list, its label, its items.
- *
- * Several: stacked, in the order `showing` gives — the selected references'
- * lists first, then the paper's — each foldable so a reader in a 300-pixel
- * frame can put one away while ticking another. The fold is session state and
- * is written down nowhere.
- *
- * Which of several start open is where the reader IS: the lists on the rungs
- * under their own place, the whole paper's, and a selected reference's. The
- * rest start folded — one line each, with its count. That is for the paper
- * beside this page, which with no part picked says it is showing every file
- * it has: thirteen in a thesis, so nine lists and eight thousand pixels of
- * them in a frame of five hundred, and the chapter being read somewhere in
- * the middle. They are all in front, as that paper says, and the page reads
- * as the paper's progress chapter by chapter with the reader's own chapter
- * open in it. A press on a fold outlasts the reader moving. With no place of
- * the reader's — parts picked in the host's bar, which is several files and
- * no caret — every list starts open: they are what was picked.
- *
- * ## The parts focus, about which this page prints nothing
- *
- * When a person has picked parts of the epic out in the host's bar, the lists
- * held against a reference, a file or a section outside those parts are put
- * aside. A line at the top used to say how many and which parts; it took a
- * row of a container that has few, and the host's bar already shows the pick.
- * The lists drawn are the message. Only an EMPTY page says anything — `why`,
- * one sentence where the lists would be: the protocol's, for a pick.
- *
- * ## The way to everything
- *
- * `All checklists` is a strip at the bottom rather than a heading at the top,
- * because it is the way OUT of this page and not what the page is for; pinned,
- * the strip stays put while the instances scroll under it, so it is reachable
- * from anywhere in a long list.
+ * Several lists are stacked, each foldable so a reader in a 300-pixel frame can
+ * put one away while ticking another. The fold is session state and is
+ * written down nowhere. Which of several start open is where the reader IS:
+ * the lists on the rungs under their own place in the paper, and every list of
+ * a picked ref; the rest of the paper's start folded, one line each with its
+ * count.
  */
 export function HereView({
   here,
-  somewhere,
+  items = [],
+  focusAside = [],
   why = null,
   aside = null,
   onEdit,
@@ -115,23 +95,26 @@ export function HereView({
   room,
   facts = null,
   kehikko = null,
-  none = null,
-  undecided = null,
   clicked = null,
   onShowClicked,
+  onAngle,
+  onNewFor,
+  onAddFor,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
-  /** Whether there is anything at all in front of the reader: an epic, a passage, a selection, or something a container shows. */
-  somewhere: boolean
+  /** The items picked, a section each, in order: each ref, then the paper. */
+  items?: ItemInFront[]
+  /** The items (`ref:…`, `paper:…`) whose every list the parts focus put aside. */
+  focusAside?: string[]
   /** Why the page is empty when the picks emptied it, or null when they did not. See `whyEmpty` in `list/aim.ts`. */
   why?: string | null
-  /** What is said about lists put aside while others are drawn, or null: a hint on "All checklists", never a row. See `whyAside` in `list/aim.ts`. */
+  /** What is said about lists put aside while others are drawn, or null: a hint on "Manage checklists", never a row. See `whyAside` in `list/aim.ts`. */
   aside?: string | null
   onEdit: (edit: Edit) => void
   /** Open one checklist's edit page. */
   onOpen: (id: string) => void
-  /** Go to the screen that lists every checklist in the project. */
+  /** Go to the screen that manages every checklist in the project. */
   onAll: () => void
   trouble: string | null
   busy: boolean
@@ -141,20 +124,18 @@ export function HereView({
   /** The kehikko this page is on, whose name a list held against a container on it is labelled with. */
   kehikko?: { key?: string; name: string } | null
   /**
-   * Why an empty pane with refs in front is empty: nothing is held against
-   * them, or no checklist applies to them though some stand against every
-   * issue or every change. See `noneLine` in `list/standing.ts`.
-   */
-  none?: { said: string; why: 'nothing-held' | 'none-applies' } | null
-  /** The line for refs a standing hold could not be decided for, or null. See `undecidedLine`. */
-  undecided?: string | null
-  /**
    * Refs somebody clicked that the picks set aside, and the picked-out
    * containers — `setAside` in `list/aim.ts` (Jalez/kehikko-checklist#32).
    */
   clicked?: { refs: string[]; picked: string[] } | null
   /** Show the clicked refs instead: this container's aim on everything. Resolves false when the host would not. */
   onShowClicked?: () => Promise<boolean>
+  /** Read from another angle: what a section's "other angles" press does. */
+  onAngle?: (angle: Angle) => void
+  /** Make a checklist for this type of item and this role, and open it. */
+  onNewFor?: (type: ItemType, role: Role) => void
+  /** Add a line for one item alone. */
+  onAddFor?: (target: Target, text: string) => void
 }) {
   /* Which instances a person folded or unfolded, keyed by list and target, so
      the same list against two targets folds separately. Only what was pressed
@@ -177,10 +158,15 @@ export function HereView({
    * instances are drawn, so a tick, a fold or a context repeating itself moves nothing.
    * `dev/scroll.probe.mjs` reads it (`PART`).
    */
+  /* An item whose every list the parts focus put aside is not drawn: the host's bar shows the pick, and the
+     page says nothing about it while there is a list to draw — and the protocol's one sentence (`why`) when
+     there is none. */
+  const sections = groups(here?.instances ?? [], items).filter((one) => one.instances.length > 0 || !focusAside.includes(one.key))
+  const shownInOrder = sections.flatMap((section) => section.instances)
   const scroller = useRef<HTMLDivElement>(null)
   const anchor = useRef<{ key: string; offset: number } | null>(null)
   const drawn = useRef<string | null>(null)
-  const keys = (here?.instances ?? []).map((held) => `${held.checklist.id}|${targetKey(held.target as Target)}`)
+  const keys = shownInOrder.map((held) => `${held.checklist.id}|${targetKey(held.target as Target)}`)
   const marked = keys.join('\n')
   const pinned = room.pinned
   const mark = () => {
@@ -229,22 +215,10 @@ export function HereView({
      app's own server not answering — so there is nothing of this screen's to draw. */
   if (!here) return null
 
-  const several = here.instances.length > 1
-  /*
-   * What an empty pane says, in order: the picks emptied it; the refs in
-   * front have nothing held or nothing that applies (`none`); and, when the
-   * only refs are ones the tracker has not decided, nothing — the undecided
-   * line below says it. Otherwise the page's own two sentences.
-   */
-  const emptySaid =
-    why
-    ?? none?.said
-    ?? (undecided
-      ? null
-      : somewhere
-        ? 'No checklist is held against what is in front of you.'
-        : 'Nothing is in front of you: no paper is open and nothing is selected.')
-  const emptyKind = why ? 'narrowed' : none ? none.why : somewhere ? 'held' : 'front'
+  const several = shownInOrder.length > 1
+  /* Nothing picked, or the picks emptied the pane: one sentence, and no list of anything to pick. */
+  const emptySaid = sections.length ? null : (why ?? NOTHING_PICKED)
+  const emptyKind = why ? 'narrowed' : 'picked'
 
   return (
     <section
@@ -252,7 +226,7 @@ export function HereView({
          length in `edit.tsx`: an `sr-only` label escapes a scroller that is
          not its containing block, and the host already draws the container. */
       className={cn('relative overflow-hidden', room.pinned && 'flex min-h-0 flex-1 flex-col')}
-      data-here={here.instances.length}
+      data-here={shownInOrder.length}
       data-room={room.pinned ? 'pinned' : 'flowing'}
     >
       {/* A click the picks set aside, said where the click was expected to land
@@ -286,7 +260,7 @@ export function HereView({
         </div>
       ) : null}
 
-      {here.instances.length ? (
+      {sections.length ? (
         <div
           /* `before:` is a snap area of no height at the very start, so the
              top of the scroller is a place it can rest. With only the rows
@@ -306,35 +280,40 @@ export function HereView({
             anchor.current = mark()
           }}
         >
-          {here.instances.map((held) => {
-            const target = held.target as Target
-            const key = `${held.checklist.id}|${targetKey(target)}`
-            const open = !several || (turned[key] ?? under(target, here.placed))
-            return (
-              <Instance
-                key={key}
-                held={held}
-                target={target}
-                /* Whose work the list is for rides on the target's label, so two
-                   lists held against one chapter — what a chapter owes, what its
-                   narration owes — say which is about which. */
-                label={
-                  labelOf(target, placeAmong(target, here.positions) ?? here.placed, null, kehikko)
-                  /* In front through a standing hold, not held here by hand: say which. */
-                  + (held.through?.length ? ` · ${held.through.map(targetName).join(', ')}` : '')
-                  + (held.checklist.for ? ` · for ${nameOf(held.checklist.for)}` : '')
-                }
-                open={open}
-                foldable={several}
-                onFold={() => setTurned((was) => ({ ...was, [key]: !open }))}
-                onEdit={onEdit}
-                onOpen={onOpen}
-                busy={busy}
-                room={room}
-                facts={facts}
-              />
-            )
-          })}
+          {sections.map((section) => (
+            <ItemSection
+              key={section.key}
+              section={section}
+              undecided={(here.undecided ?? []).filter((row) => section.item?.target.kind === 'ref' && row.ref === section.item.target.ref)}
+              onAngle={onAngle}
+              onNewFor={onNewFor}
+              onAddFor={onAddFor}
+              busy={busy}
+              snap={room.snap}
+            >
+              {section.instances.map((held) => {
+                const target = held.target as Target
+                const key = `${held.checklist.id}|${targetKey(target)}`
+                const open = !several || (turned[key] ?? (target.kind === 'ref' || under(target, here.placed)))
+                return (
+                  <Instance
+                    key={key}
+                    held={held}
+                    target={target}
+                    label={labelFor(held, target, here, kehikko)}
+                    open={open}
+                    foldable={several}
+                    onFold={() => setTurned((was) => ({ ...was, [key]: !open }))}
+                    onEdit={onEdit}
+                    onOpen={onOpen}
+                    busy={busy}
+                    room={room}
+                    facts={facts}
+                  />
+                )
+              })}
+            </ItemSection>
+          ))}
         </div>
       ) : emptySaid ? (
         <p
@@ -342,20 +321,6 @@ export function HereView({
           data-none={emptyKind}
         >
           {emptySaid}
-        </p>
-      ) : null}
-
-      {/* A list that stands against every issue or every change and could not be
-          decided for a ref in front: said, never guessed (`list/standing.ts`). */}
-      {undecided ? (
-        <p
-          className={cn(
-            'shrink-0 px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground',
-            here.instances.length ? 'border-t' : room.pinned && 'min-h-0 flex-1',
-          )}
-          data-undecided
-        >
-          {undecided}
         </p>
       ) : null}
 
@@ -372,14 +337,289 @@ export function HereView({
           variant="ghost"
           size="container"
           data-all
-          data-aside={aside && here.instances.length ? '' : undefined}
-          title={aside && here.instances.length ? aside : undefined}
+          data-aside={aside && shownInOrder.length ? '' : undefined}
+          title={aside && shownInOrder.length ? aside : undefined}
           onClick={onAll}
         >
-          All checklists
+          Manage checklists
         </Button>
       </div>
     </section>
+  )
+}
+
+/** One section of the page: an item and the instances in front for it, or a group with no item (a container's lists). */
+interface Section {
+  key: string
+  /** The item picked, or null for a group no item names: lists held against a container on this kehikko. */
+  item: ItemInFront | null
+  /** Its lists, the item's own lines last. */
+  instances: Held[]
+  /** The item's own lines, when it has any: "Only for !123". */
+  own: Held | null
+}
+
+/** The key an instance's target is grouped under: its item, or its container group. */
+function itemKey(target: Target | null): string {
+  if (!target) return 'other'
+  if (target.kind === 'ref') return `ref:${target.ref}`
+  if (target.kind === 'paper') return `paper:${target.epic}`
+  if (target.kind === 'kehikko') return 'kehikko'
+  return 'other'
+}
+
+/**
+ * The instances in sections, one per item in the order the items came, then
+ * any group no item names — a container's lists — at the end. An instance of
+ * an item's own lines goes last in its section.
+ */
+export function groups(instances: readonly Held[], items: readonly ItemInFront[]): Section[] {
+  const byKey = new Map<string, Held[]>()
+  for (const one of instances) {
+    const key = itemKey(one.target)
+    byKey.set(key, [...(byKey.get(key) ?? []), one])
+  }
+  const sections: Section[] = []
+  const done = new Set<string>()
+  const make = (key: string, item: ItemInFront | null): Section => {
+    const all = byKey.get(key) ?? []
+    const own = all.find((one) => one.checklist.only) ?? null
+    return { key, item, instances: [...all.filter((one) => !one.checklist.only), ...(own ? [own] : [])], own }
+  }
+  for (const item of items) {
+    const key = itemKey(item.target)
+    if (done.has(key)) continue
+    done.add(key)
+    sections.push(make(key, item))
+  }
+  /* Lists for an item the server did not name — an older server — are that item's all the same, read from any role. */
+  for (const [key, all] of byKey) {
+    if (done.has(key)) continue
+    done.add(key)
+    const target = all[0]?.target ?? null
+    const item: ItemInFront | null =
+      target?.kind === 'ref'
+        ? { target, type: null, as: ['any'], elsewhere: [] }
+        : target?.kind === 'paper'
+          ? { target: { kind: 'paper', epic: target.epic, section: null }, type: 'paper', as: ['any'], elsewhere: [] }
+          : null
+    sections.push(make(key, item))
+  }
+  return sections
+}
+
+/** What an instance says it is: which types × roles it applies by, held by hand, or a place in the paper. */
+function labelFor(held: Held, target: Target, here: Here, kehikko: { key?: string; name: string } | null): string {
+  const whose = held.checklist.for ? ` · for ${nameOf(held.checklist.for)}` : ''
+  if (held.checklist.only) return `lines just for ${targetName(target)}`
+  if (held.through?.length) {
+    return held.through.map((rule) => (rule.kind === 'rule' ? ruleName(rule) : targetName(rule))).join('; ') + whose
+  }
+  if (target.kind === 'ref') return `held for ${target.ref}${whose}`
+  return labelOf(target, placeAmong(target, here.positions) ?? here.placed, null, kehikko) + whose
+}
+
+/** What an item is called in its section's first line. */
+function itemName(item: ItemInFront): string {
+  if (item.target.kind === 'ref') return item.target.ref
+  if (item.target.kind === 'paper') return `the paper ${item.target.epic}`
+  return targetName(item.target)
+}
+
+/**
+ * One item's section: the angle it is read from, its lists, its own lines,
+ * and — when nothing applies — what to do about it.
+ */
+function ItemSection({
+  section,
+  undecided,
+  onAngle,
+  onNewFor,
+  onAddFor,
+  busy,
+  snap,
+  children,
+}: {
+  section: Section
+  snap: boolean
+  undecided: UndecidedRef[]
+  onAngle?: (angle: Angle) => void
+  onNewFor?: (type: ItemType, role: Role) => void
+  onAddFor?: (target: Target, text: string) => void
+  busy: boolean
+  children: React.ReactNode
+}) {
+  const item = section.item
+  const [adding, setAdding] = useState(false)
+  const [typing, setTyping] = useState('')
+  if (!item) {
+    /* A group no item names: lists held against a container on this kehikko. */
+    return (
+      <section className="border-t first:border-t-0" data-section={section.key}>
+        <p className={cn('px-2 pt-1.5 text-[0.65rem] font-semibold leading-4 text-muted-foreground', snap && 'snap-start')} data-angle>
+          {section.key === 'kehikko' ? 'On this kehikko' : 'Also in front'}
+        </p>
+        {children}
+      </section>
+    )
+  }
+  const name = itemName(item)
+  const empty = section.instances.length === 0
+  const unsure = undecidedLine(undecided)
+  const add = () => {
+    const text = typing.trim()
+    if (!text || !onAddFor) return
+    setTyping('')
+    setAdding(false)
+    onAddFor(item.target, text)
+  }
+  const roles: Role[] = item.as.length ? item.as : ['any']
+  return (
+    <section className="border-t first:border-t-0" data-section={section.key}>
+      {/* The angle, said once per item: "As reviewer on !123". */}
+      <p
+        className={cn('flex flex-wrap items-baseline gap-x-1.5 px-2 pt-1.5 text-[0.7rem] font-semibold leading-4', snap && 'snap-start')}
+        data-angle={roles.join(' ')}
+      >
+        <span className="min-w-0 break-words">{angleLine(roles, name)}</span>
+        {item.type && item.target.kind === 'ref' ? (
+          <span className="text-[0.65rem] font-normal text-muted-foreground" data-type={item.type}>
+            {typeName(item.type)}
+          </span>
+        ) : null}
+      </p>
+
+      {children}
+
+      {empty ? (
+        <p className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-none="applies">
+          {unsure ? null : nothingLine(name, roles)}
+        </p>
+      ) : null}
+      {unsure ? (
+        <p className="px-2 pb-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-undecided>
+          {unsure}
+        </p>
+      ) : null}
+
+      {/* What to do when nothing applies: a checklist for this type and role, or a line just for this item. */}
+      <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5">
+        {empty && item.type && onNewFor
+          ? roles.map((role) => (
+              <Button
+                key={role}
+                type="button"
+                variant="outline"
+                size="container"
+                disabled={busy}
+                data-new-for={`${item.type}:${role}`}
+                className="max-w-full"
+                title="Start a checklist that is in front of every such item read from this role, and write its first line."
+                onClick={() => onNewFor(item.type as ItemType, role)}
+              >
+                <span className="min-w-0 truncate">
+                  {`Add a checklist for ${typesName([item.type as ItemType])} ${role === 'any' ? 'for any role' : `as ${role}`}`}
+                </span>
+              </Button>
+            ))
+          : null}
+        {onAddFor && !section.own && !adding ? (
+          <Button
+            type="button"
+            variant={empty ? 'outline' : 'ghost'}
+            size="container"
+            disabled={busy}
+            data-add-for={section.key}
+            className="max-w-full"
+            title="A line this one item owes, on top of the checklists that apply to it. It is kept whatever happens to them."
+            onClick={() => setAdding(true)}
+          >
+            <span className="min-w-0 truncate">{`Add an item just for ${item.target.kind === 'ref' ? item.target.ref : 'this paper'}`}</span>
+          </Button>
+        ) : null}
+      </div>
+      {adding ? (
+        <AddLine
+          label={`A line just for ${name}`}
+          value={typing}
+          onChange={setTyping}
+          onAdd={add}
+          onCancel={() => {
+            setTyping('')
+            setAdding(false)
+          }}
+          busy={busy}
+        />
+      ) : null}
+
+      {/* Other angles that have lists for this item: one press reads from that angle. */}
+      {item.elsewhere.length && onAngle ? (
+        <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5 text-[0.65rem] leading-4 text-muted-foreground" data-elsewhere={item.elsewhere.join(' ')}>
+          <span>Also checklists for {name} from</span>
+          {item.elsewhere.map((role) => (
+            <Button
+              key={role}
+              type="button"
+              variant="ghost"
+              size="container"
+              data-angle-to={role}
+              title={`Read every picked item ${ANGLE_LABELS[role].toLowerCase()}. The header's Angle says which angle is on.`}
+              onClick={() => onAngle(role)}
+            >
+              {ANGLE_LABELS[role]}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+/** A box for one line, with Add and Cancel: the same Enter / shift-Enter pair every box here uses. */
+function AddLine({
+  label,
+  value,
+  onChange,
+  onAdd,
+  onCancel,
+  busy,
+}: {
+  label: string
+  value: string
+  onChange: (text: string) => void
+  onAdd: () => void
+  onCancel?: () => void
+  busy: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-1 px-2 pb-1.5" data-add-line>
+      <textarea
+        aria-label={label}
+        autoFocus
+        rows={2}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && onCancel) onCancel()
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            onAdd()
+          }
+        }}
+        placeholder="What does this one still owe?"
+        className="w-full resize-y rounded border bg-background px-1.5 py-1 text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Button type="button" size="container" disabled={busy || !value.trim()} onClick={onAdd}>
+          Add
+        </Button>
+        {onCancel ? (
+          <Button type="button" variant="ghost" size="container" onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
+      </div>
+    </div>
   )
 }
 
@@ -418,6 +658,9 @@ function Instance({
   const ref = target.kind === 'ref' ? target.ref : null
   const refRow = ref ? (facts?.rows[ref] ?? null) : null
   const counts = countRows(held.rows)
+  /* An item's own lines are edited where they are: they belong to that item and to no list somebody named. */
+  const own = Boolean(held.checklist.only)
+  const [editing, setEditing] = useState(false)
   return (
     <section
       className="border-t first:border-t-0"
@@ -481,15 +724,22 @@ function Instance({
           size="container"
           className="shrink-0 px-1.5"
           data-edit={held.checklist.id}
-          title="Edit: the lines, and what this list is held against. Nothing there is ticked."
-          onClick={() => onOpen(held.checklist.id)}
+          data-own={own ? (editing ? 'editing' : 'reading') : undefined}
+          title={
+            own
+              ? editing
+                ? 'Done: back to ticking these lines.'
+                : 'Edit the lines just for this item: reword, drop, add. Their ticks are kept.'
+              : 'Edit: the lines, and which types of item and roles this list applies to. Nothing there is ticked.'
+          }
+          onClick={() => (own ? setEditing(!editing) : onOpen(held.checklist.id))}
         >
           {room.pageSwitch === 'named' ? (
-            'Edit'
+            own && editing ? 'Done' : 'Edit'
           ) : (
             <>
-              <span aria-hidden="true">{'✎'}</span>
-              <span className="sr-only">Edit</span>
+              <span aria-hidden="true">{own && editing ? '✓' : '✎'}</span>
+              <span className="sr-only">{own && editing ? 'Done' : 'Edit'}</span>
             </>
           )}
         </Button>
@@ -499,7 +749,9 @@ function Instance({
           name — only open, so a folded instance is one line again. */}
       {open && ref ? <RefFacts refName={ref} facts={facts} /> : null}
 
-      {open ? (
+      {open && own && editing ? (
+        <OwnLines held={held} onEdit={onEdit} busy={busy} />
+      ) : open ? (
         held.rows.length ? (
           <ul className="border-t">
             {held.rows.map((row) => (
@@ -522,6 +774,111 @@ function Instance({
         )
       ) : null}
     </section>
+  )
+}
+
+/**
+ * An item's own lines, being edited: each line rewordable in place and
+ * droppable with two presses, and a box for one more. The same writes the
+ * edit page makes for a list, on the list that holds this item's own lines;
+ * a reword keeps the line's ticks, and dropping the last line takes the list.
+ */
+function OwnLines({ held, onEdit, busy }: { held: Held; onEdit: (edit: Edit) => void; busy: boolean }) {
+  const [typing, setTyping] = useState('')
+  const list = held.checklist.id
+  const add = () => {
+    const text = typing.trim()
+    if (!text) return
+    setTyping('')
+    onEdit({ op: 'add', id: list, text })
+  }
+  return (
+    <div className="border-t" data-own-lines={list}>
+      <ul>
+        {held.rows.map((row) => (
+          <OwnLine key={row.item.id} list={list} item={row.item} onEdit={onEdit} busy={busy} />
+        ))}
+      </ul>
+      <div className="border-t pt-1.5">
+        <AddLine label="Add a line just for this item" value={typing} onChange={setTyping} onAdd={add} busy={busy} />
+      </div>
+    </div>
+  )
+}
+
+/** One of an item's own lines, being edited: press the words to reword them, × twice to drop it. */
+function OwnLine({
+  list,
+  item,
+  onEdit,
+  busy,
+}: {
+  list: string
+  item: Held['rows'][number]['item']
+  onEdit: (edit: Edit) => void
+  busy: boolean
+}) {
+  const [typing, setTyping] = useState<string | null>(null)
+  const [arming, setArming] = useState(false)
+  const reword = () => {
+    const text = (typing ?? '').trim()
+    setTyping(null)
+    if (!text || text === item.text) return
+    onEdit({ op: 'reword', id: list, item: item.id, text })
+  }
+  return (
+    <li className="flex items-start gap-1.5 border-t px-2 py-1.5 first:border-t-0" data-own-line={item.id}>
+      {typing === null ? (
+        <button
+          type="button"
+          disabled={busy}
+          data-reword={item.id}
+          title="Press to reword this line"
+          onClick={() => setTyping(item.text)}
+          className="min-w-0 flex-1 break-words rounded text-left text-[0.8rem] leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+        >
+          {item.text}
+        </button>
+      ) : (
+        <textarea
+          aria-label="Reword this line"
+          autoFocus
+          rows={2}
+          value={typing}
+          onChange={(e) => setTyping(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setTyping(null)
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              reword()
+            }
+          }}
+          onBlur={reword}
+          className="min-w-0 flex-1 resize-y rounded border bg-background px-1.5 py-1 text-[0.75rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        />
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="container"
+        className="shrink-0 px-1"
+        disabled={busy}
+        data-drop={item.id}
+        title={arming ? 'Press again to drop this line and its ticks' : 'Drop this line'}
+        onClick={() => {
+          if (!arming) {
+            setArming(true)
+            return
+          }
+          setArming(false)
+          onEdit({ op: 'drop', id: list, item: item.id })
+        }}
+        onBlur={() => setArming(false)}
+      >
+        <span aria-hidden="true">×</span>
+        <span className="sr-only">{arming ? 'Press again to drop' : 'Drop'}</span>
+      </Button>
+    </li>
   )
 }
 

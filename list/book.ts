@@ -11,6 +11,7 @@ import {
   type Shard,
   shardSchema,
 } from './shapes.ts'
+import { migrateStanding } from './standing.ts'
 
 /**
  * How a project's checklists lie on disk, and the one class that reads and
@@ -172,7 +173,7 @@ export class Book {
     const path = join(dir, NAMES.lists)
     if (!existsSync(path)) return new Book(dir, root)
     try {
-      return new Book(dir, root, listsFileSchema.parse(JSON.parse(readFileSync(path, 'utf8'))).checklists)
+      return new Book(dir, root, settleStanding(listsFileSchema.parse(JSON.parse(readFileSync(path, 'utf8'))).checklists))
     } catch (e) {
       throw new Unreadable(
         `${path} could not be read (${firstLine(e)}), so no checklist is being shown and nothing will be written `
@@ -338,6 +339,30 @@ export class Book {
     }
     this.gone.clear()
   }
+}
+
+/**
+ * Jalez/kehikko-checklist#31's standing holds, turned into the rules they are
+ * (`migrateStanding` in `list/standing.ts`): every issue is issue × any role,
+ * every change is merge request + pull request × any role. On every read until
+ * the next write saves the result, so it is idempotent; a rule already there
+ * is not added twice. Nothing in a list's folder changes: the ticks made
+ * through a standing hold were always under each ref's own key.
+ */
+function settleStanding(lists: Record<string, List>): Record<string, List> {
+  for (const list of Object.values(lists)) {
+    if (!list.standing) continue
+    const rules = [...(list.applies ?? [])]
+    for (const rule of migrateStanding(list.standing)) {
+      const same = rules.some(
+        (one) => one.types.join() === rule.types.join() && one.roles.join() === rule.roles.join() && (one.epic ?? '') === (rule.epic ?? ''),
+      )
+      if (!same) rules.push(rule)
+    }
+    delete list.standing
+    if (rules.length) list.applies = rules
+  }
+  return lists
 }
 
 function firstLine(e: unknown): string {
