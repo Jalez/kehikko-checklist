@@ -236,6 +236,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   protocol: PROTOCOL,
   id: ID,
   name: 'Checklist',
+  /* The icon a host draws beside the name: a key of the protocol's module icons, never a path
+     or URL; the same key Kehikot's official list gives it. */
+  icon: 'lucide:list-checks',
   version: VERSION,
   /*
    * The granularity in this sentence is the thing that changed, so the sentence
