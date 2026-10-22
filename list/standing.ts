@@ -33,16 +33,17 @@ import type { Target } from './targets.ts'
  *
  * `gh#41` is an issue or a pull request and its spelling does not say which.
  * The host's tracker reading does: a row's `kind`, and its `tracker` tells a
- * GitLab merge request from a GitHub pull request. A GitLab spelling says it
- * itself (`!7` is a merge request, `#12` an issue). Where neither has said, the
- * type is not known and the pane says so rather than guessing.
+ * GitLab merge request from a GitHub pull request. A GitLab spelling says
+ * part of it (`!7` is a merge request; `#12` is an issue or a task). Where
+ * nothing has said, the type is not known and the pane says so rather than
+ * guessing.
  *
- * **Tasks are not offered yet.** A GitLab task is a work item whose type the
- * host's tracker reading does not carry (protocol 2.10.0 has `kind: issue |
- * change` and nothing finer), so a task reads as an issue and a rule for tasks
- * could never be told apart from one for issues. `TASKS_KNOWN` says so: the
- * editor shows the type and says why it cannot be chosen, and the doors refuse
- * it, until the host reads a work item's type.
+ * **A task is a GitLab issue whose work item type is task.** The host's
+ * tracker reading says so on the row (`workItem: 'task'`, protocol 2.11.0), so
+ * a task row is a `task` and never an `issue`: a list for tasks is in front of
+ * it and a list for issues is not. Other work item types (incident, test case,
+ * …) are issues here. A host or a GitLab that does not say a row's work item
+ * type gives a task as a plain issue, as before.
  *
  * ## The role is the person's angle, not a fact about the item
  *
@@ -59,18 +60,19 @@ import type { Target } from './targets.ts'
  * tick holds the ref, and `test/standing.test.ts` is a table.
  */
 
-/** What a checklist can apply to. `task` is listed and not yet available: see `TASKS_KNOWN`. */
+/** What a checklist can apply to. `task` is a GitLab task: see `typeOfRow`. */
 export const ITEM_TYPES = ['issue', 'mr', 'pr', 'paper', 'task'] as const
 export type ItemType = (typeof ITEM_TYPES)[number]
 
 /**
  * Whether the host's tracker reading says which issues are GitLab tasks. It
- * does not (protocol 2.10.0): a row's `kind` is `issue` or `change`. Until it
- * does, `task` is refused by the doors and shown unavailable on the edit page.
+ * does since protocol 2.11.0: a row's `workItem` is `task` (`typeOfRow`).
+ * While this was false, `task` was refused by the doors and shown unavailable
+ * on the edit page, in `NO_TASKS`'s words.
  */
-export const TASKS_KNOWN = false
+export const TASKS_KNOWN = true
 
-/** Why `task` cannot be chosen, in one sentence for a person or an agent. */
+/** Why `task` cannot be chosen, in one sentence for a person or an agent, while `TASKS_KNOWN` is false. */
 export const NO_TASKS =
   'Tasks cannot be chosen yet: the host’s tracker reading does not say which GitLab issues are tasks, so a list '
   + 'for tasks could not be told from one for issues.'
@@ -217,7 +219,7 @@ export function migrateStanding(standing: readonly { of: string; epic?: string; 
 
 /** What the host's tracker reading said about the refs in front, as the page hands it to the server. */
 export interface RefsRead {
-  /** The type of each ref the reading had a row for: its kind, and for a change, its tracker. */
+  /** The type of each ref the reading had a row for: its kind and work item type, and for a change, its tracker. */
   types: Readonly<Record<string, ItemType>>
   /**
    * The person's roles on each ref, from the row's `myRoles`. A ref that is
@@ -235,9 +237,12 @@ export interface RefsRead {
 /** Nothing read: what the MCP door and an unhosted page have. */
 export const NOTHING_READ: RefsRead = { types: {}, roles: {}, epics: {} }
 
-/** A tracker row's type: an issue, or a change on GitLab (merge request) or GitHub (pull request). */
-export function typeOfRow(row: { kind: 'issue' | 'change'; tracker: string }): ItemType {
-  if (row.kind === 'issue') return 'issue'
+/**
+ * A tracker row's type: a GitLab task (an issue whose `workItem` is `task`), an
+ * issue, or a change on GitLab (merge request) or GitHub (pull request).
+ */
+export function typeOfRow(row: { kind: 'issue' | 'change'; tracker: string; workItem?: string }): ItemType {
+  if (row.kind === 'issue') return row.workItem === 'task' && TASKS_KNOWN ? 'task' : 'issue'
   return row.tracker === 'gitlab' ? 'mr' : 'pr'
 }
 
@@ -264,14 +269,18 @@ export function angleRoles(angle: Angle, mine: readonly Role[] | null | undefine
   return own.length ? own : ['any']
 }
 
-/** The types a ref may be: the tracker reading's, else what its spelling says, else every type a ref can be. */
+/**
+ * The types a ref may be: the tracker reading's, else what its spelling says
+ * (`#12` on GitLab is an issue or a task), else every type a ref can be.
+ */
 export function possibleTypes(ref: string, read: RefsRead): ItemType[] {
   const said = Object.hasOwn(read.types, ref) ? read.types[ref] : undefined
   if (said) return [said]
+  const issue: ItemType[] = TASKS_KNOWN ? ['issue', 'task'] : ['issue']
   const spelled = readTrackerRef(ref)
-  if (spelled?.tracker === 'gitlab') return [spelled.kind === 'change' ? 'mr' : 'issue']
+  if (spelled?.tracker === 'gitlab') return spelled.kind === 'change' ? ['mr'] : issue
   if (spelled?.tracker === 'github') return ['issue', 'pr']
-  return ['issue', 'mr', 'pr']
+  return [...issue, 'mr', 'pr']
 }
 
 /** A ref's type when it is known, else null. */

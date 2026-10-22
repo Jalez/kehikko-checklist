@@ -925,7 +925,7 @@ const ROLE_LABELS: Record<Role, string> = { any: 'Any role', assignee: 'Assignee
  * and where it reaches: the whole project, or one epic. Every press writes the
  * whole set (`applies`), and nothing is ticked or unticked by it: the ticks are
  * each item's. A rule left with no type goes; "any role" is every role at once,
- * so it stands alone. Task is shown and cannot be chosen, with the reason.
+ * so it stands alone. Task is a GitLab task, which is not an issue here.
  */
 function Applies({
   list,
