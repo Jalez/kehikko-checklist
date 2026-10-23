@@ -33,3 +33,8 @@ data
 # one person's working material and not the project's. Remove these lines to
 # share it with everyone who clones this repository.
 .kehikot/
+
+# Written by `build.ts` for the length of a build and taken away after. Left
+# behind by a killed build, it would be what Vite answers at `/`, with no
+# ticket in it.
+/index.html
