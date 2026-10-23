@@ -30,6 +30,7 @@ import { marksOf, useKehikot, type GotoHandler, type PressHandler } from '@/wire
 import { ANGLE_FILTER, angleOffer, headerFor, pressed } from '@/wire/header.ts'
 import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
+import { OpenAddressContext } from '@/view/out-link.tsx'
 import { AllView } from '@/view/all.tsx'
 import { EditView } from '@/view/edit.tsx'
 import { HereView } from '@/view/here.tsx'
@@ -221,6 +222,7 @@ export function App() {
     readSummary,
     choose,
     header,
+    openAddress,
   } = useKehikot(ID, onGoto, bump, onPress)
 
   /**
@@ -944,6 +946,7 @@ export function App() {
    * keep their own `px-2`, and the dividers run the full width like the host's.
    */
   return (
+    <OpenAddressContext.Provider value={openAddress}>
     <div
       ref={setShell}
       /* Not pinned under a cover: a cover fills a parent that has a height, and this page reports
@@ -1012,6 +1015,7 @@ export function App() {
         {screen}
       </div>
     </div>
+    </OpenAddressContext.Provider>
   )
 }
 

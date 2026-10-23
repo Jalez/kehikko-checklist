@@ -381,7 +381,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    */
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'filters:set', 'projects:pick', 'trackers:read'],
+    uses: ['events:emit', 'filters:set', 'projects:pick', 'trackers:read', 'address:open'],
     storage: true,
     prompt: false,
   },

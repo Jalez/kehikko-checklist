@@ -6,6 +6,7 @@ import { FACT_NAMES, factOf, short, staleness, type Fact } from '../../list/evid
 
 import { Badge } from '@/components/ui/badge.tsx'
 import { cn } from '@/lib/utils.ts'
+import { OutLink } from '@/view/out-link.tsx'
 
 /**
  * What the tracker says about a ref, drawn beside the list held against it.
@@ -110,15 +111,13 @@ export function RefFacts({ refName, facts }: { refName: string; facts: Facts | n
     <div className="px-2 pb-1.5 text-[0.65rem] leading-4 text-muted-foreground" data-facts={row.ref}>
       {/* The title is the link out, for the one thing this page does not
           draw: the conversation on the issue. */}
-      <a
+      <OutLink
         href={row.url}
-        target="_blank"
-        rel="noreferrer"
         title={`${row.ref}, as the tracker said it ${when(row.readAt)}`}
         className="break-words text-foreground underline-offset-2 hover:underline"
       >
         {row.title || row.ref}
-      </a>
+      </OutLink>
       <div className="mt-0.5 flex flex-wrap gap-1" data-facts-state>
         {words.map((word) => (
           <Badge key={word} variant="outline">
