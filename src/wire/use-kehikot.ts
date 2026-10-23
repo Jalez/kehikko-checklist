@@ -13,6 +13,7 @@ import {
 import { PERSON_ANSWERS_WITHIN_MS, type HostEvents } from 'kehikot-module-protocol/client'
 import { useHost, type Host } from 'kehikot-module-protocol/client/react'
 
+import { openerOf, type OpenAddress } from '../lib/links.ts'
 import { pump } from './emit.ts'
 import { flattenParts } from '../../list/focus.ts'
 
@@ -63,6 +64,8 @@ export interface Kehikko {
 }
 
 export interface Kehikot {
+  /** Hands a web address to the canvas (`address.open`, protocol 2.16.0); null when the host does not answer it. */
+  openAddress: OpenAddress | null
   where: Where
   /** The epic the canvas is on, or null. What makes a paper target offerable without typing a slug. */
   epic: string | null
@@ -308,6 +311,9 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   pressed.current = onPress
   const press = useCallback<PressHandler>((one) => pressed.current?.(one) ?? 'This page is not ready for that yet.', [])
   const host = useHost(id, { onGoto, onPress: press }, { reloadWhenStale: false })
+  const hostOpens = host.openAddress
+  const hostAnswers = host.answers
+  const openAddress = useMemo(() => openerOf({ answers: hostAnswers, openAddress: hostOpens }), [hostAnswers, hostOpens])
   const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header } = host
 
   /* The doorbell, read through a ref so the pump below is started once and always rings the newest one. */
@@ -449,6 +455,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       readSummary,
       choose,
       header,
+      openAddress,
     }),
     [
       where,
@@ -472,6 +479,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       readSummary,
       choose,
       header,
+      openAddress,
     ],
   )
 }
