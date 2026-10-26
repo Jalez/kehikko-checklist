@@ -166,15 +166,24 @@ export function RefFacts({ refName, facts }: { refName: string; facts: Facts | n
               {detail.filesClipped ? <li>and more than the tracker listed</li> : null}
             </ul>
           ) : null}
-          {row.links.length ? (
-            <p className="mt-1">
-              {row.links.map((link) => `${link.relation === 'closes' ? 'closes' : 'closed by'} ${link.ref}`).join(' · ')}
-            </p>
-          ) : null}
+          {tiesOf(row).length ? <p className="mt-1">{tiesOf(row).join(' · ')}</p> : null}
         </details>
       ) : null}
     </div>
   )
+}
+
+/**
+ * How a ref is tied to others, in a few words each: what closes what, and — protocol 2.26.0 — what
+ * is only part of what ("part of #3912" on the change, "has parts from !3907" on the issue), so a
+ * change ticked as delivering an issue can be told from one that delivers a piece of it.
+ */
+export function tiesOf(row: Pick<TrackerRow, 'links' | 'contributes' | 'contributedBy'>): string[] {
+  return [
+    ...row.links.map((link) => `${link.relation === 'closes' ? 'closes' : 'closed by'} ${link.ref}`),
+    ...(row.contributes ?? []).map((ref) => `part of ${ref}`),
+    ...(row.contributedBy?.length ? [`has parts from ${row.contributedBy.join(', ')}`] : []),
+  ]
 }
 
 /**
