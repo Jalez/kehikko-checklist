@@ -1,6 +1,6 @@
 {
   "name": "kehikko-checklist",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "description": "Checklists somebody wrote, held against one issue, merge request, pull request or paper at a time. Nothing here ships a list. An app: its own store, its own page, its own port. A host may frame it, and then it learns which kehikko it is standing on.",
@@ -18,7 +18,7 @@
     "lucide-react": "^1.33.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.17.0",
+    "kehikot-module-protocol": "git+ssh://git@github.com/Jalez/kehikko-protocol.git#v2.26.0",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.23.8"
   },

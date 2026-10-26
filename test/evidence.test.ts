@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { trackerReadingResult, trackerRowSchema, type TrackerRow } from 'kehikot-module-protocol'
 
 import { evidenceOf, evidenceSchema, factOf, staleness } from '../list/evidence.ts'
-import { factsOf } from '../src/view/facts.tsx'
+import { factsOf, tiesOf } from '../src/view/facts.tsx'
 
 /**
  * The tracker's facts as an item's evidence, against stand-in rows.
@@ -150,5 +150,19 @@ describe('the reading, keyed for the page', () => {
 
   test('no reading is no facts, which draws nothing', () => {
     expect(factsOf(null, [], false)).toBeNull()
+  })
+})
+
+/**
+ * Jalez/kehikko#187: a change that says "Part of #3912" is one piece of the issue (protocol 2.26.0),
+ * and the facts say so rather than "closes".
+ */
+describe('how a ref is tied to others', () => {
+  test('a closer closes; a part is a part', () => {
+    expect(tiesOf({ links: [{ ref: '#2638', relation: 'closes' }] })).toEqual(['closes #2638'])
+    expect(tiesOf({ links: [{ ref: '!3251', relation: 'closed-by' }] })).toEqual(['closed by !3251'])
+    expect(tiesOf({ links: [], contributes: ['#3912'] })).toEqual(['part of #3912'])
+    expect(tiesOf({ links: [], contributedBy: ['!3907', '!3908'] })).toEqual(['has parts from !3907, !3908'])
+    expect(tiesOf({ links: [] })).toEqual([])
   })
 })
