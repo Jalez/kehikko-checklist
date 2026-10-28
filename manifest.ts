@@ -170,12 +170,12 @@ export const FORMAT = 'kehikot.notifications@1'
  *
  * ## The mode, and what it is now told
  *
- * One epic-scoped mode, which becomes an ordinary tab in the mode row beside
- * every other module's. `scope: 'epic'` matters because an epic-scoped mode is
- * told which epic is open by `kehikot.context`, on load and on every switch —
- * which is what makes "the paper this epic is aimed at", its files and its
- * headings, things a checklist can be held against without anybody typing a
- * slug.
+ * One mode, at `part` (protocol 2.29.0): a checklist's ticks belong to one
+ * issue, change or paper section — the work a part of the epic is made of —
+ * and the list follows the parts picked in the host's bar. The context it is
+ * told on load and on every switch names the open epic, which is what makes
+ * "the paper this epic is aimed at", its files and its headings, things a
+ * checklist can be held against without anybody typing a slug.
  *
  * ## No control in the container header, and an empty offer that says so
  *
@@ -278,7 +278,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'what you found in words. `add_item_for` adds a line just for one item; `hold_checklist` with types and roles '
     + 'makes a list apply. If none fits, `create_checklist` — but look first.',
   entry: '/app',
-  modes: [{ id: 'checklist', label: 'Checklist', scope: 'epic' }],
+  /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
+  modes: [
+    { id: 'checklist', label: 'Checklist', scope: 'part', scopeSays: 'the checklists held against each issue, change and paper section of the picked parts' },
+  ],
   mcp: {
     url: '/mcp',
     transport: 'http',
