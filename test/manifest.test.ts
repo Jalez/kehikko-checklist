@@ -24,9 +24,10 @@ describe('the manifest', () => {
     expect(speaks(MANIFEST.declares.protocol, 1)).toBe(false)
   })
 
-  test('scopes its mode to an epic, which is the rename that raised the number', () => {
+  test('works at part (protocol 2.29.0): ticks belong to each issue, change and paper section', () => {
     expect(MANIFEST.modes).toHaveLength(1)
-    expect(MANIFEST.modes[0]?.scope).toBe('epic')
+    expect(MANIFEST.modes[0]?.scope).toBe('part')
+    expect(MANIFEST.modes[0]?.scopeSays).toContain('issue')
   })
 
   test('declares exactly the two it calls, and every name is one the protocol knows', () => {
