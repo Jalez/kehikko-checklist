@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import type { Edit, Held, Here, ItemInFront } from '@/store/ask.ts'
+import type { Edit, Held, Here, ItemInFront, RunItem } from '@/store/ask.ts'
+import { FROM_A_RUN, NO_HAND_TICK, RUN_STATE_WORDS, runItemText } from '../../list/run-words.ts'
 import { labelOf, placeAmong, under } from '../../list/scope.ts'
 import { targetKey, targetName, targetNoun, type Target } from '../../list/targets.ts'
 import { evidenceOf } from '../../list/evidence.ts'
@@ -100,6 +101,8 @@ export function HereView({
   onAngle,
   onNewFor,
   onAddFor,
+  runs = {},
+  onHideRun,
 }: {
   /** What the server said is in front of the reader, or null before it has said anything. */
   here: Here | null
@@ -136,6 +139,10 @@ export function HereView({
   onNewFor?: (type: ItemType, role: Role) => void
   /** Add a line for one item alone. */
   onAddFor?: (target: Target, text: string) => void
+  /** The automatic "Tests pass" items per ref, from the run results modules published. See `list/runs.ts`. */
+  runs?: Record<string, RunItem[]>
+  /** Hide an automatic item, or show it again. */
+  onHideRun?: (ref: string, label: string, hide: boolean) => void
 }) {
   /* Which instances a person folded or unfolded, keyed by list and target, so
      the same list against two targets folds separately. Only what was pressed
@@ -290,6 +297,8 @@ export function HereView({
               onAddFor={onAddFor}
               busy={busy}
               snap={room.snap}
+              runs={section.item?.target.kind === 'ref' ? (runs[section.item.target.ref] ?? []) : []}
+              onHideRun={onHideRun}
             >
               {section.instances.map((held) => {
                 const target = held.target as Target
@@ -438,10 +447,14 @@ function ItemSection({
   onAddFor,
   busy,
   snap,
+  runs = [],
+  onHideRun,
   children,
 }: {
   section: Section
   snap: boolean
+  runs?: RunItem[]
+  onHideRun?: (ref: string, label: string, hide: boolean) => void
   undecided: UndecidedRef[]
   onAngle?: (angle: Angle) => void
   onNewFor?: (type: ItemType, role: Role) => void
@@ -488,6 +501,11 @@ function ItemSection({
           </span>
         ) : null}
       </p>
+
+      {/* What the runs say, above the lists somebody wrote: nobody typed these. */}
+      {item.target.kind === 'ref' && runs.length ? (
+        <RunItems refName={item.target.ref} runs={runs} onHide={onHideRun} busy={busy} snap={snap} />
+      ) : null}
 
       {children}
 
@@ -572,6 +590,121 @@ function ItemSection({
         </div>
       ) : null}
     </section>
+  )
+}
+
+/** The shape of a run's state, so it is never told by colour alone. */
+const RUN_MARKS: Record<RunItem['state'], string> = { queued: '·', running: '…', passed: '✓', failed: '✗', cancelled: '⊘' }
+const RUN_MARK_STYLE: Record<RunItem['state'], string> = {
+  queued: 'border-todo/50 text-todo',
+  running: 'border-todo/50 text-todo',
+  passed: 'border-done/40 text-done',
+  failed: 'border-failed/50 text-failed',
+  cancelled: 'border-unknown/50 text-muted-foreground',
+}
+
+/**
+ * The automatic items for one ref: "Tests pass: <label>", one per label, each in the state of the
+ * newest run of it (`list/runs.ts`). Marked as coming from a test run on every row, and with no
+ * box to press: a run's item is ticked by the run, and the way to change it is to run it again.
+ * What a person can do is hide one — kept by ref and label, so it stays hidden through newer
+ * runs — and show the hidden ones again from the line under them.
+ */
+export function RunItems({
+  refName,
+  runs,
+  onHide,
+  busy,
+  snap = false,
+}: {
+  refName: string
+  runs: readonly RunItem[]
+  onHide?: (ref: string, label: string, hide: boolean) => void
+  busy: boolean
+  snap?: boolean
+}) {
+  const [showHidden, setShowHidden] = useState(false)
+  const hidden = runs.filter((one) => one.hidden).length
+  const drawn = showHidden ? runs : runs.filter((one) => !one.hidden)
+  return (
+    <div className="pt-1" data-runs={refName}>
+      {drawn.length ? (
+        <ul className="border-t">
+          {drawn.map((one) => (
+            <li
+              key={one.label}
+              data-run={one.label}
+              data-state={one.state}
+              data-done={one.passed ? 'yes' : 'no'}
+              data-automatic
+              data-hidden={one.hidden ? 'yes' : undefined}
+              className={cn('border-t px-2 py-1.5 first:border-t-0', snap && 'snap-start', one.hidden && 'opacity-70')}
+            >
+              {/* Not a button and not a checkbox: nothing here ticks it. `title` says why. */}
+              <div className="flex w-full min-w-0 items-start gap-1.5" title={NO_HAND_TICK}>
+                <span
+                  aria-hidden="true"
+                  data-mark
+                  className={cn(
+                    'mt-px inline-flex size-4 shrink-0 items-center justify-center rounded border border-dashed text-[0.7rem] leading-none font-bold',
+                    RUN_MARK_STYLE[one.state],
+                  )}
+                >
+                  {RUN_MARKS[one.state]}
+                </span>
+                <span
+                  className={cn(
+                    'min-w-0 flex-1 break-words text-left text-[0.8rem] leading-5',
+                    one.passed && 'text-muted-foreground line-through decoration-1',
+                  )}
+                >
+                  {runItemText(one.label)}
+                </span>
+                <span className="sr-only">{`${RUN_STATE_WORDS[one.state].toLowerCase()}, ${FROM_A_RUN}, not ticked by hand`}</span>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-1 pl-[1.375rem] text-[0.65rem] leading-4 text-muted-foreground">
+                <span className="font-semibold" data-state-word>
+                  {RUN_STATE_WORDS[one.state]}
+                </span>
+                <span data-from-run>
+                  <span aria-hidden="true">⚙ </span>
+                  {FROM_A_RUN}
+                </span>
+                {onHide ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    data-hide-run={one.label}
+                    title={
+                      one.hidden
+                        ? 'Show this item again on this item’s checklists.'
+                        : 'Hide this item here. Newer runs of it stay hidden; “Show hidden” brings it back.'
+                    }
+                    onClick={() => onHide(refName, one.label, !one.hidden)}
+                    className="rounded border border-border px-1 text-[0.65rem] leading-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                  >
+                    {one.hidden ? 'Show' : 'Hide'}
+                  </button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {hidden ? (
+        <div className="px-2 py-1">
+          <button
+            type="button"
+            data-show-hidden
+            aria-expanded={showHidden}
+            onClick={() => setShowHidden(!showHidden)}
+            className="rounded text-[0.65rem] leading-4 text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {showHidden ? `Leave ${hidden} hidden` : `Show ${hidden} hidden`}
+          </button>
+        </div>
+      ) : null}
+    </div>
   )
 }
 

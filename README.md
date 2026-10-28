@@ -442,6 +442,26 @@ checked against, and finds out what it says itself — this app's server still
 reads no tracker and holds no token. A host that does not grant `trackers:read`
 gets the page as it was before, with nothing drawn from a tracker.
 
+## Tests pass, from what ran
+
+Any module that runs things — a test suite, a typecheck, a build — publishes what each run said
+about a piece of work as `.kehikot/<its folder>/runs.json` (protocol 2.27.0, the protocol's
+`docs/runs.md`). The server reads every one of them with the protocol's `readRuns`, which asks every
+folder under `.kehikot/` and names none, and keeps the newest run of each label on a ref
+(`latestRuns`). This module names no publisher and does not know who they are; `list/runs.ts` is the
+whole of it, `GET /api/runs?project=…&refs=…` is the page's read.
+
+Under a picked ref's angle line, above its lists, each label is one item, "Tests pass: <label>",
+with the run's state in words — Queued, Running, Passed, Failed, Cancelled — and a shape, and
+"from a test run" on every row. It is ticked while the newest run of that label passed and unticked
+when a newer one is queued, running, failed or cancelled. It has no box: a run's item is the run's,
+and the way to change it is to run it again. A person can **Hide** one; the hide is kept by (ref,
+label) in `runs-hidden.json` (`POST /api/runs`, behind the page's ticket) and stays through newer
+runs, and "Show N hidden" draws them again with **Show**. The page reads them again when
+`context.content` moves (`reacts: ['content']`), which the host's watch of `.kehikot/` does when a
+`runs.json` changes. The `checklists` and `checklist_for` tools list them for a ref, marked
+automatic; `check_item` cannot tick them.
+
 ## Passed, failed, not applicable, unchecked
 
 For one target, an item is in one of four states. **Passed** is a tick; **failed**
@@ -601,6 +621,7 @@ read pay only for what is in front:
                                how many targets it is held against
   targets/<list>/<00..ff>.json one list's holds and ticks, in 256 buckets
   purged/<when>.json           what a purge took out, kept 30 days
+  runs-hidden.json             the "Tests pass" items a person hid, by ref and label
   papers.json                  the old paper store, read once, never written
 ```
 
