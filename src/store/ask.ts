@@ -9,6 +9,7 @@ import type { TickState } from '../../list/shapes.ts'
 import type { Shown } from '../../list/aim.ts'
 import type { Angle, RefsRead, UndecidedRef } from '../../list/standing.ts'
 import type { Finished, Plan, Report, Scope } from '../../list/storage.ts'
+import type { RunItem } from '../../list/runs.ts'
 
 /**
  * Talking to this app's own server, which is the same origin this page came
@@ -442,4 +443,28 @@ export async function storage(
     said: typeof body.said === 'string' ? body.said : null,
     plan: (body.plan as Plan | undefined) ?? null,
   }
+}
+
+export type { RunItem }
+
+/**
+ * The automatic "Tests pass" items for the refs in front, read by this app's server off every
+ * module's published run results (`list/runs.ts`). An empty map for no refs, no project, or a
+ * read that came back unusable: these items are an addition to the page, never a reason to cover it.
+ */
+export async function runsInFront(projectPath: string | null, refs: readonly string[]): Promise<Record<string, RunItem[]>> {
+  if (!projectPath || !refs.length) return {}
+  const body = replied(await ask<{ runs?: unknown }>('/api/runs', { query: { project: projectPath, refs: refs.join(' ') } }))
+  return body.runs && typeof body.runs === 'object' && !Array.isArray(body.runs) ? (body.runs as Record<string, RunItem[]>) : {}
+}
+
+/** Hide one automatic item (ref, label), or show it again. Carries this page's ticket, as every write does. */
+export async function hideRun(projectPath: string | null, ref: string, label: string, hide: boolean): Promise<{ ok: true; said: string } | { ok: false; error: string }> {
+  const asked = await ask<{ ok?: unknown; said?: unknown; error?: unknown }>('/api/runs', {
+    body: { op: hide ? 'hide' : 'show', ref, label, project: projectPath },
+  })
+  if (!asked.ok) return { ok: false, error: asked.kind === 'stale' ? PAGE_STALE : asked.error }
+  const body = asked.body ?? {}
+  if (body.ok === false) return { ok: false, error: typeof body.error === 'string' ? body.error : 'that could not be done.' }
+  return { ok: true, said: typeof body.said === 'string' ? body.said : '' }
 }

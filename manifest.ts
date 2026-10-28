@@ -370,7 +370,13 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * (`useFocus().narrow`); `list/focus.ts` is each list's anchor. The
    * picking is the host's own control, so nothing is declared in `uses` for it.
    */
-  reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions', 'parts'],
+  /*
+   * `content`, which arrived with the "Tests pass" items (protocol 2.27.0). Any module that runs
+   * things publishes `runs.json` in its own folder, and the host's watch of `.kehikot/` moves
+   * `context.content` when one changes. The page reads the run results again then — every
+   * source, because it must not know whose they are — and the items beside a ref's lists change.
+   */
+  reacts: ['selection', 'passage', 'containers', 'tracker', 'dispositions', 'parts', 'content'],
   /*
    * `filters:set`, for one press (Jalez/kehikko-checklist#32). While containers
    * are picked out a ref somebody clicks is set aside, and the pane says so

@@ -46,6 +46,8 @@ import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/sco
 import { MAX_TARGET_PART, part, readTarget, ruleRefusal, targetKey, targetName, type Target } from './list/targets.ts'
 import { filesNamed, placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
+import { MAX_RUN_REFS, runsFor, setHidden, type RunItem } from './list/runs.ts'
+import { FROM_A_RUN, RUN_STATE_WORDS, runItemText } from './list/run-words.ts'
 
 /**
  * Every door this app answers on that is not the page itself.
@@ -1087,6 +1089,10 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
   } else {
     parts.push(`  ${nothingLine(name, item.as)}`)
   }
+  if (ref) {
+    const runs = runsFor(where, [ref]).runs[ref] ?? []
+    if (runs.length) parts.push('', ...runsBlock(runs))
+  }
   const unsure = undecidedLine(undecided)
   if (unsure) parts.push('', `${unsure} Pass type to say what it is.`)
   if (item.elsewhere.length) {
@@ -1102,6 +1108,24 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
     + 'this item; hold_checklist with types and roles makes a list apply to every item of a type.',
   )
   return parts.join('\n')
+}
+
+/**
+ * The automatic items for one ref, as an agent reads them: what each run said, marked automatic,
+ * in the marks a listing uses ([x] passed, [!] failed, [ ] anything else) with the state in words.
+ * They cannot be ticked with check_item: the run ticks them.
+ */
+function runsBlock(runs: readonly RunItem[]): string[] {
+  const mark = (one: RunItem) => (one.state === 'passed' ? 'x' : one.state === 'failed' ? '!' : ' ')
+  return [
+    `  Automatic, ${FROM_A_RUN} (ticked by the run, not by hand; check_item cannot tick them):`,
+    ...runs.map(
+      (one) =>
+        `    [${mark(one)}] ${runItemText(one.label)} — ${RUN_STATE_WORDS[one.state].toLowerCase()}`
+        + `${one.exit !== null ? `, exit ${one.exit}` : ''} (automatic, published in .kehikot/${one.from}/)`
+        + `${one.hidden ? ' — hidden on the page by a person' : ''}`,
+    ),
+  ]
 }
 
 /** One checklist, with the ticks for a target where one was named. */
@@ -1875,6 +1899,20 @@ export function answerAt(
    * `/api/checklists` already does. Which targets are finished needs the
    * tracker reading the PAGE has, so the page asks by POST with it (below).
    */
+  /*
+   * The automatic "Tests pass" items for the refs in front: every module's published run results
+   * (`list/runs.ts`), the newest run of each label per ref, each saying whether a person hid it.
+   * Ungated like every other read; it says what is already in the project's own `.kehikot/`.
+   */
+  if (path === '/api/runs' && method === 'GET') {
+    const refs = str(query.get('refs'), MAX_PROJECT)
+      .split(' ')
+      .map(part)
+      .filter((one): one is string => one !== null)
+      .slice(0, MAX_RUN_REFS)
+    return ok({ ok: true, ...runsFor(project(query.get('project')), refs) })
+  }
+
   if (path === '/api/storage' && method === 'GET') {
     return ok({ ok: true, ...usage(project(query.get('project'))) })
   }
@@ -1924,6 +1962,23 @@ export function answerAt(
         return ok(out.ok ? { ok: true, said: out.value, ...usage(where, finished) } : out)
       }
       return bad(`there is no "${op}" in Storage — it is usage, preview, purge, restore or discard. Scopes: ${SCOPES.join(', ')}.`)
+    }
+
+    /*
+     * Hide an automatic item, or show it again — the one thing a person does to one. There is no
+     * tick here and no op for one: a run's item is ticked by the run (`list/runs.ts`).
+     */
+    if (path === '/api/runs') {
+      const where = project(body.project)
+      if (!where) return bad(NO_PROJECT)
+      const op = str(body.op, 16)
+      const ref = part(body.ref)
+      const label = str(body.label, 200)
+      if (!ref || !label) return bad('that did not say which item: a ref and the run’s label.')
+      if (op !== 'hide' && op !== 'show') {
+        return bad(`there is no "${op}" for a test run’s item — it is hide or show. It is ticked by the run, never by hand.`)
+      }
+      return ok(setHidden(where, ref, label, op === 'hide'))
     }
 
     if (path === '/api/checklist') {

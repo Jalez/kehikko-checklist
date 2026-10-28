@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import {
   LIMITS,
+  contentStamp,
   dispositionSchema,
   projectPickResult,
   trackerReadingResult,
@@ -237,6 +238,14 @@ export interface Kehikot {
    */
   parts: string
   /**
+   * `context.content` as one string that moves when, and only when, some material in the project
+   * changed — every source, because this page must not know whose runs it shows: a module that
+   * publishes run results is just a folder under `.kehikot/`, and the host's watch of that folder
+   * says so here. This is the whole of `reacts: ['content']`: the "Tests pass" items are read
+   * again when it moves. `''` with no host, or nothing changed yet.
+   */
+  content: string
+  /**
    * Ask the host what the trackers last said about these refs, with the
    * detail a checklist is checked against — description, files, head commit,
    * approvals. Null for every no: no host, a host too old to know the method,
@@ -361,6 +370,10 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
      nothing picked in the same message, and a page that kept the last epic's focus would go on
      hiding lists for it. */
   const parts = useMemo(() => flattenParts(context?.parts), [context])
+  const content = useMemo(() => {
+    const said = Array.isArray(context?.content) ? context.content : []
+    return contentStamp(said, { sources: [...new Set(said.map((one) => one.source))] })
+  }, [context])
 
   const pickProject = useCallback(async (): Promise<{ path: string; name: string } | null> => {
     try {
@@ -450,6 +463,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       trackerReading,
       marks,
       parts,
+      content,
       readTracker,
       readProject,
       readSummary,
@@ -474,6 +488,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       trackerReading,
       marks,
       parts,
+      content,
       readTracker,
       readProject,
       readSummary,

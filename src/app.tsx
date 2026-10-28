@@ -17,6 +17,9 @@ import {
   shown,
   unanswered,
   whatIsHere,
+  runsInFront,
+  hideRun,
+  type RunItem,
   type Edit,
   type Here,
   type ItemInFront,
@@ -217,6 +220,7 @@ export function App() {
     trackerReading,
     marks,
     parts,
+    content,
     readTracker,
     readProject,
     readSummary,
@@ -624,6 +628,38 @@ export function App() {
   const onAddFor = useCallback((target: Target, text: string) => void onEditRef.current({ op: 'add-for', target, text }), [])
 
   /**
+   * The automatic "Tests pass" items for the refs in front: what every module that runs things
+   * published (`list/runs.ts`, read by this app's server). Read again when the refs change, when
+   * the store changed, and when `context.content` moves — the host's watch of `.kehikot/` says so
+   * when any `runs.json` changes, and this page does not know, or ask, whose it was.
+   */
+  const runRefs = front.refs.join(' ')
+  const [runs, setRuns] = useState<Record<string, RunItem[]>>({})
+  useEffect(() => {
+    let alive = true
+    void runsInFront(projectPath, runRefs ? runRefs.split(' ') : [])
+      .then((got) => {
+        if (alive) setRuns(got)
+      })
+      .catch(() => {
+        /* Kept as it was: these items are an addition, and the cover says when the server is away. */
+      })
+    return () => {
+      alive = false
+    }
+  }, [projectPath, runRefs, content, stamp])
+  /* Hide one, or show it again: the one thing a person does to an automatic item. */
+  const onHideRun = useCallback(
+    (ref: string, label: string, hide: boolean) => {
+      void hideRun(projectPath, ref, label, hide).then((answer) => {
+        setTrouble(answer.ok ? null : answer.error)
+        bump()
+      })
+    },
+    [projectPath, bump],
+  )
+
+  /**
    * The list being edited, on its own.
    *
    * A checklist that is not there any more is not an error to be printed and
@@ -935,6 +971,8 @@ export function App() {
       onAngle={onAngle}
       onNewFor={onNewFor}
       onAddFor={onAddFor}
+      runs={runs}
+      onHideRun={onHideRun}
     />
   )
 
