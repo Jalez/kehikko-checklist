@@ -170,7 +170,7 @@ export function App() {
   /**
    * Bumped whenever the store may have changed under this page: an edit made
    * here, or an agent coming through the MCP door, which the pump in `emit.ts`
-   * is already polling for in order to announce it. Every fetch below depends
+   * already hears of over its stream in order to announce it. Every fetch below depends
    * on it, so somebody watching this container while an agent ticks items off
    * sees the ticks land.
    */

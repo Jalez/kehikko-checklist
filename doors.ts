@@ -40,7 +40,7 @@ import {
 } from './list/standing.ts'
 import { stateOf, TICK_STATES, type TickState } from './list/shapes.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
-import { announce, since } from './list/outbox.ts'
+import { announce, announcementsStream, since } from './list/outbox.ts'
 import { discard, preview, purge, restore, SCOPES, usage, usageText, type Finished, type Rule } from './list/storage.ts'
 import { fileOfSection, ladderKey, rungsOf, scopeOf, targetOf } from './list/scope.ts'
 import { MAX_TARGET_PART, part, readTarget, ruleRefusal, targetKey, targetName, type Target } from './list/targets.ts'
@@ -1917,6 +1917,7 @@ export function answerAt(
     return ok({ ok: true, ...usage(project(query.get('project'))) })
   }
 
+  /* The same backlog the page's stream opens with (`announcementsStream`); kept for any other reader. */
   if (path === '/api/announcements' && method === 'GET') {
     const cursor = Number(query.get('since') ?? '0')
     return ok({ ok: true, ...since(Number.isFinite(cursor) && cursor >= 0 ? cursor : 0) })
@@ -2144,3 +2145,9 @@ export function answerAt(
 }
 
 export { MANIFEST }
+
+/**
+ * The doors' stream option: the page's announcements, told as the MCP door
+ * writes them down (`list/outbox.ts`), so the page never asks on a clock.
+ */
+export const stream = announcementsStream

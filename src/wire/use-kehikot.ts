@@ -335,8 +335,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   standingOn.current = epic
 
   /*
-   * The pump: this app's own outbox, emitted to the host as events. Started once for the life of
-   * the page and stopped with it. `request` is the hook's and is stable; with nothing greeting
+   * The pump: this app's own outbox, told over one held stream and emitted to the host as events.
+   * Started once for the life of the page and stopped with it. `request` is the hook's and is stable; with nothing greeting
    * the page it refuses, which the pump reports and does not retry.
    */
   useEffect(
@@ -344,7 +344,6 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       pump(
         (method, params) => request(method, params),
         () => standingOn.current,
-        undefined,
         () => door.current?.(),
       ),
     [request],

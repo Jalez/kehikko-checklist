@@ -275,7 +275,7 @@ describe('the not-ready moments, each as the one shared cover', () => {
     render(<App />)
     await openAll()
     down = true
-    /* The next thing that asks. On a real page that is the announcements poll, every two seconds. */
+    /* The next thing that asks. On a real page that is any read, or the stream's health probe when it drops. */
     await act(async () => void (await (await import('kehikot-module-protocol/client')).ask('/api/checklists')))
     expect(cover()).toBe('down')
     expect(document.body.textContent).toContain('Checklist’s own server is not answering.')

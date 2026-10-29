@@ -1,3 +1,5 @@
+import { events, publish } from 'kehikot-module-protocol/serve'
+
 /**
  * What this app has done over MCP that its own page has not yet told anybody
  * about.
@@ -12,9 +14,10 @@
  * that can say so does not know.
  *
  * This is the join between them, and it is the smallest one that works: the
- * door writes down what it did, the page asks what has happened since it last
- * looked, and the page emits. Nothing here talks to a host and nothing here
- * knows what an event is.
+ * door writes down what it did, the page is told over one held stream
+ * (`/api/announcements/events`, protocol 2.32.0 `events`) with everything since
+ * the last it saw, and the page emits. Nothing here talks to a host and nothing
+ * here knows what an event is.
  *
  * ## In memory, and deliberately not on disk
  *
@@ -32,7 +35,7 @@
  *
  * ## Bounded, and the oldest go
  *
- * An agent can call this door faster than a page polls it, and a queue that
+ * An agent can call this door faster than a page is told, and a queue that
  * grew without limit would be a memory leak in a program somebody leaves
  * running for a week. `KEEP` is a couple of screens' worth: past that the
  * oldest are dropped, because what a notification panel is for is what just
@@ -85,12 +88,53 @@ let dropped = 0
  * retries.
  */
 export function announce(announcement: Omit<Announcement, 'seq'>): void {
-  queue.push({ seq: next++, ...announcement })
+  const one = { seq: next++, ...announcement }
+  queue.push(one)
   while (queue.length > KEEP) {
     queue.shift()
     dropped += 1
   }
+  /*
+   * Told to every page following the stream, as a batch of one in the same
+   * shape `since` answers with, so the page has one way to take it in. On a
+   * microtask: the door announces BEFORE it does the work (see `mcp` in
+   * `doors.ts`), and the page reads its store again on hearing this, so the
+   * work the same call is about to do synchronously has to be done first.
+   */
+  queueMicrotask(() => {
+    try {
+      publish(ANNOUNCEMENTS_TOPIC, { announcements: [one], cursor: one.seq, dropped })
+    } catch {
+      /* Cannot fail, and must not: see above. */
+    }
+  })
 }
+
+/** The one topic: the outbox is the process's, not a project's. */
+export const ANNOUNCEMENTS_TOPIC = 'announcements'
+
+export const EVENTS_PATH = '/api/announcements/events'
+
+/**
+ * The page's stream: `/api/announcements/events?since=N`. What it opens with is
+ * `since(N)` — the backlog after the cursor the page last saw, so nothing that
+ * happened while the line was down is lost — and then each announcement as the
+ * door writes it down. With no `since`, it opens with nothing but the cursor:
+ * a page that has just loaded seeks to the end (see `since` below, and
+ * `primed` in `src/wire/emit.ts`).
+ */
+export const announcementsStream = events((path, query) => {
+  if (path !== EVENTS_PATH) return null
+  const given = query.get('since')
+  const cursor = given === null ? null : Number(given)
+  return {
+    topic: ANNOUNCEMENTS_TOPIC,
+    initial: () => {
+      const all = since(cursor !== null && Number.isFinite(cursor) && cursor >= 0 ? cursor : 0)
+      return cursor === null ? { ...all, announcements: [] } : all
+    },
+  }
+})
 
 /**
  * Everything after `since`, and where the page should ask from next.
