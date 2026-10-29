@@ -24,7 +24,7 @@ const { useKehikot } = (await import('../src/wire/use-kehikot.ts?real')) as type
 
 const realFetch = globalThis.fetch
 beforeEach(() => {
-  /* The pump polls this app's own server for announcements; there is none. */
+  /* The pump reads where this app's outbox is once (the seek); there is nothing in it. */
   globalThis.fetch = (async () => Response.json({ announcements: [], cursor: 0 })) as unknown as typeof fetch
 })
 afterEach(() => {
