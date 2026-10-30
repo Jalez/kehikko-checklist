@@ -277,6 +277,10 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'your own name: state passed (default), failed or na, plus a note. An answer a person set is theirs: say '
     + 'what you found in words. `add_item_for` adds a line just for one item; `hold_checklist` with types and roles '
     + 'makes a list apply. If none fits, `create_checklist` — but look first.',
+  /* What every agent session is told about it (protocol 2.36.0): beside its name where it is on the
+     kehikko, and — for a session on a kehikko it is NOT on, while it is installed here — the second. */
+  agentSays: 'Before calling work done, read the checklists for the item (checklists) and answer each line with check_item.',
+  absentSays: "Checklist isn't on this kehikko: don't claim work is done against a checklist. If the person wants one, suggest adding Checklist here.",
   entry: '/app',
   /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
   modes: [

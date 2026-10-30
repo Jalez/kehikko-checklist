@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { CAPABILITY_NAMES, EXTENSION_NAMES, METHOD_NAMES, PROTOCOL, manifestSchema, speaks } from 'kehikot-module-protocol'
+import { CAPABILITY_NAMES, EXTENSION_NAMES, METHOD_NAMES, PROTOCOL, absentSaysOf, agentSaysOf, manifestSchema, speaks } from 'kehikot-module-protocol'
 
 import { FORMAT, ID, MANIFEST } from '../manifest.ts'
 
@@ -145,5 +145,14 @@ describe('the manifest', () => {
 
   test('keeps its id, so ticks already filed under it are still this module’s', () => {
     expect(ID).toBe('kehikot.checklist')
+  })
+})
+
+describe('what agent sessions are told (protocol 2.36.0)', () => {
+  test('where it is, to answer the lines before calling work done; where it is not, not to claim a checklist', () => {
+    const parsed = manifestSchema.parse(MANIFEST)
+    expect(agentSaysOf(parsed)).toContain('check_item')
+    expect(absentSaysOf(parsed)).toContain("don't claim work is done against a checklist")
+    for (const line of [parsed.agentSays, parsed.absentSays]) expect(line!.length).toBeLessThanOrEqual(200)
   })
 })
