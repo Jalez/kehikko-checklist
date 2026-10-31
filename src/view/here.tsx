@@ -92,6 +92,7 @@ export function HereView({
   onOpen,
   onAll,
   trouble,
+  footed = false,
   busy,
   room,
   facts = null,
@@ -120,6 +121,8 @@ export function HereView({
   /** Go to the screen that manages every checklist in the project. */
   onAll: () => void
   trouble: string | null
+  /** The host draws the bottom bar (its footer): this page draws none of its own. */
+  footed?: boolean
   busy: boolean
   room: Room
   /** What the host's tracker reading says about the refs in front, or null when there is none. See `facts.tsx`. */
@@ -333,10 +336,11 @@ export function HereView({
         </p>
       ) : null}
 
-      {trouble ? (
+      {trouble && !footed ? (
         <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-failed">{trouble}</p>
       ) : null}
 
+      {footed ? null : (
       <div className="flex shrink-0 items-center gap-1.5 border-t bg-muted/40 px-2 py-1.5">
         {/* Lists put aside for another module's work get no line of their own: a row about what is
             not drawn costs the room the drawn lists need. What says it is the hint on the control
@@ -353,6 +357,7 @@ export function HereView({
           Manage checklists
         </Button>
       </div>
+      )}
     </section>
   )
 }

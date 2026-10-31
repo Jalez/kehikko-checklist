@@ -13,8 +13,11 @@ import type { Kehikot } from '../src/wire/use-kehikot.ts'
  * after the read for the one now open.
  */
 let wire: Partial<Kehikot> = {}
+/** The press handler the page gave the wire, as the host would call it. */
+let press: ((one: { item: string; value?: string | boolean; place?: 'header' | 'footer' }) => unknown) | null = null
 mock.module('../src/wire/use-kehikot.ts', () => ({
-  useKehikot: () => ({
+  useKehikot: (_id: string, _goto: unknown, _door: unknown, onPress: typeof press) => ({
+    ...((press = onPress), {}),
     where: 'hosted',
     epic: null,
     projectPath: null,
@@ -36,6 +39,8 @@ mock.module('../src/wire/use-kehikot.ts', () => ({
     readSummary: async () => null,
     choose: async () => false,
     header: () => {},
+    footer: () => {},
+    drawsFooter: null,
     ...wire,
   }),
   marksOf: () => [],
@@ -338,4 +343,69 @@ describe('the not-ready moments, each as the one shared cover', () => {
     expect(cover()).toBe('stale')
     expect(document.body.textContent).toContain('This page is older than its server — reloading…')
   })
+})
+
+/**
+ * The footer the host draws (protocol 2.38.0): the reading page's "Manage checklists" and the manager's
+ * "Copy from another project" and Storage stand in it when the host draws one, and in the page when not.
+ */
+describe('the footer', () => {
+  const answerLists = () => {
+    globalThis.fetch = (async (url: string) => {
+      if (url.startsWith('/api/checklists')) return Response.json({ lists: [] })
+      return Response.json({ whole: false, placed: null, positions: [], instances: [], trouble: null, nowhere: false })
+    }) as unknown as typeof fetch
+  }
+  const footed = (draws: boolean | null) => {
+    answerLists()
+    const declared: { id: string; kind: string; [k: string]: unknown }[][] = []
+    wire = { projectPath: '/p', drawsFooter: draws, footer: (items) => void declared.push(items as never) }
+    return declared
+  }
+  const pressFoot = (item: string) => {
+    let answer: unknown
+    act(() => {
+      answer = press?.({ item, place: 'footer' })
+    })
+    return answer
+  }
+
+  test('a host that draws it is declared the reading page\'s bar, and the page draws none of its own', async () => {
+    const declared = footed(true)
+    render(<App />)
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['manage']))
+    expect(screen.queryByText('Manage checklists')).toBeNull()
+    expect(pressFoot('manage')).toBeUndefined()
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['import', 'storage']))
+    /* The heading of the manager is the page's own; its bottom row is not. */
+    expect(screen.queryByText('Copy from another project')).toBeNull()
+    expect(screen.queryByText('Storage')).toBeNull()
+    expect(pressFoot('manage')).toBe('That is not here now.')
+    expect(pressFoot('nope')).toBe('That is not something here.')
+    expect(pressFoot('storage')).toBeUndefined()
+    await waitFor(() => expect(declared.at(-1)).toEqual([]))
+  })
+
+  test('Copy from another project asks the host which project, from the footer', async () => {
+    const declared = footed(true)
+    let asked = 0
+    wire = { ...wire, pickProject: async () => (asked++, null) }
+    render(<App />)
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['manage']))
+    pressFoot('manage')
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['import', 'storage']))
+    pressFoot('import')
+    await waitFor(() => expect(asked).toBe(1))
+  })
+
+  for (const draws of [false, null]) {
+    test(`a host that does not draw it (${String(draws)}) is declared nothing, and the page draws its own bar`, async () => {
+      const declared = footed(draws)
+      render(<App />)
+      fireEvent.click(await screen.findByText('Manage checklists'))
+      expect(await screen.findByText('Copy from another project')).toBeTruthy()
+      expect(screen.queryByText('Storage')).not.toBeNull()
+      expect(declared).toEqual([])
+    })
+  }
 })

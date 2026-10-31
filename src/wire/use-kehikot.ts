@@ -8,6 +8,7 @@ import {
   trackerReadingResult,
   type Disposition,
   type FilterGroup,
+  type FooterItemInput,
   type HeaderItemInput,
   type TrackerReading,
 } from 'kehikot-module-protocol'
@@ -284,6 +285,10 @@ export interface Kehikot {
   choose: (choice: Record<string, string>) => Promise<boolean>
   /** Declare this page's header (`kehikot.header`): the host draws it and relays a press to `onPress`. */
   header: (items: HeaderItemInput[]) => void
+  /** Whether the host draws this page's declared footer (`hello.footer`, protocol 2.38.0); `false` or `null` from an older host. */
+  drawsFooter: boolean | null
+  /** Declare this page's footer (`kehikot.footer`), whole. Only when `drawsFooter` is true. */
+  footer: (items: FooterItemInput[]) => void
 }
 
 export type PressHandler = NonNullable<HostEvents['onPress']>
@@ -323,7 +328,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   const hostOpens = host.openAddress
   const hostAnswers = host.answers
   const openAddress = useMemo(() => openerOf({ answers: hostAnswers, openAddress: hostOpens }), [hostAnswers, hostOpens])
-  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header } = host
+  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header, footer, drawsFooter } = host
 
   /* The doorbell, read through a ref so the pump below is started once and always rings the newest one. */
   const door = useRef(onDoor)
@@ -468,6 +473,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       readSummary,
       choose,
       header,
+      footer,
+      drawsFooter,
       openAddress,
     }),
     [
@@ -493,6 +500,8 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       readSummary,
       choose,
       header,
+      footer,
+      drawsFooter,
       openAddress,
     ],
   )
