@@ -30,6 +30,7 @@ import {
 } from '@/store/ask.ts'
 import type { TrackerReading } from 'kehikot-module-protocol'
 import { marksOf, useKehikot, type GotoHandler, type PressHandler } from '@/wire/use-kehikot.ts'
+import { footerItems, footerPressed, type FooterState } from '@/wire/footer.ts'
 import { ANGLE_FILTER, angleOffer, headerFor, pressed } from '@/wire/header.ts'
 import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
@@ -191,11 +192,15 @@ export function App() {
     )
   }, [])
 
+  /* What a press in the footer the host draws does, filled in below; a ref, for the same reason. */
+  const footerPress = useRef<(item: string) => string | undefined>(() => 'This page is not ready for that yet.')
+
   /* What a press of the angle does, filled in below once the host's choice is known; a ref, so the press handler is made once. */
   const angleTo = useRef<(next: Angle) => void>(() => {})
 
   /* A press in the host's View menu: the same three screens the page's own buttons reach, or the angle. */
   const onPress = useCallback<PressHandler>((press) => {
+    if (press.place === 'footer') return footerPress.current(press.item)
     const wanted = pressed(press)
     if (typeof wanted === 'string') return wanted
     if ('angle' in wanted) angleTo.current(wanted.angle)
@@ -226,6 +231,8 @@ export function App() {
     readSummary,
     choose,
     header,
+    footer,
+    drawsFooter,
     openAddress,
   } = useKehikot(ID, onGoto, bump, onPress)
 
@@ -890,6 +897,35 @@ export function App() {
       : (coverFor({ where, projectPath })
         ?? (nowhere ? 'no-project' : server === 'down' ? 'down' : view.kind === 'here' && !from && !here ? 'loading' : null))
 
+  /*
+   * The footer, when the host draws it (protocol 2.38.0): the bottom rows the reading page and the
+   * manager draw below, declared from the same state, and those rows left undrawn. With any other host
+   * nothing is declared and the rows are drawn as they always were.
+   */
+  const footed = where === 'hosted' && drawsFooter === true
+  const footState: FooterState = {
+    /* The import's own screen stands above the others and keeps its own rows. */
+    view: from ? 'edit' : showing,
+    trouble,
+    busy,
+    importing: choosing,
+    canStorage: true,
+    aside: drawn.current.putAside,
+    troubleInBar: room.compose === 'overlay',
+  }
+  const footerSaid = footed ? JSON.stringify(footerItems(footState)) : null
+  useEffect(() => {
+    if (footerSaid !== null) footer(JSON.parse(footerSaid))
+  }, [footerSaid, footer])
+  footerPress.current = (item) => {
+    const asked = footerPressed(item, footState)
+    if (asked === 'manage') setView({ kind: 'all' })
+    else if (asked === 'import') void onImport()
+    else if (asked === 'storage') setView({ kind: 'storage' })
+    else return asked
+    return undefined
+  }
+
   const screen = from ? (
     /* Above the others on purpose. Somebody who is mid-import pressed Copy
        from the list of every checklist, and putting this under anything would
@@ -947,6 +983,7 @@ export function App() {
       onStorage={() => setView({ kind: 'storage' })}
       importing={choosing}
       trouble={trouble}
+      footed={footed}
       busy={busy}
       said={gone ? 'That checklist is gone — removed here, or on another machine.' : null}
       room={room}
@@ -962,6 +999,7 @@ export function App() {
       onOpen={(id) => setView({ kind: 'edit', id, back: 'here' })}
       onAll={() => setView({ kind: 'all' })}
       trouble={trouble}
+      footed={footed}
       busy={busy}
       room={room}
       facts={facts}

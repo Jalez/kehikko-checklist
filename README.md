@@ -318,6 +318,12 @@ text with no furniture beside it at any size, and one press per instance leads
 to its edit page — except an item's own lines, which are edited where they are.
 A strip at the bottom leads to *Manage checklists*.
 
+In an app that draws module footers (protocol 2.38.0, `kehikot.footer`) that strip, and the manager's
+*Copy from another project* and *Storage* row, are declared as footer items (`src/wire/footer.ts`) and
+the page draws none of its own; what went wrong stands in the footer as a sentence. Any other app gets no
+footer and the page draws its own rows as before. The edit page keeps its own rows: they belong to what
+it edits.
+
 The **edit page** is where a list is changed: what it **applies to** — types ×
 roles, and the epic each is narrowed to — then what it is held against by hand,
 under *Only for these items* — the targets it has, each releasable with one

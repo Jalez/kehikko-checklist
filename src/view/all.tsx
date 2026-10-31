@@ -59,6 +59,7 @@ export function AllView({
   onStorage,
   importing,
   trouble,
+  footed = false,
   busy,
   said,
   room,
@@ -82,6 +83,8 @@ export function AllView({
   /** True while the person is being asked, or while the other project is being read. */
   importing: boolean
   trouble: string | null
+  /** The host draws the bottom bar (its footer): this page draws none of its own. */
+  footed?: boolean
   busy: boolean
   /**
    * A line about something that has happened, or `null` — the ordinary case,
@@ -220,6 +223,7 @@ export function AllView({
       {/* The other way to get a list: copy one from another project. A row of
           its own, always drawn, because the press IS the whole control here —
           everything after it happens on the host's screen. */}
+      {footed ? null : (
       <div className="flex shrink-0 items-center gap-1.5 border-t px-2 py-1.5">
         <Button type="button" variant="ghost" size="container" disabled={busy || importing} onClick={onImport}>
           {importing ? 'Choosing…' : 'Copy from another project'}
@@ -230,10 +234,11 @@ export function AllView({
           </Button>
         ) : null}
       </div>
+      )}
 
       {overlaid ? (
         <>
-          {trouble && !sheet ? (
+          {trouble && !sheet && !footed ? (
             <p className="shrink-0 border-t px-2 py-1.5 text-[0.7rem] leading-4 text-failed">{trouble}</p>
           ) : null}
           {sheet ? (
