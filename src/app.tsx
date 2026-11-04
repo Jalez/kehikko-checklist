@@ -942,7 +942,7 @@ export function App() {
     view: from ? 'edit' : showing,
     trouble,
     troubleInBar: room.compose === 'overlay',
-    concerns: firstItem ? { said: concernsSaid(concernsOf(firstItem, facts)), more: Math.max(0, drawn.current.items.length - 1) } : null,
+    concerns: firstItem ? { said: concernsSaid(concernsOf(firstItem, facts)), short: concernsOf(firstItem, facts).name, more: Math.max(0, drawn.current.items.length - 1) } : null,
     progress: progressNow,
     working: workingOn(glanceLists).map((one) => one.text),
     standing: { standards: named.filter((one) => standingOf(one) === 'standard').length, oneOff: named.filter((one) => standingOf(one) === 'one-off').length },

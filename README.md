@@ -60,12 +60,20 @@ ones always come first: on the reading page, on the manager, and in what
 ## At a glance, and more as the container grows
 
 Each picked item opens with its **glance**: which item it is (kind, ref and the
-tracker's title), and three tiles — **Progress** (answered of all, with a chart
-of how the answers came in), **Failing** (how many failed or are blocked, with
-every line's state as one bar) and **Working on** (the lines marked working).
-Every chart has its sentence; colours are the page's tokens in both themes. The
-page picks a level from its own width and height (`levelOf` in
-`list/glance.ts`): under 240 px tall, the glance alone; from there, the glance
+tracker's title), and three tiles — **Progress** (a ring of answered of all,
+beside a step sparkline of how the answers came in), **Failing** (how many fail
+or are blocked, with every line's state as one slim stacked bar) and **Working
+on** (the lines marked working). A tile's title and number are a row of their
+own above its plot. Every plot has its sentence, and answers hover and keyboard
+focus with a compact tooltip — "7/12 done · 2 failing", a point's "3 ticked at
+14:02", a segment's "2 failing of 12" (arrows move between points, Escape
+closes). Colours are the page's tokens in both themes. Tiles stack under 360 px
+wide; a tile under 260 px draws a sparkline with no axes or gridlines
+(`glanceLayout` in `src/components/glance-layout.ts`). The page picks a level
+from its own width and height (`levelOf` in `list/glance.ts`): one or two grid
+rows tall (under 96 px, or 150 px when the tiles would stack), each item is one
+line — "gh#105 · 7/12 · 2 failing" with a tiny ring, which is also what the
+host's footer reads; under 240 px tall, the glance alone; from there, the glance
 and every list's lines with their states; at 560 × 560 and more, each item's
 history too — who answered what, when, and how they know. Who answered is said
 there (and in a state's tooltip), not on the rows.

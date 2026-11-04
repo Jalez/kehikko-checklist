@@ -61,6 +61,16 @@ describe('the glance, pure', () => {
     expect(room(200, 200).level).toBe('glance')
   })
 
+  test('one or two rows tall is one line; a one-column container goes to lines sooner, as its tiles stack', () => {
+    for (const height of [24, 40, 68, 149]) expect(levelOf(200, height)).toBe('line')
+    expect(levelOf(200, 150)).toBe('glance')
+    expect(levelOf(280, 120)).toBe('line')
+    expect(levelOf(380, 95)).toBe('line')
+    expect(levelOf(380, 96)).toBe('glance')
+    expect(levelOf(380, 120)).toBe('glance')
+    expect(room(200, 40).level).toBe('line')
+  })
+
   test('progress counts every state; answered is passed and not applicable', () => {
     expect(progressOf([list()])).toEqual({ total: 6, answered: 2, passed: 1, na: 1, failed: 1, blocked: 1, working: 1, unchecked: 1 })
   })
@@ -117,7 +127,7 @@ describe('the reading page, by level', () => {
       expect(container.querySelector('[data-level="glance"]')).not.toBeNull()
       expect(container.querySelector('[data-glance="gh#105"]')).not.toBeNull()
       expect(container.querySelector('[data-testid="tile-progress-value"]')?.textContent).toBe('2/6')
-      expect(container.querySelector('[data-testid="tile-failing-value"]')?.textContent).toBe('1 failed')
+      expect(container.querySelector('[data-testid="tile-failing-value"]')?.textContent).toBe('1 failing · 1 blocked')
       expect(container.querySelector('[data-testid="tile-working-value"]')?.textContent).toBe('1 underway')
       expect(container.querySelector('[data-testid="tile-working"]')?.textContent).toContain('Follows patterns')
       expect(container.querySelector('[data-concerns]')?.textContent).toBe('Pull request gh#105')
