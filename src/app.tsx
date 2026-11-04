@@ -31,13 +31,17 @@ import {
 import type { TrackerReading } from 'kehikot-module-protocol'
 import { marksOf, useKehikot, type GotoHandler, type PressHandler } from '@/wire/use-kehikot.ts'
 import { footerItems, footerPressed, type FooterState } from '@/wire/footer.ts'
+import { progressOf, workingOn } from '../list/glance.ts'
+import { standingOf } from '../list/standing.ts'
+import { STARTERS, starterOrigin } from '../list/starters.ts'
+import { concernsSaid } from '@/components/glance.tsx'
 import { ANGLE_FILTER, angleOffer, headerFor, pressed } from '@/wire/header.ts'
 import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
 import { OpenAddressContext } from '@/view/out-link.tsx'
 import { AllView } from '@/view/all.tsx'
 import { EditView } from '@/view/edit.tsx'
-import { HereView } from '@/view/here.tsx'
+import { concernsOf, HereView } from '@/view/here.tsx'
 import { Importing } from '@/view/importing.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { wantedHeight } from '@/view/room.ts'
@@ -192,18 +196,23 @@ export function App() {
     )
   }, [])
 
-  /* What a press in the footer the host draws does, filled in below; a ref, for the same reason. */
-  const footerPress = useRef<(item: string) => string | undefined>(() => 'This page is not ready for that yet.')
-
   /* What a press of the angle does, filled in below once the host's choice is known; a ref, so the press handler is made once. */
   const angleTo = useRef<(next: Angle) => void>(() => {})
 
-  /* A press in the host's View menu: the same three screens the page's own buttons reach, or the angle. */
+  /* What the header's Create menu does, filled in below once the page's handlers exist; a ref, for the same reason. */
+  const makeTo = useRef<(make: 'new' | 'copy' | { adopt: string }) => string | undefined>(() => 'This page is not ready for that yet.')
+  /** The one checklist picked in the header, or null for every list in front. Session state, like the screen. */
+  const [picked, setPicked] = useState<string | null>(null)
+
+  /* A press in the host's header: a screen, the angle, one checklist, or something to create. */
   const onPress = useCallback<PressHandler>((press) => {
-    if (press.place === 'footer') return footerPress.current(press.item)
+    if (press.place === 'footer') return footerPressed(press.item)
     const wanted = pressed(press)
     if (typeof wanted === 'string') return wanted
     if ('angle' in wanted) angleTo.current(wanted.angle)
+    else if ('pick' in wanted) setPicked(wanted.pick)
+    else if ('make' in wanted) return makeTo.current(wanted.make)
+    else if ('adopt' in wanted) return makeTo.current({ adopt: wanted.adopt })
     else setView({ kind: wanted.view })
     return undefined
   }, [])
@@ -406,11 +415,8 @@ export function App() {
     if (where === 'hosted') filters([...aimOffer(shown(containers)), ...angleOffer()])
   }, [where, filters, containers])
 
-  /* The header says which screen is showing — the edit page counts as the one it was opened from — and the angle. */
+  /* Which screen is showing, for the header and the footer: the edit page counts as the one it was opened from. */
   const showing = view.kind === 'edit' ? view.back : view.kind
-  useEffect(() => {
-    if (where === 'hosted') header(headerFor(showing, angle))
-  }, [where, header, showing, angle])
 
   /* Every checklist that exists. This app's own material, read at load, after
      every change, and on the doorbell. */
@@ -515,6 +521,20 @@ export function App() {
     () => (inFocus && forThese.aside.length ? { ...inFocus, instances: [...forThese.instances] } : inFocus),
     [inFocus, forThese],
   )
+  /*
+   * And the one checklist picked in the header, if any: the lists in front to pick from are the
+   * ones in sight, each once, and a pick of a list no longer in front shows every list again.
+   */
+  const pickable = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const one of inSight?.instances ?? []) if (!one.checklist.only && !seen.has(one.checklist.id)) seen.set(one.checklist.id, one.checklist.name)
+    return [...seen].map(([id, name]) => ({ id, name }))
+  }, [inSight])
+  const pickNow = picked && pickable.some((one) => one.id === picked) ? picked : null
+  const inPick = useMemo(
+    () => (inSight && pickNow ? { ...inSight, instances: inSight.instances.filter((one) => one.checklist.id === pickNow) } : inSight),
+    [inSight, pickNow],
+  )
   /** The modules on this kehikko, which is what the edit page offers a list to be for. Never this one. */
   const modules = useMemo(
     () =>
@@ -598,7 +618,7 @@ export function App() {
   const drawnNow = {
     items: itemsNow,
     aside: asideNow,
-    here: inSight,
+    here: inPick,
     /* The focus first: when it put lists aside and none is left, that is the
        cause, whatever the picked-out containers were also doing. */
     why: focused.empty || whyEmpty(front, forThese.instances.length ? [] : forThese.aside),
@@ -903,26 +923,67 @@ export function App() {
    * nothing is declared and the rows are drawn as they always were.
    */
   const footed = where === 'hosted' && drawsFooter === true
+  /*
+   * What is going on now, over what the reading page draws: the first picked item that has lists,
+   * which the footer names, and every line in front — progress, what failed or is blocked, and what
+   * is being worked on. The same numbers the glance draws, said in the footer the host draws.
+   */
+  const drawnHere = drawn.current.here
+  const firstItem = drawn.current.items.find((item) =>
+    (drawnHere?.instances ?? []).some((one) =>
+      item.target.kind === 'ref' ? one.target?.kind === 'ref' && one.target.ref === item.target.ref : item.target.kind === 'paper' && one.target?.kind === 'paper',
+    ),
+  ) ?? drawn.current.items[0]
+  const glanceLists = (drawnHere?.instances ?? []).map((one) => ({ checklist: one.checklist, rows: one.rows }))
+  const progressNow = progressOf(glanceLists)
+  const named = lists.filter((one) => !one.only)
   const footState: FooterState = {
     /* The import's own screen stands above the others and keeps its own rows. */
     view: from ? 'edit' : showing,
     trouble,
-    busy,
-    importing: choosing,
-    canStorage: true,
-    aside: drawn.current.putAside,
     troubleInBar: room.compose === 'overlay',
+    concerns: firstItem ? { said: concernsSaid(concernsOf(firstItem, facts)), more: Math.max(0, drawn.current.items.length - 1) } : null,
+    progress: progressNow,
+    working: workingOn(glanceLists).map((one) => one.text),
+    standing: { standards: named.filter((one) => standingOf(one) === 'standard').length, oneOff: named.filter((one) => standingOf(one) === 'one-off').length },
+    aside: drawn.current.putAside,
   }
   const footerSaid = footed ? JSON.stringify(footerItems(footState)) : null
   useEffect(() => {
     if (footerSaid !== null) footer(JSON.parse(footerSaid))
   }, [footerSaid, footer])
-  footerPress.current = (item) => {
-    const asked = footerPressed(item, footState)
-    if (asked === 'manage') setView({ kind: 'all' })
-    else if (asked === 'import') void onImport()
-    else if (asked === 'storage') setView({ kind: 'storage' })
-    else return asked
+
+  /* The header: which screen, which checklist of the ones in front, the angle, and the Create menu. */
+  const starters = useMemo(
+    () => STARTERS.map((one) => ({ id: one.id, name: one.name, adopted: lists.some((list) => list.origin === starterOrigin(one.id)) })),
+    [lists],
+  )
+  const headerSaid =
+    where === 'hosted'
+      ? JSON.stringify(headerFor(showing, angle, { lists: pickable, picked: pickNow, starters, importing: choosing, busy }))
+      : null
+  useEffect(() => {
+    if (headerSaid !== null) header(JSON.parse(headerSaid))
+  }, [headerSaid, header])
+
+  /* Asked to start a new checklist: the manager, with its box open. A number, so each press opens it again. */
+  const [createAsked, setCreateAsked] = useState(0)
+  const onAdopt = useCallback((starter: string) => void onEdit({ op: 'adopt', starter }), [onEdit])
+  makeTo.current = (make) => {
+    if (make === 'new') {
+      setView({ kind: 'all' })
+      setCreateAsked((was) => was + 1)
+      return undefined
+    }
+    if (make === 'copy') {
+      if (choosing) return 'Choosing a project already.'
+      void onImport()
+      return undefined
+    }
+    const starter = starters.find((one) => one.id === make.adopt)
+    if (!starter) return `There is no starter "${make.adopt.slice(0, 40)}".`
+    if (starter.adopted) return 'Adopted already: edit it under Manage checklists.'
+    onAdopt(starter.id)
     return undefined
   }
 
@@ -981,6 +1042,9 @@ export function App() {
         setView({ kind: 'here' })
       }}
       onStorage={() => setView({ kind: 'storage' })}
+      starters={starters}
+      onAdopt={onAdopt}
+      createAsked={createAsked}
       importing={choosing}
       trouble={trouble}
       footed={footed}

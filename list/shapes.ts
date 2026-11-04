@@ -12,9 +12,21 @@ import { evidenceSchema, FACTS } from './evidence.ts'
  * both import them without importing each other.
  */
 
-/** The three things a tick can say. No tick at all is a fourth, `unchecked`. */
-export const TICK_STATES = ['passed', 'failed', 'na'] as const
+/**
+ * What a tick can say. No tick at all is one more, `unchecked`.
+ *
+ * `passed`, `failed` and `na` are answers. `working` and `blocked` are not: they
+ * say where the work on a line stands before it has an answer — somebody is on
+ * it now, or it cannot be answered yet (the note says why). Both arrived with
+ * the glance, which has to say what is being worked on and what is stuck, and a
+ * file written before them reads exactly as it did: they are new values, and
+ * nothing old means them.
+ */
+export const TICK_STATES = ['passed', 'failed', 'na', 'working', 'blocked'] as const
 export type TickState = (typeof TICK_STATES)[number]
+
+/** The states that ANSWER a line: what progress counts. `working` and `blocked` are on the way to one. */
+export const ANSWERS: readonly TickState[] = ['passed', 'na']
 
 /**
  * One tick, and WHO made it.
@@ -79,7 +91,9 @@ export type TickState = (typeof TICK_STATES)[number]
  */
 export const tickSchema = z.object({
   /**
-   * What the person or agent found: `passed`, `failed`, or `na` (not applicable).
+   * What the person or agent found: `passed`, `failed`, or `na` (not applicable)
+   * — or, before an answer, `working` (somebody is on it now) or `blocked` (it
+   * cannot be answered yet; the note says why).
    *
    * A tick written before states existed has none and reads as `passed`, which
    * is what every one of them meant. An item with no tick is unchecked, which
@@ -120,7 +134,7 @@ export function stateOf(tick: { state?: TickState } | null | undefined): TickSta
 
 /** How many of these rows are in each state. They add up to the number of rows. */
 export function countRows(rows: { done: { state?: TickState } | null }[]): Record<TickState | 'unchecked', number> {
-  const counts = { passed: 0, failed: 0, na: 0, unchecked: 0 }
+  const counts = { passed: 0, failed: 0, na: 0, working: 0, blocked: 0, unchecked: 0 }
   for (const row of rows) counts[stateOf(row.done)] += 1
   return counts
 }

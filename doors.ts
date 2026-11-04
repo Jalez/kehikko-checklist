@@ -34,10 +34,14 @@ import {
   typeName,
   undecidedLine,
   type Angle,
+  standingOf,
+  STANDING_WORD,
+  TESTS_ELSEWHERE,
   type ItemType,
   type RefsRead,
   type Role,
 } from './list/standing.ts'
+import { STARTERS } from './list/starters.ts'
 import { stateOf, TICK_STATES, type TickState } from './list/shapes.ts'
 import { evidenceSchema, FACT_NAMES, FACTS, type Fact } from './list/evidence.ts'
 import { announce, announcementsStream, since } from './list/outbox.ts'
@@ -709,6 +713,21 @@ const ANNOTATIONS: Record<string, Record<string, boolean>> = {
   storage: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
 }
 
+/**
+ * The person's words, which a change to a standing checklist needs through this
+ * door (`standardIsThePersons` in `list/standing.ts`): the standards are the
+ * person's, and an agent changes one only when asked to.
+ */
+const PERSON_ASKED = {
+  person_asked: {
+    type: 'string',
+    description:
+      'Only when the PERSON asked for this change to a standing checklist (one that applies to a kind of item): '
+      + 'their words, quoted. Standing checklists are the person\'s expectations; without this a change to one is '
+      + 'refused. Not needed to tick, or for a one-off list.',
+  },
+} as const
+
 function tools() {
   return listed().map((tool) => ({ ...tool, annotations: ANNOTATIONS[tool.name] }))
 }
@@ -718,13 +737,13 @@ function listed() {
     {
       name: 'checklists',
       description:
-        'Every checklist this app holds, what applies to one item, or one list in full. Nothing here ships a list: '
-        + 'each one was created by a person or by an agent. A list APPLIES to types of item × roles (issues as '
-        + 'reviewer, merge requests for any role, papers…), across the project or one epic, and may also be held '
-        + 'against particular items by hand; an item can have lines of its own on top. Give a ref (or an epic, for '
-        + 'its paper) and no checklist to get every checklist that applies to that item from an angle — role, or the '
-        + 'person\'s own my_roles — with what is ticked there. Give a checklist id to read that list, and a ref or an '
-        + 'epic with it to see what is ticked on it FOR that item — two issues keep two separate sets. Read this '
+        'Every checklist in the project, what applies to one item, or one list in full. Standing checklists come '
+        + 'first: the person\'s expectations for every item of a kind (pull requests, merge requests, issues, papers '
+        + '— good practice, patterns, what they expect of all such work), in front of each such item without anybody '
+        + 'holding it. One-off lists, held against particular items by hand, come after. Give a ref (or an epic, for '
+        + 'its paper) and no checklist to get everything that applies to that item from an angle — role, or the '
+        + 'person\'s own my_roles — with what is answered there. Give a checklist id to read that list, and a ref or '
+        + 'an epic with it to see what is answered on it FOR that item — two issues keep two separate sets. Read this '
         + 'before starting work and again before saying you are done.',
       inputSchema: {
         type: 'object',
@@ -740,15 +759,28 @@ function listed() {
     {
       name: 'create_checklist',
       description:
-        'Start a new checklist under a name. Only do this when you have looked at what already exists and none of it '
-        + 'is the list you mean — two lists that say nearly the same thing is the failure this app is most likely to '
-        + 'suffer, because nothing stops anybody making one. The name is what a person picks it by, so say what the '
-        + 'list is for rather than what it is: "what a merge request owes before review", not "checklist 2".',
+        'Rarely the right call. A checklist here is the PERSON\'s standing expectations for a kind of item — give '
+        + 'types (and roles) to make one: "pull request standards" for types ["pr", "mr"] is in front of every pull '
+        + 'and merge request from then on. Making a standing checklist is the person\'s decision: do it only when '
+        + 'they asked, and pass person_asked with their words. Without types this makes a ONE-OFF list that is shown '
+        + 'nowhere until held — almost never what is wanted: '
+        + `${TESTS_ELSEWHERE} For a line one item still owes, use add_item_for. Look at what exists first (checklists): `
+        + 'two lists saying nearly the same thing is the failure this app is most likely to suffer.',
       inputSchema: {
         type: 'object',
         properties: {
           ...PROJECT_PROPERTY,
-          name: { type: 'string', description: `What this list is for. Up to ${MAX_NAME} characters.` },
+          name: { type: 'string', description: `What this list is for: "what a pull request owes before merge". Up to ${MAX_NAME} characters.` },
+          types: {
+            type: 'array',
+            items: { type: 'string', enum: [...ITEM_TYPES] },
+            description:
+              'The kinds of item it is the standard for: "issue", "mr" (merge request), "pr" (pull request), "paper", '
+              + '"task". Needs person_asked. Leave out only for a one-off list.',
+          },
+          roles: TARGET_PROPERTIES.roles,
+          epic: { type: 'string', description: 'With types: only the refs this epic names, instead of the whole project\'s.' },
+          ...PERSON_ASKED,
           agent: { type: 'string', description: 'Your own name, so the list says who started it' },
         },
         required: ['project', 'name'],
@@ -757,7 +789,9 @@ function listed() {
     {
       name: 'hold_checklist',
       description:
-        'Say what a checklist applies to. Mostly: types and roles — types ["mr"] with roles ["reviewer"] puts it in '
+        'Say what a checklist applies to. Making a list apply to a kind of item, or changing what a standing '
+        + 'checklist applies to, is the person\'s decision: pass person_asked with their words. Mostly: types and '
+        + 'roles — types ["mr"] with roles ["reviewer"] puts it in '
         + 'front of a person on every merge request they read as reviewer, including ones opened later (types: '
         + 'issue, mr, pr, paper, task — a GitLab task; roles: assignee, reviewer, author, any; with epic, only the refs '
         + 'that epic names). '
@@ -773,6 +807,7 @@ function listed() {
           checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
           ...TARGET_PROPERTIES,
           release: { type: 'boolean', description: 'true to stop holding it against this target. Defaults to false.' },
+          ...PERSON_ASKED,
           agent: { type: 'string' },
         },
         required: ['project', 'checklist'],
@@ -781,10 +816,11 @@ function listed() {
     {
       name: 'checklist_for',
       description:
-        'Two questions. (1) With a ref (or an epic, for its paper) and no module: the checklists FOR that item — every '
-        + 'list whose types × roles apply to it from an angle (role, or the person\'s own my_roles; any role when '
-        + 'neither is given), the lists held against it by hand, and its own lines, with what is ticked there. Read-'
-        + 'only. (2) With a checklist and module: say which module’s work that checklist is for, or — with module: '
+        'Two questions. (1) With a ref (or an epic, for its paper) and no module: the checklists FOR that item — '
+        + 'first the standing checklists for its kind (types × roles, from an angle: role, or the person\'s own '
+        + 'my_roles; any role when neither is given), then the one-off lists held against it by hand, then its own '
+        + 'lines, with what is answered there, and the automatic results of its test runs. Read-only. (2) With a '
+        + 'checklist and module (person_asked for a standing one): say which module’s work that checklist is for, or — with module: '
         + 'null — that it is for every module’s. Several modules can show the same place in a paper; said to be for '
         + 'one module, a list is in front of a PERSON only while that module’s container is among the ones they '
         + 'picked out, or while they have picked none. Nothing else about the list changes.',
@@ -803,6 +839,7 @@ function listed() {
               + 'read as that id when one module here has it. Or null, to say the list is for every module’s work '
               + 'again. Leave it out to ask what applies to a ref or an epic instead.',
           },
+          ...PERSON_ASKED,
           agent: { type: 'string' },
         },
         required: ['project'],
@@ -812,10 +849,10 @@ function listed() {
       name: 'add_item_for',
       description:
         'Add a line for ONE item only — an issue, merge request or pull request (ref), or the paper an epic is '
-        + 'aimed at (epic) — on top of the checklists that apply to it. It is shown under them as "Only for <ref>", '
-        + 'is ticked with check_item like any line (the checklist id comes back with it), and is kept whatever '
-        + 'happens to the other lists. For something every such item owes, add it to a checklist that applies to '
-        + 'the type instead.',
+        + 'aimed at (epic) — on top of the standing checklists for its kind. It is shown under them as a one-off, '
+        + '"Only for <ref>", is answered with check_item like any line (the checklist id comes back with it), and is '
+        + `kept whatever happens to the other lists. Use it for something the person expects of this item alone. ${TESTS_ELSEWHERE} `
+        + 'Something every such item owes belongs on the standing checklist for the kind: suggest it to the person.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -831,7 +868,9 @@ function listed() {
     {
       name: 'add_checklist_item',
       description:
-        'Add one line to a checklist. It goes on the end, which is where a new thing belongs until somebody says '
+        'Add one line to a checklist. On a standing checklist (one that applies to a kind of item) only when the '
+        + `person asked for that line: pass person_asked with their words. ${TESTS_ELSEWHERE} `
+        + 'It goes on the end, which is where a new thing belongs until somebody says '
         + 'otherwise — move_checklist_item is how it gets somewhere else. Write what is owed, in a line somebody else '
         + 'could act on. The id it comes back with is how you address it afterwards; the words and the position both '
         + 'move. Adding an item adds it for every target this list is held against, because it is the LIST that '
@@ -842,6 +881,7 @@ function listed() {
           ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id, as the checklists tool prints it' },
           text: { type: 'string', description: `What is owed. Up to ${MAX_TEXT} characters.` },
+          ...PERSON_ASKED,
           agent: { type: 'string', description: 'Your own name, so the list says who wrote the line' },
         },
         required: ['project', 'checklist', 'text'],
@@ -851,7 +891,9 @@ function listed() {
       name: 'check_item',
       description:
         'Answer one item FOR ONE TARGET: state passed (the default), failed or na (not applicable), with a note '
-        + 'saying how you know; or take your answer back with done: false. This is the tool the module exists for: '
+        + 'saying how you know; or, before you have an answer, working (you are on it now — the person sees what is '
+        + 'being worked on) or blocked (it cannot be answered yet; say why in note). Take your answer back with done: '
+        + 'false. Agents answer the lines of every checklist, standing or one-off. This is the tool the module exists for: '
         + 'a tick belongs to the checklist, the item and the target together, so answering item 3 for gh#105 says '
         + 'nothing at all about gh#106. The record says it was you and that it came through this door. A tick a '
         + 'PERSON set on the page is theirs: you cannot change or remove it, and you are told so — say what you '
@@ -867,7 +909,9 @@ function listed() {
           state: {
             type: 'string',
             enum: [...TICK_STATES],
-            description: 'passed (the default), failed, or na for not applicable. Not allowed with done: false.',
+            description:
+              'passed (the default), failed, na for not applicable, working while you are on it, or blocked when it '
+              + 'cannot be answered yet. Not allowed with done: false.',
           },
           note: { type: 'string', description: 'How you know — the test name, what you changed, where it is' },
           done: { type: 'boolean', description: 'Defaults to true. false takes your answer back and has no state.' },
@@ -880,7 +924,8 @@ function listed() {
       name: 'reword_checklist_item',
       description:
         'Change what one item says, keeping its id, its position and every tick made on it against every target. For '
-        + 'sharpening a line somebody wrote in a hurry. To say a different thing, add a different item.',
+        + 'sharpening a line somebody wrote in a hurry. To say a different thing, add a different item. On a standing '
+        + 'checklist only when the person asked: pass person_asked with their words.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -888,6 +933,7 @@ function listed() {
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id' },
           text: { type: 'string', description: `The new wording. Up to ${MAX_TEXT} characters.` },
+          ...PERSON_ASKED,
           agent: { type: 'string' },
         },
         required: ['project', 'checklist', 'item', 'text'],
@@ -898,7 +944,8 @@ function listed() {
       description:
         'Put one item somewhere else in the order. The order of a hand-written list is a person’s judgement about '
         + 'what comes first, so move something because the work has an order, not to tidy. Positions count from 1, as '
-        + 'the checklists tool prints them; a number past the end means the end.',
+        + 'the checklists tool prints them; a number past the end means the end. On a standing checklist only when the '
+        + 'person asked: pass person_asked with their words.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -906,6 +953,7 @@ function listed() {
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id' },
           position: { type: 'integer', description: 'Where it should end up, counting from 1' },
+          ...PERSON_ASKED,
           agent: { type: 'string' },
         },
         required: ['project', 'checklist', 'item', 'position'],
@@ -916,13 +964,15 @@ function listed() {
       description:
         'Take one item off a checklist for good, along with every tick made on it against every target. This is not '
         + 'the same as ticking it and it is not reversible from here — an item that was done is ticked, and an item '
-        + 'that turned out not to be owed is dropped. If you are unsure which, leave it and say so.',
+        + 'that turned out not to be owed is dropped. If you are unsure which, leave it and say so. On a standing '
+        + 'checklist only when the person asked: pass person_asked with their words.',
       inputSchema: {
         type: 'object',
         properties: {
           ...PROJECT_PROPERTY,
           checklist: { type: 'string', description: 'The checklist id' },
           item: { type: 'string', description: 'The item id' },
+          ...PERSON_ASKED,
           agent: { type: 'string' },
         },
         required: ['project', 'checklist', 'item'],
@@ -944,37 +994,43 @@ function listed() {
  * The answers, in words
  * ------------------------------------------------------------------ */
 
-/** Every checklist in one project, for an agent that was not told which one. */
+/** Every checklist in one project, for an agent that was not told which one: the standing ones first. */
 function listsText(where: string): string {
   const { lists, trouble } = checklists(where)
   if (trouble) return trouble
+  const starters = `Starters the person can adopt with one press on the Checklist page: ${STARTERS.map((one) => `"${one.name}"`).join(', ')}.`
   if (!lists.length) {
     return (
-      `There are no checklists in ${where} yet. Nothing is wrong: this app ships no lists at all, and a project `
-      + 'that has never had one has no .kehikot/checklist/lists.json in it. create_checklist starts the '
-      + 'first, and then add_checklist_item puts lines on it.'
+      `There are no checklists in ${where} yet. Nothing is wrong: this app ships no lists, and a project `
+      + 'that has never had one has no .kehikot/checklist/lists.json in it. A checklist here is the person\'s '
+      + `standing expectations for a kind of item, which is theirs to make. ${starters} ${TESTS_ELSEWHERE}`
     )
   }
   const own = lists.filter((list) => list.only)
-  const named = lists.filter((list) => !list.only)
+  const standards = lists.filter((list) => !list.only && standingOf(list) === 'standard')
+  const oneOff = lists.filter((list) => !list.only && standingOf(list) === 'one-off')
+  const line = (list: (typeof lists)[number]) =>
+    `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
+    + (list.for ? `for ${list.for}’s work; ` : '')
+    + heldPhrase(list)
   return [
     `Checklists in ${where}:`,
-    ...named.map(
-      (list) =>
-        `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'}, started by ${list.by}; `
-        + (list.for ? `for ${list.for}’s work; ` : '')
-        + heldPhrase(list),
-    ),
+    '',
+    `${STANDING_WORD.standard} — the person's expectations for every item of a kind; agents answer them, the person changes them:`,
+    ...(standards.length ? standards.map(line) : ['  (none yet)', `  ${starters}`]),
+    ...(oneOff.length
+      ? ['', `${STANDING_WORD['one-off']} — held against particular items by hand, or applying to nothing yet:`, ...oneOff.map(line)]
+      : []),
     ...(own.length
       ? [
           '',
-          'Lines added for one item alone (add_item_for), each on a list of that item\'s own:',
+          'One-off lines added for one item alone (add_item_for), each on a list of that item\'s own:',
           ...own.map((list) => `  ${list.id} — "${list.name}" (${list.items} item${list.items === 1 ? '' : 's'})`),
         ]
       : []),
     '',
-    'Ticks live per (checklist, item): ask again with a ref or an epic, and no checklist, to see what applies to it '
-    + 'and what is ticked there.',
+    'Answers live per (checklist, item): ask again with a ref or an epic, and no checklist, to see what applies to it '
+    + `and what is answered there. ${TESTS_ELSEWHERE}`,
   ].join('\n')
 }
 
@@ -995,20 +1051,26 @@ function heldPhrase(list: { held: Target[]; targets: number; applies?: Target[] 
   return `${standing.length ? `applies to ${standing.join('; ')}` : ''}${standing.length && named.length ? '; ' : ''}${named.length ? `only for ${named.join(', ')}` : ''})`
 }
 
-/** What each state looks like in the listing: x passed, ! failed, - not applicable, a space unchecked. */
-const MARKS: Record<TickState | 'unchecked', string> = { passed: 'x', failed: '!', na: '-', unchecked: ' ' }
+/** What each state looks like in the listing: x passed, ! failed, - not applicable, ~ being worked on, / blocked, a space unchecked. */
+const MARKS: Record<TickState | 'unchecked', string> = { passed: 'x', failed: '!', na: '-', working: '~', blocked: '/', unchecked: ' ' }
 
 /** `passed N · failed N · n/a N · unchecked N`, the same words every time so a caller can read it. */
-function countsLine(counts: { passed: number; failed: number; na: number; unchecked: number }): string {
-  return `passed ${counts.passed} · failed ${counts.failed} · n/a ${counts.na} · unchecked ${counts.unchecked}`
+function countsLine(counts: { passed: number; failed: number; na: number; working?: number; blocked?: number; unchecked: number }): string {
+  return (
+    `passed ${counts.passed} · failed ${counts.failed} · n/a ${counts.na}`
+    + `${counts.working ? ` · working ${counts.working}` : ''}${counts.blocked ? ` · blocked ${counts.blocked}` : ''}`
+    + ` · unchecked ${counts.unchecked}`
+  )
 }
 
-/** A state word from a caller, or null when it is none of the three. Absent means passed. */
+/** A state word from a caller, or null when it is none of them. Absent means passed. */
 function stateFrom(value: unknown): TickState | null | undefined {
   if (value === undefined) return undefined
   return (TICK_STATES as readonly unknown[]).includes(value) ? (value as TickState) : null
 }
-const STATE_REFUSAL = 'state is one of passed, failed or na (not applicable). Nothing was changed.'
+const STATE_REFUSAL =
+  'state is one of passed, failed, na (not applicable), working (you are on it now) or blocked (it cannot be '
+  + 'answered yet — say why in note). Nothing was changed.'
 
 /** One line of a list as an agent reads it: position, state, id, words, evidence, who. */
 function rowLine(row: { item: { id: string; text: string; fact?: Fact }; done: { by: string; viaMcp?: boolean; note?: string; evidence?: { said: string }; state?: TickState } | null }, at: number): string {
@@ -1069,14 +1131,18 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
   const name = ref ?? `the paper ${epic}`
   const kind = item.type ? ` (${item.type === 'paper' ? 'a paper' : `a ${typeName(item.type)}`})` : ''
   const mine = instances.filter((one) => (ref ? one.target?.kind === 'ref' && one.target.ref === ref : one.target?.kind === 'paper'))
-  const rules = mine.filter((one) => !one.checklist.only)
+  /* The standing checklists for its kind first, then the one-off lists held for it by hand, then its own lines. */
+  const rules = mine.filter((one) => !one.checklist.only && standingOf(one.checklist) === 'standard')
+  const byHand = mine.filter((one) => !one.checklist.only && standingOf(one.checklist) === 'one-off')
   const own = mine.filter((one) => one.checklist.only)
   const block = (one: (typeof mine)[number]) => {
     const why = one.checklist.only
-      ? 'lines just for this item'
+      ? 'one-off: lines just for this item'
       : one.through?.length
-        ? `applies to ${one.through.map(targetName).join('; ')}`
-        : `held for ${targetName(one.target as Target)} by hand`
+        ? `standard: applies to ${one.through.map(targetName).join('; ')}`
+        : standingOf(one.checklist) === 'standard'
+          ? `standard, also held for ${targetName(one.target as Target)} by hand`
+          : `one-off: held for ${targetName(one.target as Target)} by hand`
     return [
       `  ${one.checklist.id} — "${one.checklist.name}" (${why}) — ${countsLine(one.counts)}`,
       ...(one.rows.length ? one.rows.map((row, at) => `    ${rowLine(row, at)}`) : ['    (no lines yet)']),
@@ -1084,10 +1150,18 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
   }
   const head = `${angleLine(item.as, name)}${kind}${angled.angle === 'auto' && !angled.mine && !args.role ? ' — no role was given, so any role' : ''}:`
   const parts = [head]
-  if (rules.length || own.length) {
-    parts.push(...rules.map(block), ...own.map(block))
+  if (rules.length || byHand.length || own.length) {
+    parts.push(...rules.map(block), ...byHand.map(block), ...own.map(block))
   } else {
     parts.push(`  ${nothingLine(name, item.as)}`)
+  }
+  if (!rules.length) {
+    parts.push(
+      '',
+      `No standing checklist covers ${name}${item.type ? ` as ${item.type === 'paper' ? 'a paper' : `a ${typeName(item.type)}`}` : ''}. `
+      + 'Standing checklists are the person\'s to make (or adopt from a starter on the Checklist page); do not '
+      + 'make one up for this item.',
+    )
   }
   if (ref) {
     const runs = runsFor(where, [ref]).runs[ref] ?? []
@@ -1104,8 +1178,9 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
   }
   parts.push(
     '',
-    'Tick a line with check_item, naming the checklist id above and this item. add_item_for adds a line just for '
-    + 'this item; hold_checklist with types and roles makes a list apply to every item of a type.',
+    'Answer a line with check_item, naming the checklist id above and this item — working while you are on it, then '
+    + 'passed, failed or na with a note. add_item_for adds a one-off line just for this item. '
+    + TESTS_ELSEWHERE,
   )
   return parts.join('\n')
 }
@@ -1191,6 +1266,8 @@ function listText(id: string, target: Target | null, where: string): string {
  */
 function call(name: string, args: Record<string, unknown>, where: string): string {
   const by = str(args.agent, MAX_FROM) || AGENT
+  /* The person's words, when they asked for a change to a standing checklist. Bounded like a note. */
+  const asked = str(args.person_asked, MAX_NOTE) || undefined
 
   if (name === 'create_checklist') {
     const listName = str(args.name, MAX_NAME)
@@ -1200,9 +1277,22 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         + 'only thing that tells the next person what this one is.',
       )
     }
-    const out = change({ op: 'create', name: listName, by, viaMcp: true }, where)
+    const typed = args.types !== undefined && args.types !== null
+    const types = Array.isArray(args.types) ? args.types.filter((one): one is string => typeof one === 'string').slice(0, MAX_KINDS) : []
+    if (typed && !types.length) throw new Error(`create_checklist: types is a list of kinds of item — ${ITEM_TYPES.join(', ')}. Nothing was changed.`)
+    const roles = Array.isArray(args.roles) ? args.roles.filter((one): one is string => typeof one === 'string').slice(0, 8) : undefined
+    const epic = typeof args.epic === 'string' && args.epic.trim() ? args.epic.trim() : null
+    const rule = types.length ? { types, ...(roles ? { roles } : {}), epic } : undefined
+    const out = change({ op: 'create', name: listName, ...(rule ? { rule } : {}), by, viaMcp: true, asked }, where)
     if (!out.ok) throw new Error(out.error)
-    return `${out.said}.\n\n${listText(out.id, null, where)}`
+    /* A one-off made by an agent is said to be one, with where the lines it was about to get belong. */
+    const oneOff = rule
+      ? ''
+      : '\n\nThis is a ONE-OFF list: it applies to no kind of item and is shown nowhere until it is held against '
+        + `something. ${TESTS_ELSEWHERE} If these are expectations for every item of a kind, the person can make `
+        + 'this list apply to that kind (or adopt a starter) on the Checklist page; if they asked you to, '
+        + 'hold_checklist with types and person_asked does it.'
+    return `${out.said}.${oneOff}\n\n${listText(out.id, null, where)}`
   }
 
   if (name === 'add_item_for') {
@@ -1219,7 +1309,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     const target: Target = ref ? { kind: 'ref', ref } : { kind: 'paper', epic: epic as string, section: null }
     const out = change({ op: 'add-for', target, text, by, viaMcp: true }, where)
     if (!out.ok) throw new Error(out.error)
-    return `${out.said}.\n\n${appliesText(where, target, args)}`
+    return `${out.said}. It is a one-off line for this item alone; ${TESTS_ELSEWHERE.charAt(0).toLowerCase()}${TESTS_ELSEWHERE.slice(1)}\n\n${appliesText(where, target, args)}`
   }
 
   if (name === 'checklist_for' && !('module' in args)) {
@@ -1258,7 +1348,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         + 'list is held against is where a person sees it, so there is nothing to do without one.',
       )
     }
-    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target: aim.target, by, viaMcp: true }
+    const op: Op = { op: args.release === true ? 'release' : 'hold', id, target: aim.target, by, viaMcp: true, asked }
     const out = change(op, where)
     if (!out.ok) throw new Error(out.error)
     return `${out.said}.${aim.also ? `\n\n${aim.also}` : ''}\n\n${listText(id, null, where)}`
@@ -1277,7 +1367,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         + (present.length ? `The modules here are: ${present.join(', ')}.` : 'No other module is registered here to offer.'),
       )
     }
-    const out = change({ op: 'for', id, module, present, by, viaMcp: true }, where)
+    const out = change({ op: 'for', id, module, present, by, viaMcp: true, asked }, where)
     if (!out.ok) throw new Error(out.error)
     return `${out.said}.\n\n${listText(id, null, where)}`
   }
@@ -1297,7 +1387,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
   if (name === 'add_checklist_item') {
     const text = str(args.text, MAX_TEXT)
     if (!text) throw new Error('add_checklist_item needs text: the line to add, saying what is owed.')
-    op = { op: 'add', id, text, by, viaMcp: true }
+    op = { op: 'add', id, text, by, viaMcp: true, asked }
   } else if (name === 'reword_checklist_item') {
     const text = str(args.text, MAX_TEXT)
     if (!text) {
@@ -1305,7 +1395,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         'reword_checklist_item needs text: the new wording. To take an item off the list, use drop_checklist_item.',
       )
     }
-    op = { op: 'reword', id, item, text, by, viaMcp: true }
+    op = { op: 'reword', id, item, text, by, viaMcp: true, asked }
   } else if (name === 'move_checklist_item') {
     /* A position that is not a number is refused rather than defaulted. The
        store clamps a number that is out of range, because "past the end" is a
@@ -1320,9 +1410,9 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
         + 'the checklists tool prints them. Nothing was moved.',
       )
     }
-    op = { op: 'move', id, item, to: Math.trunc(position) - 1, by, viaMcp: true }
+    op = { op: 'move', id, item, to: Math.trunc(position) - 1, by, viaMcp: true, asked }
   } else if (name === 'drop_checklist_item') {
-    op = { op: 'drop', id, item, by, viaMcp: true }
+    op = { op: 'drop', id, item, by, viaMcp: true, asked }
   } else {
     /* check_item, and the one operation that involves a target at all. It gets
        the same passage resolution the reading tool does, so an agent that asked
@@ -1410,9 +1500,11 @@ function mcp(rpc: Rpc): Reply {
       capabilities: { tools: {} },
       serverInfo: { name: ID, version: VERSION },
       instructions:
-        'Checklists somebody wrote, and what has been ticked off against one issue, merge request, pull request or '
-        + 'paper. Nothing here ships a list and nothing is computed: every item is a line a person or an agent typed, '
-        + 'and every tick belongs to a checklist, an item and a target together.',
+        'The person\'s standing checklists for kinds of item — what every pull request, merge request, issue or paper '
+        + 'owes: good practice, patterns, their general expectations — and what has been answered against each one. '
+        + 'Agents answer lines (check_item: working while on it, then passed, failed or na with a note); only the '
+        + 'person makes or changes a standing checklist. Nothing here ships a list. '
+        + TESTS_ELSEWHERE,
     })
   }
   /* A notification carries no id and is answered with nothing. */
@@ -1996,6 +2088,8 @@ export function answerAt(
       const text = str(body.text, MAX_TEXT)
       const by = OWNER
 
+      /* A starter, adopted with one press: the person's, so only ever from this page. */
+      if (op === 'adopt') return ok(change({ op: 'adopt', starter: str(body.starter, MAX_ID), by }, where))
       if (op === 'create') {
         const rule = ruleBody(body.rule)
         return ok(change({ op: 'create', name: str(body.name, MAX_NAME), ...(rule ? { rule } : {}), by }, where))
@@ -2133,7 +2227,7 @@ export function answerAt(
          program: an op this door does not know is this app's own bug and the
          next person to read a log is the one who has to find it. */
       return bad(
-        `there is no "${op}" to do to a checklist — it is create, import, rename, applies, for, forget, hold, release, add, add-for, reword, cite, move, drop or tick.`,
+        `there is no "${op}" to do to a checklist — it is create, adopt, import, rename, applies, for, forget, hold, release, add, add-for, reword, cite, move, drop or tick.`,
       )
     }
   }

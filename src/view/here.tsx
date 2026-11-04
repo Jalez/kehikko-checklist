@@ -20,7 +20,11 @@ import {
   type ItemType,
   type Role,
   type UndecidedRef,
+  standingOf,
+  STANDING_WORD,
 } from '../../list/standing.ts'
+import { ItemGlance, ItemHistory, type Concerns } from '@/components/glance.tsx'
+import type { Level } from '../../list/glance.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -302,6 +306,8 @@ export function HereView({
               snap={room.snap}
               runs={section.item?.target.kind === 'ref' ? (runs[section.item.target.ref] ?? []) : []}
               onHideRun={onHideRun}
+              level={room.level}
+              facts={facts}
             >
               {section.instances.map((held) => {
                 const target = held.target as Target
@@ -433,6 +439,13 @@ function labelFor(held: Held, target: Target, here: Here, kehikko: { key?: strin
   return labelOf(target, placeAmong(target, here.positions) ?? here.placed, null, kehikko) + whose
 }
 
+/** Which item a section's checklists concern, for its glance: kind, ref or name, and the tracker's title. */
+export function concernsOf(item: ItemInFront, facts: Facts | null): Concerns {
+  const kind = item.type ? `${typeName(item.type).charAt(0).toUpperCase()}${typeName(item.type).slice(1)}` : null
+  const title = item.target.kind === 'ref' ? (facts?.rows[item.target.ref]?.title ?? null) : null
+  return { kind, name: item.target.kind === 'paper' ? item.target.epic : itemName(item), title }
+}
+
 /** What an item is called in its section's first line. */
 function itemName(item: ItemInFront): string {
   if (item.target.kind === 'ref') return item.target.ref
@@ -454,9 +467,15 @@ function ItemSection({
   snap,
   runs = [],
   onHideRun,
+  level = 'items',
+  facts = null,
   children,
 }: {
   section: Section
+  /** How much of the item to draw: its glance alone, its lists, or those and its history. */
+  level?: Level
+  /** What the tracker says about the refs, for the line saying which item this is. */
+  facts?: Facts | null
   snap: boolean
   runs?: RunItem[]
   onHideRun?: (ref: string, label: string, hide: boolean) => void
@@ -492,8 +511,22 @@ function ItemSection({
     onAddFor(item.target, text)
   }
   const roles: Role[] = item.as.length ? item.as : ['any']
+  const lists = section.instances.map((held) => ({ checklist: held.checklist, rows: held.rows }))
+  const glance = section.instances.length ? <ItemGlance concerns={concernsOf(item, facts)} lists={lists} now={0} /> : null
+  if (level === 'glance') {
+    /* A short container: the item at a glance, and nothing else. Every list is a press on the header's View away. */
+    return (
+      <section className="border-t pb-1.5 first:border-t-0" data-section={section.key} data-level="glance">
+        {glance ?? (
+          <p className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-none="applies">
+            {unsure ?? nothingLine(name, roles)}
+          </p>
+        )}
+      </section>
+    )
+  }
   return (
-    <section className="border-t first:border-t-0" data-section={section.key}>
+    <section className="border-t first:border-t-0" data-section={section.key} data-level={level}>
       {/* The angle, said once per item: "As reviewer on !123". */}
       <p
         className={cn('flex flex-wrap items-baseline gap-x-1.5 px-2 pt-1.5 text-[0.7rem] font-semibold leading-4', snap && 'snap-start')}
@@ -507,12 +540,16 @@ function ItemSection({
         ) : null}
       </p>
 
+      {glance}
+
       {/* What the runs say, above the lists somebody wrote: nobody typed these. */}
       {item.target.kind === 'ref' && runs.length ? (
         <RunItems refName={item.target.ref} runs={runs} onHide={onHideRun} busy={busy} snap={snap} />
       ) : null}
 
       {children}
+
+      {level === 'full' ? <ItemHistory lists={lists} /> : null}
 
       {empty ? (
         <p className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-none="applies">
@@ -798,6 +835,8 @@ function Instance({
   const counts = countRows(held.rows)
   /* An item's own lines are edited where they are: they belong to that item and to no list somebody named. */
   const own = Boolean(held.checklist.only)
+  /* In front through a rule is standing whatever the list object says: the rule is what made it so. */
+  const standing = held.through?.length ? 'standard' : standingOf(held.checklist)
   const [editing, setEditing] = useState(false)
   return (
     <section
@@ -828,12 +867,15 @@ function Instance({
           {/* The one line that says which target these ticks belong to. A label
               and never a sentence; `title` carries the kind for anybody who
               needs it, with its article from `targetNoun` and not from here. */}
-          <p
-            className="text-[0.65rem] leading-4 text-muted-foreground"
-            data-label
-            title={`Held against ${targetNoun(target)}.`}
-          >
-            {label}
+          <p className="text-[0.65rem] leading-4 text-muted-foreground">
+            {/* Standing or one-off, said first: the standing checklists are the person's expectations for the kind. */}
+            <span className={cn('font-semibold', standing === 'standard' && 'text-foreground')} data-standing={standing}>
+              {STANDING_WORD[standing]}
+            </span>
+            {' · '}
+            <span data-label title={`Held against ${targetNoun(target)}.`}>
+              {label}
+            </span>
           </p>
         </div>
         <span className="shrink-0 text-right text-[0.7rem] tabular-nums">
@@ -850,9 +892,14 @@ function Instance({
           {/* Failed and not applicable are said in words beside the count and
               never folded into it: "3/4" with a failure in the fourth must not
               read as nearly done. */}
-          {counts.failed || counts.na ? (
+          {counts.failed || counts.na || counts.working || counts.blocked ? (
             <span className={cn('block', counts.failed ? 'text-failed' : 'text-muted-foreground')} data-count-more>
-              {[counts.failed ? `${counts.failed} failed` : '', counts.na ? `${counts.na} n/a` : ''].filter(Boolean).join(' · ')}
+              {[
+                counts.failed ? `${counts.failed} failed` : '',
+                counts.blocked ? `${counts.blocked} blocked` : '',
+                counts.working ? `${counts.working} working` : '',
+                counts.na ? `${counts.na} n/a` : '',
+              ].filter(Boolean).join(' · ')}
             </span>
           ) : null}
         </span>
@@ -1020,14 +1067,20 @@ function OwnLine({
   )
 }
 
+/** The states a row's small presses set: before an answer, then the answers other than passed (the row itself). */
+const SET_STATES = ['working', 'blocked', 'failed', 'na'] as const
+type SetState = (typeof SET_STATES)[number]
+
 /** The shape of each state, so it is never told by colour alone. */
-const MARKS: Record<TickState | 'unchecked', string> = { passed: '✓', failed: '✗', na: '–', unchecked: '' }
+const MARKS: Record<TickState | 'unchecked', string> = { passed: '✓', failed: '✗', na: '–', working: '…', blocked: '‖', unchecked: '' }
 
 /** The words of each state: `short` is drawn, `long` is what a screen reader hears. */
 const WORDS: Record<TickState | 'unchecked', { short: string; long: string }> = {
   passed: { short: 'Passed', long: 'passed' },
   failed: { short: 'Failed', long: 'failed' },
   na: { short: 'N/A', long: 'not applicable' },
+  working: { short: 'Working', long: 'being worked on' },
+  blocked: { short: 'Blocked', long: 'blocked' },
   unchecked: { short: '', long: 'not checked' },
 }
 
@@ -1035,6 +1088,8 @@ const MARK_STYLE: Record<TickState | 'unchecked', string> = {
   passed: 'border-done/40 text-done',
   failed: 'border-failed/50 text-failed',
   na: 'border-unknown/50 text-muted-foreground',
+  working: 'border-working/60 text-working',
+  blocked: 'border-blocked/60 text-blocked',
   unchecked: 'border-todo/50 text-todo',
 }
 
@@ -1091,7 +1146,7 @@ function ItemRow({
   const send = (next: { done: boolean; state?: TickState }) =>
     onEdit({ op: 'tick', id: list, item: item.id, target, ...next, ...(next.done && evidence ? { evidence } : {}) })
   /* One press on a state already set takes it back; on any other, sets it. */
-  const set = (which: 'failed' | 'na') => send(state === which ? { done: false } : { done: true, state: which })
+  const set = (which: SetState) => send(state === which ? { done: false } : { done: true, state: which })
 
   return (
     <li
@@ -1143,7 +1198,7 @@ function ItemRow({
           there, and each says its own name. Pressing the one that is on takes
           it back. */}
       <div className="mt-1 flex flex-wrap items-center gap-1 pl-[1.375rem]">
-        {(['failed', 'na'] as const).map((which) => (
+        {SET_STATES.map((which) => (
           <button
             key={which}
             type="button"
@@ -1161,8 +1216,9 @@ function ItemRow({
             {WORDS[which].short}
           </button>
         ))}
-        {state !== 'unchecked' ? (
-          <span className="text-[0.65rem] leading-4 text-muted-foreground" data-state-word>
+        {state !== 'unchecked' && done ? (
+          /* Who answered is not drawn on the row (the person asked for that); it is in the tooltip and the history. */
+          <span className="text-[0.65rem] leading-4 text-muted-foreground" data-state-word title={`${WORDS[state].short} — ${done.by}, ${new Date(done.at).toLocaleString()}`}>
             {WORDS[state].short}
           </span>
         ) : null}

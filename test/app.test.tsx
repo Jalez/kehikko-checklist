@@ -370,31 +370,40 @@ describe('the footer', () => {
     return answer
   }
 
-  test('a host that draws it is declared the reading page\'s bar, and the page draws none of its own', async () => {
+  const pressHead = (item: string, value?: string) => {
+    let answer: unknown
+    act(() => {
+      answer = press?.({ item, ...(value ? { value } : {}), place: 'header' })
+    })
+    return answer
+  }
+
+  test('a host that draws it is declared what is going on now; managing is the header\'s, and the page draws no bar of its own', async () => {
     const declared = footed(true)
+    const headers: { id: string; kind: string; group?: string }[][] = []
+    wire = { ...wire, header: (items) => void headers.push(items as never) }
     render(<App />)
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['manage']))
+    /* Nothing picked: the footer says so, and nothing in it is pressable. */
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['concerns']))
     expect(screen.queryByText('Manage checklists')).toBeNull()
-    expect(pressFoot('manage')).toBeUndefined()
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['import', 'storage']))
-    /* The heading of the manager is the page's own; its bottom row is not. */
+    expect(pressFoot('concerns')).toContain('is a readout')
+    /* The header has the screens, the angle and the Create menu, the starters among it. */
+    await waitFor(() => expect(headers.at(-1)?.map((one) => one.id)).toEqual(['view', 'angle', 'new', 'adopt:changes', 'adopt:issues', 'adopt:papers', 'copy']))
+    expect(pressHead('view', 'all')).toBeUndefined()
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['standing']))
+    /* The manager's heading is the page's own; its bottom row is not drawn. */
     expect(screen.queryByText('Copy from another project')).toBeNull()
-    expect(screen.queryByText('Storage')).toBeNull()
-    expect(pressFoot('manage')).toBe('That is not here now.')
-    expect(pressFoot('nope')).toBe('That is not something here.')
-    expect(pressFoot('storage')).toBeUndefined()
+    expect(pressHead('view', 'storage')).toBeUndefined()
     await waitFor(() => expect(declared.at(-1)).toEqual([]))
   })
 
-  test('Copy from another project asks the host which project, from the footer', async () => {
-    const declared = footed(true)
+  test('Copy from another project asks the host which project, from the header\'s Create menu', async () => {
+    footed(true)
     let asked = 0
     wire = { ...wire, pickProject: async () => (asked++, null) }
     render(<App />)
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['manage']))
-    pressFoot('manage')
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['import', 'storage']))
-    pressFoot('import')
+    await waitFor(() => expect(press).not.toBeNull())
+    pressHead('copy')
     await waitFor(() => expect(asked).toBe(1))
   })
 

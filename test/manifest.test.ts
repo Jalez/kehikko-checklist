@@ -152,7 +152,10 @@ describe('what agent sessions are told (protocol 2.36.0)', () => {
   test('where it is, to answer the lines before calling work done; where it is not, not to claim a checklist', () => {
     const parsed = manifestSchema.parse(MANIFEST)
     expect(agentSaysOf(parsed)).toContain('check_item')
-    expect(absentSaysOf(parsed)).toContain("don't claim work is done against a checklist")
+    expect(agentSaysOf(parsed)).toContain('Test steps go in Test runs')
+    expect(agentSaysOf(parsed)).toContain('only the person changes standards')
+    expect(absentSaysOf(parsed)).toContain("don't claim work meets the person's standing checklists")
+    expect(absentSaysOf(parsed)).toContain('Test steps belong in Test runs')
     for (const line of [parsed.agentSays, parsed.absentSays]) expect(line!.length).toBeLessThanOrEqual(200)
   })
 })

@@ -1,3 +1,5 @@
+import { levelOf, type Level } from '../../list/glance.ts'
+
 /**
  * How much room this container has, and what that buys.
  *
@@ -241,6 +243,12 @@ export interface Room {
    * it lives on the edit page, which is a whole frame already.
    */
   compose: 'inline' | 'overlay'
+  /**
+   * How much of each item the reading page draws: its glance alone, its lists
+   * and their lines, or those and its history (`levelOf` in `list/glance.ts`).
+   * The container's own width and height, never the window's, as Test runs does.
+   */
+  level: Level
 }
 
 /** What a container of this size gets. */
@@ -261,6 +269,7 @@ export function room(width: number, height: number): Room {
        pixels of height has room for it and is better served by a box that is
        simply there than by one behind a press. */
     compose: tall ? 'inline' : 'overlay',
+    level: levelOf(width, height),
   }
 }
 

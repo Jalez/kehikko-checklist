@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import type { Summary } from '@/store/ask.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -7,6 +7,8 @@ import type { Room } from '@/view/room.ts'
 import { cn } from '@/lib/utils.ts'
 import { nameOf } from '../../list/aim.ts'
 import { targetName } from '../../list/targets.ts'
+import { standingOf, STANDING_WORD } from '../../list/standing.ts'
+import { STARTERS } from '../../list/starters.ts'
 
 /**
  * Every checklist in the project, reached on purpose.
@@ -63,7 +65,16 @@ export function AllView({
   busy,
   said,
   room,
+  starters = [],
+  onAdopt,
+  createAsked = 0,
 }: {
+  /** The starters, and which are adopted already (`list/starters.ts`). */
+  starters?: readonly { id: string; name: string; adopted: boolean }[]
+  /** Adopt one: a standing checklist from its lines and kinds, in one press. */
+  onAdopt?: (id: string) => void
+  /** Bumped when the header's New checklist was pressed: open the box to start one. */
+  createAsked?: number
   lists: Summary[]
   /** Open one list's edit page. */
   onOpen: (id: string) => void
@@ -99,6 +110,15 @@ export function AllView({
   const overlaid = room.compose === 'overlay'
   /* The lines somebody added for one item alone are that item's, edited where the item is: not lists to manage here. */
   const named = lists.filter((list) => !list.only)
+  /* The standing checklists first — the person's expectations for every item of a kind — then the one-offs. */
+  const ordered = [...named.filter((list) => standingOf(list) === 'standard'), ...named.filter((list) => standingOf(list) === 'one-off')]
+  const box = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    if (!createAsked) return
+    if (overlaid) setSheet(true)
+    else box.current?.focus()
+  }, [createAsked, overlaid])
+  const unadopted = starters.filter((one) => !one.adopted)
 
   const create = () => {
     const name = typing.trim()
@@ -120,6 +140,7 @@ export function AllView({
         </label>
       )}
       <textarea
+        ref={box}
         id="new-checklist"
         aria-label="Start a checklist"
         rows={overlaid ? 4 : 2}
@@ -185,7 +206,7 @@ export function AllView({
           )}
           data-scroller={room.pinned ? 'lists' : undefined}
         >
-          {named.map((list) => (
+          {ordered.map((list) => (
             <li key={list.id} className={cn('border-t first:border-t-0', room.snap && 'snap-start')}>
               <button
                 type="button"
@@ -197,6 +218,12 @@ export function AllView({
               >
                 <span className="min-w-0 flex-1">
                   <span className="block break-words text-[0.8rem] leading-5">{list.name}</span>
+                  <span
+                    className={cn('block text-[0.6rem] font-semibold uppercase tracking-wide', standingOf(list) === 'standard' ? 'text-foreground' : 'text-muted-foreground')}
+                    data-standing={standingOf(list)}
+                  >
+                    {STANDING_WORD[standingOf(list)]}
+                  </span>
                   {/* What it applies to — types × roles — and the items it is held for by hand. A
                       list that applies to nothing is shown nowhere on the reading page, and this
                       row is the one place that says so. */}
@@ -219,6 +246,32 @@ export function AllView({
           No checklists in this project yet.
         </p>
       )}
+
+      {/* Starters: a standing checklist for a kind of item, adopted with one press and never by itself. */}
+      {unadopted.length && onAdopt ? (
+        <div className="shrink-0 border-t px-2 py-1.5" data-starters>
+          <p className="text-[0.65rem] leading-4 text-muted-foreground">
+            Starters — a standing checklist for every item of a kind, to keep, reword or drop:
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {unadopted.map((one) => (
+              <Button
+                key={one.id}
+                type="button"
+                variant="outline"
+                size="container"
+                disabled={busy}
+                data-adopt={one.id}
+                className="max-w-full"
+                title={STARTERS.find((starter) => starter.id === one.id)?.summary}
+                onClick={() => onAdopt(one.id)}
+              >
+                <span className="min-w-0 truncate">{`Adopt ${one.name}`}</span>
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* The other way to get a list: copy one from another project. A row of
           its own, always drawn, because the press IS the whole control here —
