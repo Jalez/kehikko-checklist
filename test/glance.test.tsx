@@ -191,11 +191,11 @@ describe('standing and one-off', () => {
 
 describe('the header: which checklist, manage, create', () => {
   const starters = STARTERS.map((one) => ({ id: one.id, name: one.name, adopted: one.id === 'issues' }))
-  test('declares the screens, a checklist switch when more than one is in front, the angle, and the Create menu', () => {
+  test('declares the screens, a checklist switch when more than one is in front, and the Create menu; no angle', () => {
     const items = headerItemsSchema.parse(
       headerFor('here', 'auto', { lists: [{ id: 'a', name: 'PR standards' }, { id: 'b', name: 'Only for gh#105' }], picked: 'b', starters }),
     )
-    expect(items.map((one) => one.id)).toEqual(['view', 'list', 'angle', 'new', 'adopt:changes', 'adopt:issues', 'adopt:papers', 'copy'])
+    expect(items.map((one) => one.id)).toEqual(['view', 'list', 'new', 'adopt:changes', 'adopt:issues', 'adopt:papers', 'copy'])
     expect(items.find((one) => one.id === 'list')).toMatchObject({ kind: 'switch', value: 'b' })
     expect(items.find((one) => one.id === 'adopt:issues')).toMatchObject({ disabled: 'Adopted already: edit it under Manage checklists.' })
     /* One list in front, or the manager: no checklist switch. */
@@ -205,7 +205,43 @@ describe('the header: which checklist, manage, create', () => {
     expect(headerFor('here', 'auto', { lists: [{ id: 'a', name: 'x' }, { id: 'b', name: 'y' }], picked: 'gone' }).find((one) => one.id === 'list')).toMatchObject({ value: 'all' })
   })
 
+  test('the Checklist menu: one picker per type, the project’s lists and the starters, and this kehikko’s own choices', () => {
+    const choices = {
+      lists: [
+        { id: 'mrs', name: 'MR standards', madeFor: ['mr' as const] },
+        { id: 'any', name: 'A list for nothing yet', madeFor: [] },
+      ],
+      starters: [
+        { id: 'changes', name: 'Pull and merge request standards', types: ['pr' as const, 'mr' as const], adopted: false },
+        { id: 'papers', name: 'Paper standards', types: ['paper' as const], adopted: true },
+      ],
+      chosen: { mr: 'mrs' },
+      here: false,
+    }
+    const items = headerItemsSchema.parse(headerFor('here', 'auto', { choices }))
+    expect(items.map((one) => one.id)).toEqual(['view', 'choose:issue', 'choose:mr', 'choose:pr', 'choose:paper', 'choose:task', 'choose-here', 'new', 'copy'])
+    const mr = items.find((one) => one.id === 'choose:mr') as { label: string; value: string; options: { id: string; label: string }[]; agents?: boolean }
+    expect(mr.label).toBe('Checklist for merge requests')
+    expect(mr.value).toBe('mrs')
+    expect(mr.options.map((one) => one.id)).toEqual(['none', 'mrs', 'any', 'starter:changes'])
+    expect(mr.options[0]!.label).toBe('None')
+    expect(mr.agents).toBe(false)
+    /* A type with no choice says so, and offers its starter; an adopted starter is a list, not a starter. */
+    const pr = items.find((one) => one.id === 'choose:pr') as { value: string; options: { id: string; label: string }[] }
+    expect(pr.value).toBe('none')
+    expect(pr.options[0]!.label).toBe('Pick a checklist for pull requests')
+    expect(pr.options.map((one) => one.label)).toContain('Starter: Pull and merge request standards')
+    const paper = items.find((one) => one.id === 'choose:paper') as { options: { id: string }[] }
+    expect(paper.options.map((one) => one.id)).not.toContain('starter:papers')
+    expect(items.find((one) => one.id === 'choose-here')).toMatchObject({ kind: 'toggle', checked: false })
+  })
+
   test('a press says what it asks for', () => {
+    expect(pressed({ item: 'choose:mr', value: 'mrs' })).toEqual({ choose: 'mr', id: 'mrs' })
+    expect(pressed({ item: 'choose:mr', value: 'none' })).toEqual({ choose: 'mr', id: null })
+    expect(pressed({ item: 'choose:pr', value: 'starter:changes' })).toEqual({ choose: 'pr', id: null, starter: 'changes' })
+    expect(pressed({ item: 'choose-here', value: true })).toEqual({ here: true })
+    expect(typeof pressed({ item: 'choose:nope', value: 'x' })).toBe('string')
     expect(pressed({ item: 'list', value: 'all' })).toEqual({ pick: null })
     expect(pressed({ item: 'list', value: 'a' })).toEqual({ pick: 'a' })
     expect(pressed({ item: 'new' })).toEqual({ make: 'new' })

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { CAPABILITY_NAMES, EXTENSION_NAMES, METHOD_NAMES, PROTOCOL, absentSaysOf, agentSaysOf, manifestSchema, speaks } from 'kehikot-module-protocol'
+import { CAPABILITY_NAMES, EXTENSION_NAMES, HELP_LIMITS, METHOD_NAMES, PROTOCOL, absentSaysOf, agentSaysOf, helpOf, manifestSchema, speaks } from 'kehikot-module-protocol'
 
-import { FORMAT, ID, MANIFEST } from '../manifest.ts'
+import { FORMAT, HELP, ID, MANIFEST } from '../manifest.ts'
 
 /**
  * The manifest is the only half of this program a host reads, and the whole of
@@ -157,5 +157,37 @@ describe('what agent sessions are told (protocol 2.36.0)', () => {
     expect(absentSaysOf(parsed)).toContain("don't claim work meets the person's standing checklists")
     expect(absentSaysOf(parsed)).toContain('Test steps belong in Test runs')
     for (const line of [parsed.agentSays, parsed.absentSays]) expect(line!.length).toBeLessThanOrEqual(200)
+  })
+})
+
+describe('How to use (protocol 2.52.0)', () => {
+  test('is declared, within the protocol’s bounds, and read back whole as plain one-line text', () => {
+    const help = helpOf(MANIFEST)
+    expect(help).toEqual(HELP)
+    expect(HELP.summary.length).toBeLessThanOrEqual(HELP_LIMITS.SUMMARY)
+    expect(HELP.sections.length).toBeLessThanOrEqual(HELP_LIMITS.SECTIONS)
+    for (const section of HELP.sections) {
+      expect(section.title.length).toBeLessThanOrEqual(HELP_LIMITS.TITLE)
+      expect(section.points.length).toBeLessThanOrEqual(HELP_LIMITS.POINTS)
+      for (const point of section.points) {
+        expect(point.length).toBeLessThanOrEqual(HELP_LIMITS.POINT)
+        expect(point).not.toMatch(/[<>]|https?:|\]\(/)
+      }
+    }
+  })
+
+  test('states the rules plainly: one target, one checklist per type, standing vs one-off, who changes what, Test runs, the states', () => {
+    const text = JSON.stringify(HELP)
+    expect(text).toContain('exactly ONE target')
+    expect(text).toContain('picked in References')
+    expect(text).toContain('ONE standing checklist')
+    expect(text).toMatch(/generic, overarching guideline/i)
+    expect(text).toContain('Not per-item test steps')
+    expect(text).toContain('so every feature is accounted for')
+    expect(text).toMatch(/one-off/i)
+    expect(text).toContain('person_asked')
+    expect(text).toContain('Test runs')
+    expect(text).toContain('most recently used was kept')
+    for (const state of ['Passed', 'Not applicable', 'Failed', 'Blocked', 'Working', 'Unchecked']) expect(text).toContain(state)
   })
 })

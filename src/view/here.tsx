@@ -7,11 +7,11 @@ import { targetKey, targetName, targetNoun, type Target } from '../../list/targe
 import { evidenceOf } from '../../list/evidence.ts'
 import { countRows, stateOf, type TickState } from '../../list/shapes.ts'
 import { clickedLine, nameOf, unpickLine } from '../../list/aim.ts'
+import { STARTERS } from '../../list/starters.ts'
+import { noChoiceLine } from '../../list/choices.ts'
 import {
-  angleLine,
   ANGLE_LABELS,
   NOTHING_PICKED,
-  nothingLine,
   ruleName,
   typeName,
   typesName,
@@ -106,6 +106,7 @@ export function HereView({
   onShowClicked,
   onAngle,
   onNewFor,
+  onChoose,
   onAddFor,
   runs = {},
   onHideRun,
@@ -145,6 +146,8 @@ export function HereView({
   onAngle?: (angle: Angle) => void
   /** Make a checklist for this type of item and this role, and open it. */
   onNewFor?: (type: ItemType, role: Role) => void
+  /** Make a list, or a starter adopted for it, the checklist every item of a type uses (the person's press). */
+  onChoose?: (type: ItemType, id: string | null, starter?: string) => void
   /** Add a line for one item alone. */
   onAddFor?: (target: Target, text: string) => void
   /** The automatic "Tests pass" items per ref, from the run results modules published. See `list/runs.ts`. */
@@ -302,6 +305,7 @@ export function HereView({
               undecided={(here.undecided ?? []).filter((row) => section.item?.target.kind === 'ref' && row.ref === section.item.target.ref)}
               onAngle={onAngle}
               onNewFor={onNewFor}
+              onChoose={onChoose}
               onAddFor={onAddFor}
               busy={busy}
               snap={room.snap}
@@ -464,6 +468,7 @@ function ItemSection({
   undecided,
   onAngle,
   onNewFor,
+  onChoose,
   onAddFor,
   busy,
   snap,
@@ -487,6 +492,8 @@ function ItemSection({
   undecided: UndecidedRef[]
   onAngle?: (angle: Angle) => void
   onNewFor?: (type: ItemType, role: Role) => void
+  /** Make a list, or a starter adopted for it, the checklist every item of a type uses (the person's press). */
+  onChoose?: (type: ItemType, id: string | null, starter?: string) => void
   onAddFor?: (target: Target, text: string) => void
   busy: boolean
   children: React.ReactNode
@@ -515,7 +522,8 @@ function ItemSection({
     setAdding(false)
     onAddFor(item.target, text)
   }
-  const roles: Role[] = item.as.length ? item.as : ['any']
+  /* What an item with nothing in front says: its type's choice is missing (the way to pick one), or nothing at all. */
+  const noneLine = item.type && !item.chosen ? noChoiceLine(item.type) : `No checklist is in front of ${name}.`
   const lists = section.instances.map((held) => ({ checklist: held.checklist, rows: held.rows }))
   const glance = section.instances.length ? <ItemGlance concerns={concernsOf(item, facts)} lists={lists} now={0} layout={layout} /> : null
   if (level === 'line') {
@@ -525,8 +533,8 @@ function ItemSection({
         {section.instances.length ? (
           <ItemLine concerns={concernsOf(item, facts)} lists={lists} />
         ) : (
-          <p className="truncate px-2 text-[0.7rem] leading-6 text-muted-foreground" data-none="applies" title={unsure ?? nothingLine(name, roles)}>
-            {unsure ?? nothingLine(name, roles)}
+          <p className="truncate px-2 text-[0.7rem] leading-6 text-muted-foreground" data-none="applies" title={unsure ?? noneLine}>
+            {unsure ?? noneLine}
           </p>
         )}
       </section>
@@ -538,7 +546,7 @@ function ItemSection({
       <section className="border-t pb-1.5 first:border-t-0" data-section={section.key} data-level="glance">
         {glance ?? (
           <p className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-none="applies">
-            {unsure ?? nothingLine(name, roles)}
+            {unsure ?? noneLine}
           </p>
         )}
       </section>
@@ -546,12 +554,12 @@ function ItemSection({
   }
   return (
     <section className="border-t first:border-t-0" data-section={section.key} data-level={level}>
-      {/* The angle, said once per item: "As reviewer on !123". */}
+      {/* The item, said once: "!123 · merge request", and which checklist its type uses. */}
       <p
         className={cn('flex flex-wrap items-baseline gap-x-1.5 px-2 pt-1.5 text-[0.7rem] font-semibold leading-4', snap && 'snap-start')}
-        data-angle={roles.join(' ')}
+        data-item-line=""
       >
-        <span className="min-w-0 break-words">{angleLine(roles, name)}</span>
+        <span className="min-w-0 break-words">{name}</span>
         {item.type && item.target.kind === 'ref' ? (
           <span className="text-[0.65rem] font-normal text-muted-foreground" data-type={item.type}>
             {typeName(item.type)}
@@ -572,7 +580,7 @@ function ItemSection({
 
       {empty ? (
         <p className="px-2 py-1.5 text-[0.7rem] leading-4 text-muted-foreground" data-none="applies">
-          {unsure ? null : nothingLine(name, roles)}
+          {unsure ? null : noneLine}
         </p>
       ) : null}
       {unsure ? (
@@ -581,27 +589,39 @@ function ItemSection({
         </p>
       ) : null}
 
-      {/* What to do when nothing applies: a checklist for this type and role, or a line just for this item. */}
+      {/* What to do when its type has no checklist: use the starter for it, or start one. Never chosen by itself. */}
       <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5">
-        {empty && item.type && onNewFor
-          ? roles.map((role) => (
+        {item.type && !item.chosen && onChoose
+          ? STARTERS.filter((one) => one.types.includes(item.type as ItemType)).map((one) => (
               <Button
-                key={role}
+                key={one.id}
                 type="button"
                 variant="outline"
                 size="container"
                 disabled={busy}
-                data-new-for={`${item.type}:${role}`}
+                data-use-starter={`${item.type}:${one.id}`}
                 className="max-w-full"
-                title="Start a checklist that is in front of every such item read from this role, and write its first line."
-                onClick={() => onNewFor(item.type as ItemType, role)}
+                title={`Make “${one.name}” the checklist every ${typeName(item.type as ItemType)} uses. Its lines are yours to keep, reword or drop.`}
+                onClick={() => onChoose(item.type as ItemType, null, one.id)}
               >
-                <span className="min-w-0 truncate">
-                  {`Add a checklist for ${typesName([item.type as ItemType])} ${role === 'any' ? 'for any role' : `as ${role}`}`}
-                </span>
+                <span className="min-w-0 truncate">{`Use “${one.name}”`}</span>
               </Button>
             ))
           : null}
+        {item.type && !item.chosen && onNewFor ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="container"
+            disabled={busy}
+            data-new-for={`${item.type}:any`}
+            className="max-w-full"
+            title={`Start the checklist every ${typeName(item.type as ItemType)} uses, and write its first line.`}
+            onClick={() => onNewFor(item.type as ItemType, 'any')}
+          >
+            <span className="min-w-0 truncate">{`New checklist for ${typesName([item.type as ItemType])}`}</span>
+          </Button>
+        ) : null}
         {onAddFor && !section.own && !adding ? (
           <Button
             type="button"

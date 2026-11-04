@@ -1201,7 +1201,7 @@ describe('standing checklists are the person’s, one-offs are steered away from
     expect(refused.text).toContain('is a standing checklist')
     const made = await tool('create_checklist', { name: 'PR standards', types: ['pr', 'mr'], person_asked: 'Make a PR standards list' })
     expect(made.isError).toBe(false)
-    expect(made.text).toContain('applying to merge requests and pull requests · any role')
+    expect(made.text).toContain('made for merge requests and pull requests; it is the checklist for merge requests and pull requests now')
     const oneOff = await tool('create_checklist', { name: 'Steps for gh#9' })
     expect(oneOff.isError).toBe(false)
     expect(oneOff.text).toContain('This is a ONE-OFF list')
@@ -1221,7 +1221,8 @@ describe('standing checklists are the person’s, one-offs are steered away from
     expect(read.indexOf('"Every MR" (standard')).toBeGreaterThan(-1)
     expect(read.indexOf('"Every MR"')).toBeLessThan(read.indexOf('"Just this one" (one-off: held for !7 by hand)'))
     const bare = (await tool('checklist_for', { ref: 'gh#3', type: 'pr' })).text
-    expect(bare).toContain('No standing checklist covers gh#3 as a pull request')
+    expect(bare).toContain('No checklist is chosen for pull requests in this project')
+    expect(bare).toContain('None was invented')
   })
 
   test('a starter is adopted by the person on the page, once, and never through the MCP door', async () => {
@@ -1245,12 +1246,12 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     const { list } = await aList('What a review owes')
     const held = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['mr', 'pr'], roles: ['reviewer'] })
     expect(held.isError).toBe(false)
-    expect(held.text).toContain('now applies to merge requests and pull requests · as reviewer')
+    expect(held.text).toContain('is made for merge requests and pull requests; it is the checklist for merge requests and pull requests now')
     expect((await tool('checklists', {})).text).toContain('applies to merge requests and pull requests · as reviewer)')
     const one = await tool('checklists', { checklist: list })
     expect(one.text).toContain('Applies to: merge requests and pull requests · as reviewer (each item keeps its own ticks)')
     const epic = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis' })
-    expect(epic.text).toContain('now applies to papers of thesis · as author')
+    expect(epic.text).toContain('is made for papers; it is the checklist for papers now')
     const released = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis', release: true })
     expect(released.text).toContain('no longer applies to papers of thesis · as author')
   })
@@ -1258,7 +1259,7 @@ describe('types × roles, and lines just for one item, at the doors', () => {
   test('#31’s every still works, as issue × any role', async () => {
     const { list } = await aList('What an issue owes')
     const held = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, every: 'issue' })
-    expect(held.text).toContain('now applies to issues · any role')
+    expect(held.text).toContain('is made for issues; it is the checklist for issues now')
     expect((await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, every: 'mr' })).isError).toBe(true)
   })
 
@@ -1269,7 +1270,7 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     expect(typo.text).toContain('types is one or more of issue, mr, pr, paper, task')
     const task = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['task'] })
     expect(task.isError).toBeFalsy()
-    expect(task.text).toContain('now applies to tasks · any role')
+    expect(task.text).toContain('is made for tasks; it is the checklist for tasks now')
     expect((await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['issue'], roles: ['owner'] })).isError).toBe(true)
     await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['issue'] })
     const tick = await tool('check_item', { checklist: list, item, types: ['issue'] })
@@ -1294,7 +1295,7 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     }
   })
 
-  test('checklists and checklist_for with an item say what applies, from the angle — my_roles by default', async () => {
+  test('checklists and checklist_for with an item answer the ONE checklist its type uses, whatever the role', async () => {
     const review = await aList('What a review owes')
     const author = await aList('Before asking for review')
     const anyone = await aList('What every MR owes')
@@ -1302,35 +1303,56 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: author.list, types: ['mr'], roles: ['author'] })
     await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: anyone.list, types: ['mr'] })
 
-    /* No role given: any role, and the role lists are named as elsewhere. */
+    /* The first made for merge requests is their checklist; the others are unassigned, and not stacked. */
     const plain = await tool('checklists', { ref: '!7' })
     expect(plain.isError).toBe(false)
-    expect(plain.text).toContain('Any role on !7 (a merge request) — no role was given, so any role:')
-    expect(plain.text).toContain('"What every MR owes"')
-    expect(plain.text).not.toContain('"What a review owes"')
-    expect(plain.text).toContain('Lists for reviewer or author apply to !7 too')
+    expect(plain.text).toContain(`!7 (a merge request) — its type's checklist is "What a review owes" (${review.list}):`)
+    expect(plain.text).toContain('"What a review owes" (standard: the checklist every merge request uses)')
+    expect(plain.text).not.toContain('"What every MR owes"')
+    expect(plain.text).not.toContain('"Before asking for review"')
 
-    /* The person's own roles, as the host's read_tracker says them. */
-    const mine = await tool('checklist_for', { ref: '!7', my_roles: ['reviewer-asked'] })
-    expect(mine.text).toContain('As reviewer on !7')
-    expect(mine.text).toContain('"What a review owes" (standard: applies to merge requests · as reviewer)')
-    expect(mine.text).toContain('"What every MR owes"')
-    expect(mine.text).not.toContain('"Before asking for review"')
+    /* A role, or the person's roles, change nothing. */
+    for (const args of [{ my_roles: ['author'] }, { role: 'author' }, { role: 'reviewer' }]) {
+      const read = await tool('checklist_for', { ref: '!7', ...args })
+      expect(read.text).toContain('"What a review owes"')
+      expect(read.text).not.toContain('"Before asking for review"')
+    }
 
-    /* role wins over my_roles. */
-    const asAuthor = await tool('checklists', { ref: '!7', role: 'author', my_roles: ['reviewer-asked'] })
-    expect(asAuthor.text).toContain('As author on !7')
-    expect(asAuthor.text).toContain('"Before asking for review"')
-    expect((await tool('checklists', { ref: '!7', role: 'owner' })).isError).toBe(true)
-
-    /* A PR is not a merge request: nothing applies, said from the angle, with what to do. */
-    const pr = await tool('checklist_for', { ref: 'gh#200', type: 'pr', role: 'reviewer' })
-    expect(pr.text).toContain('No checklist applies to gh#200 as reviewer.')
+    /* A PR is not a merge request, and nobody chose for pull requests: said, and nothing invented. */
+    const pr = await tool('checklist_for', { ref: 'gh#200', type: 'pr' })
+    expect(pr.text).toContain('No checklist is in front of gh#200.')
+    expect(pr.text).toContain('No checklist is chosen for pull requests in this project')
+    expect(pr.text).toContain('do not make one up for this item, and do not choose one')
     expect(pr.text).toContain('add_item_for adds a one-off line just for this item')
     /* A GitHub ref whose type nobody said is not guessed, where it would decide something. */
     await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: anyone.list, types: ['issue'] })
     const unknown = await tool('checklists', { ref: 'gh#9' })
     expect(unknown.text).toContain('Pass type')
+  })
+
+  test('the agent answer: checklist_for returns the type’s single chosen checklist, and says so when none is chosen', async () => {
+    const { change } = await import('../list/checklists.ts')
+    const first = await aList('First MR standard')
+    const second = await aList('Second MR standard')
+    await tool('hold_checklist', { person_asked: 'yes', checklist: first.list, types: ['mr'] })
+    await tool('hold_checklist', { person_asked: 'yes', checklist: second.list, types: ['mr'] })
+    let read = (await tool('checklist_for', { ref: '!7' })).text
+    expect(read).toContain('"First MR standard" (standard')
+    expect(read).not.toContain('"Second MR standard"')
+    /* The person chooses the other on the page: the agent reads that one, alone. */
+    expect(change({ op: 'choose', type: 'mr', id: second.list, by: 'the person' }, dir).ok).toBe(true)
+    read = (await tool('checklist_for', { ref: '!7' })).text
+    expect(read).toContain('"Second MR standard" (standard')
+    expect(read).not.toContain('"First MR standard"')
+    /* None chosen: said, and none invented. */
+    expect(change({ op: 'choose', type: 'mr', id: null, by: 'the person' }, dir).ok).toBe(true)
+    read = (await tool('checklist_for', { ref: '!7' })).text
+    expect(read).toContain('No checklist is chosen for merge requests in this project')
+    expect(read).not.toContain('MR standard"')
+    /* And an agent cannot choose. */
+    const viaMcp = change({ op: 'choose', type: 'mr', id: first.list, by: 'claude', viaMcp: true, asked: 'please' }, dir)
+    expect(viaMcp.ok).toBe(false)
+    expect(!viaMcp.ok && viaMcp.error).toContain('is the person\'s choice')
   })
 
   test('add_item_for adds a line just for one item; it is ticked with check_item, and a person’s tick is safe', async () => {
@@ -1378,19 +1400,25 @@ describe('types × roles, and lines just for one item, at the doors', () => {
       }
     }
     const read = here('gh#200 gh#105 gh#9', [['type', 'gh#200\tpr'], ['type', 'gh#105\tissue'], ['roles', 'gh#200\treviewer-asked,author']])
-    expect(read.items.map((one) => [one.target.ref, one.type, one.as])).toEqual([
-      ['gh#200', 'pr', ['reviewer', 'author']],
-      ['gh#105', 'issue', ['any']],
-      ['gh#9', null, ['any']],
+    expect(read.items.map((one) => [one.target.ref, one.type])).toEqual([
+      ['gh#200', 'pr'],
+      ['gh#105', 'issue'],
+      ['gh#9', null],
     ])
     expect(read.instances.map((one) => [one.checklist.name, one.target.ref, one.done, one.through?.[0]?.kind, one.as])).toEqual([
-      ['What a review owes', 'gh#200', 1, 'rule', ['reviewer']],
+      ['What a review owes', 'gh#200', 1, 'rule', ['any']],
       ['Only for gh#105', 'gh#105', 0, undefined, undefined],
     ])
-    /* From the author's angle, the reviewer list is elsewhere. */
+    /* From any angle, the same one. */
     const asAuthor = here('gh#200', [['type', 'gh#200\tpr'], ['roles', 'gh#200\treviewer-asked,author']], 'author')
-    expect(asAuthor.instances).toEqual([])
-    expect(asAuthor.items[0]!.elsewhere).toEqual(['reviewer'])
+    expect(asAuthor.instances.map((one) => one.checklist.name)).toEqual(['What a review owes'])
+    /* This kehikko's own choice wins over the project's: none here for pull requests means another list. */
+    const other = await aList('Another PR list')
+    const chose = new URLSearchParams(asking({ refs: 'gh#200', choices: JSON.stringify({ pr: other.list }) }))
+    chose.append('type', 'gh#200\tpr')
+    const kehikko = answer('GET', '/api/here', chose, null, null)?.body as { instances: { checklist: { name: string } }[]; items: { chosen: { name: string; by: string } }[] }
+    expect(kehikko.instances.map((one) => one.checklist.name)).toEqual(['Another PR list'])
+    expect(kehikko.items[0]!.chosen).toMatchObject({ name: 'Another PR list', by: 'kehikko' })
     /* A type for a ref that is not in front is not read. */
     expect(here('gh#9', [['type', 'gh#200\tpr']]).items[0]!.type).toBeNull()
   })

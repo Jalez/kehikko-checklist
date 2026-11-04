@@ -1,3 +1,4 @@
+import type { ItemType } from '../../list/standing.ts'
 import { AskFailed, PAGE_STALE, ask, replied } from 'kehikot-module-protocol/client'
 
 import type { Held, ItemInFront, RuleInput, Summary } from '../../list/checklists.ts'
@@ -197,6 +198,8 @@ export async function whatIsHere(
   angle: Angle = 'auto',
   /** Whether the paper the epic is aimed at is a picked item: a reader is in it, or parts of it are picked. */
   paper = false,
+  /** This kehikko's own choice of checklist per type, over the project's (`list/choices.ts`). */
+  choices: Partial<Record<ItemType, string>> = {},
 ): Promise<Here> {
   const body = replied(
     await ask<{ placed?: unknown; positions?: unknown; instances?: unknown; items?: unknown; undecided?: unknown; trouble?: unknown; nowhere?: unknown; whole?: unknown }>('/api/here', {
@@ -212,6 +215,7 @@ export async function whatIsHere(
         roles: read ? Object.entries(read.roles).map(([ref, roles]) => `${ref}\t${roles.join(',')}`) : [],
         angle: angle === 'auto' ? null : angle,
         paper: paper && epic ? '1' : null,
+        choices: Object.keys(choices).length ? JSON.stringify(choices) : null,
         'epic-read': read ? Object.keys(read.epics) : [],
         'in-epic': read ? Object.entries(read.epics).flatMap(([epic, refs]) => refs.map((ref) => `${epic}\t${ref}`)) : [],
         project: projectPath || null,
@@ -330,6 +334,8 @@ export type Edit =
   | { op: 'applies'; id: string; rules: RuleInput[] }
   /** A line for one item alone — a ref, or a paper — on top of the lists that apply to it. */
   | { op: 'add-for'; target: Target; text: string }
+  /** The ONE checklist every item of a type uses in this project: a list, a starter adopted for it, or none. */
+  | { op: 'choose'; type: ItemType; id: string | null; starter?: string }
   /**
    * Copy a list out of another project into the open one.
    *

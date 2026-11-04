@@ -460,7 +460,8 @@ export function nothingLine(item: string, as: readonly Role[]): string {
 }
 
 /** The sentence for a pane with nothing picked. */
-export const NOTHING_PICKED = 'Pick an issue, MR, PR or paper to see its checklists.'
+export const NOTHING_PICKED =
+  'Nothing picked: tick the box in a container’s header, or click an issue, MR, PR or a place in a paper.'
 
 /** A rule as a door spells it back: `issue+mr × any of thesis`. */
 export function spellRule(rule: Rule): string {

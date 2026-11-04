@@ -1,3 +1,4 @@
+import { choicesOf, type Choices } from './list/choices.ts'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -22,16 +23,14 @@ import {
 } from './list/checklists.ts'
 import { moduleNamed } from './list/aim.ts'
 import {
-  angleLine,
   angleOf,
   ITEM_TYPES,
   NO_TASKS,
   TASKS_KNOWN,
-  nothingLine,
   ROLES,
   rolesFromMine,
-  rolesPhrase,
   typeName,
+  typesName,
   undecidedLine,
   type Angle,
   standingOf,
@@ -259,15 +258,14 @@ const ANGLE_PROPERTIES = {
     type: 'string',
     enum: ['assignee', 'reviewer', 'author', 'any'],
     description:
-      'The angle: read the item as its assignee, reviewer or author, or "any" role. Defaults to the person\'s own '
-      + 'roles from my_roles, and to any role when neither is given.',
+      'Accepted for older callers and ignored: an item\'s standing checklist is the one its type uses, from every '
+      + 'role.',
   },
   my_roles: {
     type: 'array',
     items: { type: 'string' },
     description:
-      'The person\'s roles on the item as the host\'s tracker reading says them (kehikko\'s read_tracker prints '
-      + '"my roles:"): reviewer-asked, reviewer-done, author, assignee. Used when role is not given.',
+      'Accepted for older callers and ignored, like role.',
   },
   type: {
     type: 'string',
@@ -738,11 +736,10 @@ function listed() {
       name: 'checklists',
       description:
         'Every checklist in the project, what applies to one item, or one list in full. Standing checklists come '
-        + 'first: the person\'s expectations for every item of a kind (pull requests, merge requests, issues, papers '
-        + '— good practice, patterns, what they expect of all such work), in front of each such item without anybody '
-        + 'holding it. One-off lists, held against particular items by hand, come after. Give a ref (or an epic, for '
-        + 'its paper) and no checklist to get everything that applies to that item from an angle — role, or the '
-        + 'person\'s own my_roles — with what is answered there. Give a checklist id to read that list, and a ref or '
+        + 'first: the person\'s generic, overarching guidelines for every item of a type (pull requests, merge requests, '
+        + 'issues, tasks, papers) — ONE chosen per type by the person, in front of every such item. One-off lists, held '
+        + 'against particular items by hand, come after. Give a ref (or an epic, for its paper) and no checklist to get '
+        + 'the one checklist its type uses and everything else for that item, with what is answered there. Give a checklist id to read that list, and a ref or '
         + 'an epic with it to see what is answered on it FOR that item — two issues keep two separate sets. Read this '
         + 'before starting work and again before saying you are done.',
       inputSchema: {
@@ -817,8 +814,8 @@ function listed() {
       name: 'checklist_for',
       description:
         'Two questions. (1) With a ref (or an epic, for its paper) and no module: the checklists FOR that item — '
-        + 'first the standing checklists for its kind (types × roles, from an angle: role, or the person\'s own '
-        + 'my_roles; any role when neither is given), then the one-off lists held against it by hand, then its own '
+        + 'first the ONE standing checklist its type uses (the person chose it; when none is chosen this says so and '
+        + 'names none — never make one up or choose one), then the one-off lists held against it by hand, then its own '
         + 'lines, with what is answered there, and the automatic results of its test runs. Read-only. (2) With a '
         + 'checklist and module (person_asked for a standing one): say which module’s work that checklist is for, or — with module: '
         + 'null — that it is for every module’s. Several modules can show the same place in a paper; said to be for '
@@ -1091,6 +1088,16 @@ function rowLine(row: { item: { id: string; text: string; fact?: Fact }; done: {
  * from `my_roles`, else any role — this door reads no tracker, so it cannot
  * find a person's roles itself. Null with the refusal when `role` is not one.
  */
+/** The page's kehikko choices off the query, read leniently (`choicesOf`); absent or malformed is none. */
+function keptChoices(raw: string | null): Choices | undefined {
+  if (!raw || raw.length > 2048) return undefined
+  try {
+    return choicesOf(JSON.parse(raw))
+  } catch {
+    return undefined
+  }
+}
+
 function angleFrom(args: Record<string, unknown>): { angle: Angle; mine: Role[] | null } | { refusal: string } {
   if (args.role !== undefined && args.role !== null && args.role !== '') {
     if (typeof args.role !== 'string' || !(['assignee', 'reviewer', 'author', 'any'] as string[]).includes(args.role)) {
@@ -1139,7 +1146,7 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
     const why = one.checklist.only
       ? 'one-off: lines just for this item'
       : one.through?.length
-        ? `standard: applies to ${one.through.map(targetName).join('; ')}`
+        ? `standard: the checklist every ${item.type ? typeName(item.type) : 'item of its type'} uses`
         : standingOf(one.checklist) === 'standard'
           ? `standard, also held for ${targetName(one.target as Target)} by hand`
           : `one-off: held for ${targetName(one.target as Target)} by hand`
@@ -1148,19 +1155,22 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
       ...(one.rows.length ? one.rows.map((row, at) => `    ${rowLine(row, at)}`) : ['    (no lines yet)']),
     ].join('\n')
   }
-  const head = `${angleLine(item.as, name)}${kind}${angled.angle === 'auto' && !angled.mine && !args.role ? ' — no role was given, so any role' : ''}:`
+  const chosen = item.chosen ? ` — its type's checklist is "${item.chosen.name}" (${item.chosen.id})` : ''
+  const head = `${name}${kind}${chosen}:`
   const parts = [head]
   if (rules.length || byHand.length || own.length) {
     parts.push(...rules.map(block), ...byHand.map(block), ...own.map(block))
   } else {
-    parts.push(`  ${nothingLine(name, item.as)}`)
+    parts.push(`  No checklist is in front of ${name}.`)
   }
   if (!rules.length) {
     parts.push(
       '',
-      `No standing checklist covers ${name}${item.type ? ` as ${item.type === 'paper' ? 'a paper' : `a ${typeName(item.type)}`}` : ''}. `
-      + 'Standing checklists are the person\'s to make (or adopt from a starter on the Checklist page); do not '
-      + 'make one up for this item.',
+      item.type
+        ? `No checklist is chosen for ${typesName([item.type])} in this project, so ${name} has no standing checklist. `
+          + `The person picks ONE for every ${typeName(item.type)} on the Checklist page (the header's "Checklist for `
+          + `${typesName([item.type])}"). None was invented: do not make one up for this item, and do not choose one.`
+        : `The type of ${name} is not known, so which standing checklist it uses is not known. Pass type to say what it is.`,
     )
   }
   if (ref) {
@@ -1169,13 +1179,6 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
   }
   const unsure = undecidedLine(undecided)
   if (unsure) parts.push('', `${unsure} Pass type to say what it is.`)
-  if (item.elsewhere.length) {
-    parts.push(
-      '',
-      `Lists for ${rolesPhrase(item.elsewhere).replace(/^as /, '')} apply to ${name} too: ask again with role `
-      + `${item.elsewhere.map((role) => `"${role}"`).join(' or ')} to read from that angle.`,
-    )
-  }
   parts.push(
     '',
     'Answer a line with check_item, naming the checklist id above and this item — working while you are on it, then '
@@ -1832,7 +1835,9 @@ export function answerAt(
        is in it or parts of it are picked, and then a list for papers is asked about. */
     const angle = angleOf(query.get('angle'))
     const paper = query.get('paper') === '1' ? epic : null
-    const { instances, items, undecided, trouble, nowhere } = inFront({ ladders, selection, whole, following, read, angle, paper }, where)
+    /* This kehikko's own choice of checklist per type, kept by the host per container and sent by the page. */
+    const choices = keptChoices(query.get('choices'))
+    const { instances, items, undecided, trouble, nowhere } = inFront({ ladders, selection, whole, following, read, angle, paper, choices }, where)
     /*
      * And for the whole paper, the file each list is held against, as a place.
      *
@@ -2088,6 +2093,13 @@ export function answerAt(
       const text = str(body.text, MAX_TEXT)
       const by = OWNER
 
+      /* Which checklist every item of a type uses: the person's, so only ever from this page. */
+      if (op === 'choose') {
+        const type = str(body.type, 16) as ItemType
+        const starter = str(body.starter, MAX_ID)
+        const chose = body.id === null || body.id === undefined || body.id === '' ? null : str(body.id, MAX_ID)
+        return ok(change({ op: 'choose', type, id: chose, ...(starter ? { starter } : {}), by }, where))
+      }
       /* A starter, adopted with one press: the person's, so only ever from this page. */
       if (op === 'adopt') return ok(change({ op: 'adopt', starter: str(body.starter, MAX_ID), by }, where))
       if (op === 'create') {

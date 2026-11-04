@@ -1,6 +1,62 @@
 import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 import pkg from './package.json'
 
+/** "How to use" (protocol 2.52.0). Each string one line of plain text. */
+export const HELP = {
+  summary:
+    'Generic, overarching guidelines for every item of a type, so every feature is accounted for — shown for the one thing you picked.',
+  sections: [
+    {
+      title: 'What it shows: one thing',
+      points: [
+        'Checklists for exactly ONE target, never several at once. The footer says which and why, e.g. "For !4233 (picked in References)".',
+        'A container picked as a target on the kehikko (the box in its header) wins: its subject is the target — References’ picked item, Paper’s paper. Several picked: the one picked last.',
+        'Nothing picked: the thing you selected or moved to most recently — an issue, MR or PR you clicked, or the place in a paper you are reading.',
+        'Neither: nothing is shown, and the page says how to pick something.',
+      ],
+    },
+    {
+      title: 'One checklist per type of item',
+      points: [
+        'Each type — merge requests, pull requests, issues, tasks, papers — uses ONE standing checklist, so every item of that type gets the same one.',
+        'Choose it in the header’s Checklist menu: "Checklist for merge requests". It is kept for the project; turn on "Choices for this kehikko only" to choose differently on this kehikko.',
+        'No choice for a type: its items show no standard and offer the starter for it. Nothing is chosen by itself.',
+        'Making or adopting a checklist for a type with no choice yet makes it that type’s choice.',
+        'Where several standing checklists applied to one type before, the most recently used was kept; the others are listed under Manage checklists as unassigned standards.',
+      ],
+    },
+    {
+      title: 'Standing standards and one-off lists',
+      points: [
+        'A standing checklist is a generic, overarching guideline for a whole type of item, so every feature is accounted for: good practice, patterns, what every such item owes. Not per-item test steps.',
+        'A one-off list is held against particular items by hand, and "Add an item just for …" adds lines for one item alone. Both come after the standard.',
+      ],
+    },
+    {
+      title: 'Who changes what',
+      points: [
+        'The standards are yours. You choose, write and change them on this page.',
+        'Agents answer lines (check_item) and may add one-off lines for one item. They change or make a standing checklist only when you asked, passing your words as person_asked. They never choose a type’s checklist.',
+        'An answer you set is yours: an agent cannot change or take it back.',
+      ],
+    },
+    {
+      title: 'Test steps go in Test runs',
+      points: [
+        'Test runs, verification commands and one-time test steps belong in Test runs, not on a checklist. Their results show here as automatic "Tests pass" items, ticked by the run.',
+      ],
+    },
+    {
+      title: 'What the states mean',
+      points: [
+        'Passed: done and checked. Not applicable: does not apply to this item. Both count as answered.',
+        'Failed: checked, and it does not hold. Blocked: cannot be answered yet; the note says why.',
+        'Working: somebody is on it now. Unchecked: nobody has answered it yet.',
+      ],
+    },
+  ],
+}
+
 export const ID = 'kehikot.checklist'
 /** The module's version: package.json's, the one place it is written. A release is tagged with it. */
 export const VERSION: string = pkg.version
@@ -270,8 +326,9 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   guidance:
     'Checklists here are the person’s STANDING expectations for kinds of item — what every pull request, merge '
     + 'request, issue or paper owes: good practice, patterns, what they expect of all such work. Call `checklists` '
-    + 'with your item (a ref like gh#105, or an epic for its paper) and no checklist id: the standing checklists for '
-    + 'its kind come first, then any one-off lines; pass `role` or the person’s `my_roles`. Answers are per item. '
+    + 'with your item (a ref like gh#105, or an epic for its paper) and no checklist id: the ONE standing checklist '
+    + 'the person chose for its type comes first, then any one-off lines; with none chosen, say so — never invent one. '
+    + 'Answers are per item. '
     + 'Mark a line `working` with `check_item` while you are on it, then answer it — passed, failed or na — with a '
     + 'note saying how you know; `blocked` with a note when it cannot be answered yet. Before calling anything done, '
     + 'answer each line or say which you could not, and why. An answer a person set is theirs. Only the person makes '
@@ -283,6 +340,14 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     'Answer the person’s standing checklists for your item (checklists, then check_item: working, then passed, failed or na). Test steps go in Test runs; only the person changes standards.',
   absentSays:
     "Checklist isn't on this kehikko: don't claim work meets the person's standing checklists. Test steps belong in Test runs; if they want standards checked, suggest adding Checklist.",
+  /*
+   * How to use it, for a person (protocol 2.52.0): plain text the host draws as "How to use" — headings
+   * and bullet lists, never markup or links. The rules, not a tour: which ONE thing it shows and how
+   * that is chosen, the one checklist per type, standing versus one-off, who changes what, where test
+   * steps go, and what each state means. Bounded by the protocol's `HELP_LIMITS`; `test/manifest.test.ts`
+   * holds it to them.
+   */
+  help: HELP,
   entry: '/app',
   /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
   modes: [

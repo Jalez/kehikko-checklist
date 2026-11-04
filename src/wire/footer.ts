@@ -2,6 +2,7 @@ import { LIMITS, type FooterItemInput } from 'kehikot-module-protocol'
 
 import type { Progress } from '../../list/glance.ts'
 import { summaryTip, troubleSaid } from '../components/glance-layout.ts'
+import { NOTHING_PICKED } from '../../list/standing.ts'
 
 /**
  * This page's footer, as the host draws it (`kehikot.footer`, protocol 2.38.0): what is going on
@@ -39,6 +40,11 @@ export interface FooterState {
   standing?: { standards: number; oneOff: number } | null
   /** The reading page's word about lists put aside for another module's work, or null. */
   aside?: string | null
+  /**
+   * Which ONE thing the reading page shows checklists for, and why it is the one: "For !4233 (picked
+   * in References)", or how to pick something (`list/one.ts`). The concerns readout's words.
+   */
+  why?: string | null
 }
 
 const clip = (text: string, most: number) => {
@@ -68,16 +74,16 @@ export function footerItems(state: FooterState): FooterItemInput[] {
   }
   const concerns = state.concerns
   if (!concerns) {
-    items.push({ kind: 'text', id: 'concerns', text: 'Nothing picked', tooltip: 'Pick an issue, MR, PR or paper to see its checklists.' })
+    items.push({ kind: 'text', id: 'concerns', text: clip(state.why ?? 'Nothing picked', LIMITS.FOOTER_TEXT), tooltip: clip(state.why ?? NOTHING_PICKED, LIMITS.FOOTER_TOOLTIP) })
     return items
   }
-  const target = `${concerns.short ?? concerns.said}${concerns.more ? ` +${concerns.more}` : ''}`
+  const target = state.why ?? `${concerns.short ?? concerns.said}${concerns.more ? ` +${concerns.more}` : ''}`
   items.push({
     kind: 'text',
     id: 'concerns',
     text: clip(target, LIMITS.FOOTER_TEXT),
     tooltip: clip(
-      `${concerns.said}${concerns.more ? `, and ${concerns.more} more item${concerns.more === 1 ? '' : 's'} picked` : ''}.${state.aside ? ` ${state.aside}` : ''}`,
+      `${concerns.said}${concerns.more ? `, and ${concerns.more} more item${concerns.more === 1 ? '' : 's'} picked` : ''}.${state.why ? ` ${state.why}.` : ''}${state.aside ? ` ${state.aside}` : ''}`,
       LIMITS.FOOTER_TOOLTIP,
     ),
   })
