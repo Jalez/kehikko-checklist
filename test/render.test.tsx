@@ -841,13 +841,15 @@ describe('every checklist in the project', () => {
     const ruled = { id: 'three', name: 'What a review owes', at: '', by: 'a test', items: 2, targets: 1, held: [REF], applies: [{ kind: 'rule', types: ['mr', 'pr'], roles: ['reviewer'], epic: null } as Target] }
     const own = { id: 'own', name: 'Only for gh#105', at: '', by: 'a test', items: 1, targets: 1, held: [REF], only: 'ref:gh#105' }
     const { container } = render(<AllView lists={[...lists, ruled, own]} onOpen={noop} {...props} room={ROOMY} />)
+    /* The standing checklist first, then the one-offs, each called which it is. */
     expect([...container.querySelectorAll('[data-applies]')].map((one) => one.textContent)).toEqual([
+      'merge requests and pull requests · as reviewer · also only for 1 item',
       'only for 2 items',
       'applies to nothing yet — open it to say which types and roles',
-      'merge requests and pull requests · as reviewer · also only for 1 item',
     ])
+    expect([...container.querySelectorAll('[data-standing]')].map((one) => one.textContent)).toEqual(['Standard', 'One-off', 'One-off'])
     expect(container.querySelector('[data-checklist="own"]')).toBeNull()
-    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3 items', '1 item', '2 items'])
+    expect([...container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['2 items', '3 items', '1 item'])
     cleanup()
     const tight = render(<AllView lists={lists} onOpen={noop} {...props} room={TIGHT} />)
     expect([...tight.container.querySelectorAll('[data-summary]')].map((one) => one.textContent)).toEqual(['3', '1'])

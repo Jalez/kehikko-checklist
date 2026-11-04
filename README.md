@@ -22,6 +22,62 @@ bun run register         # tell a host on this machine where it is
 bun test && bun run typecheck
 ```
 
+## Standing checklists, and one-off lists
+
+A checklist here is first of all the person's **standing expectations for a kind
+of item**: what every pull request, merge request, issue or paper owes — good
+practice, the project's patterns, what they expect an agent to do in all such
+work. Such a list *applies* to types × roles (see below) and is in front of every
+item of that kind without anybody holding it. Everything else — a list held
+against particular items by hand, or the lines added for one item alone — is a
+**one-off**, and is called that wherever it is drawn or answered. The standing
+ones always come first: on the reading page, on the manager, and in what
+`checklists` and `checklist_for` answer an agent.
+
+- **The standards are the person's.** Through the MCP door an agent may answer
+  any line (`check_item`) and add one-off lines for one item (`add_item_for`).
+  Making a list standing (`create_checklist` with `types`, `hold_checklist` with
+  `types`) or changing a standing one (`add_checklist_item`,
+  `reword_checklist_item`, `move_checklist_item`, `drop_checklist_item`,
+  `hold_checklist`, `checklist_for` with a module) is refused unless the call
+  carries `person_asked` — the person's own words asking for it. The rule is in
+  `change()` (`list/checklists.ts`, `standardIsThePersons` in
+  `list/standing.ts`), so it holds for every caller. The page is the person and
+  is not asked.
+- **Test steps belong in Test runs.** The tool descriptions, the guidance and
+  the session notes say plainly that test runs, verification commands and
+  one-time test steps go in Test runs when it is installed (their results show
+  here as automatic items), and an agent that creates a one-off list is told it
+  made one and where such lines belong.
+- **Starters.** `list/starters.ts` holds a few standing checklists — pull and
+  merge request standards, issue standards, paper standards — the person can
+  adopt with one press (the manager's Starters, or the header's Create menu).
+  Never made by themselves and never through the MCP door; a list adopted from a
+  starter keeps `origin: "starter:<id>"`, so the same one is not adopted twice.
+- Existing lists keep working: a list with no types is a one-off, exactly as it
+  was held.
+
+## At a glance, and more as the container grows
+
+Each picked item opens with its **glance**: which item it is (kind, ref and the
+tracker's title), and three tiles — **Progress** (answered of all, with a chart
+of how the answers came in), **Failing** (how many failed or are blocked, with
+every line's state as one bar) and **Working on** (the lines marked working).
+Every chart has its sentence; colours are the page's tokens in both themes. The
+page picks a level from its own width and height (`levelOf` in
+`list/glance.ts`): under 240 px tall, the glance alone; from there, the glance
+and every list's lines with their states; at 560 × 560 and more, each item's
+history too — who answered what, when, and how they know. Who answered is said
+there (and in a state's tooltip), not on the rows.
+
+**Header and footer.** The header is how the module is set up: View (the
+reading page, Manage checklists, Storage), which **Checklist** of the ones in
+front (when there are several), the **Angle**, and **Create** — New checklist,
+the starters, Copy from another project. The footer is what is going on now: the
+item the lists concern, a **Progress** meter, how many **failed or blocked**,
+and what is **being worked on**; on the manager, how many standing and one-off
+lists there are. Nothing is in both.
+
 ## The model, which is one sentence long
 
 A **checklist** is a named thing a person created. It is **applied to a target**,
@@ -468,25 +524,32 @@ runs, and "Show N hidden" draws them again with **Show**. The page reads them ag
 `runs.json` changes. The `checklists` and `checklist_for` tools list them for a ref, marked
 automatic; `check_item` cannot tick them.
 
-## Passed, failed, not applicable, unchecked
+## Passed, failed, not applicable, working, blocked, unchecked
 
-For one target, an item is in one of four states. **Passed** is a tick; **failed**
-and **not applicable** (`na`) are ticks that say so; **unchecked** is no tick at
-all. Each carries its note (how the person or agent knows) and who set it.
+For one target, an item is in one of six states. **Passed** is a tick; **failed**
+and **not applicable** (`na`) are ticks that say so; **working** (somebody is on
+it now) and **blocked** (it cannot be answered yet; the note says why) say where
+a line stands before it has an answer; **unchecked** is no tick at all. Each
+carries its note (how the person or agent knows) and who set it. Progress counts
+passed and not applicable.
 
-- A tick stores `state: 'passed' | 'failed' | 'na'`. A tick written before states
-  existed has none and reads as `passed`: every old tick meant exactly that.
+- A tick stores `state: 'passed' | 'failed' | 'na' | 'working' | 'blocked'`. A
+  tick written before states existed has none and reads as `passed`: every old
+  tick meant exactly that. `working` and `blocked` are new values; a file that
+  holds one is not read by a version before 2.11.0.
 - The page draws each state with a shape and a word, never colour alone: `✓`
   Passed, `✗` Failed, `–` N/A, an empty box when unchecked (spoken as "not
   checked"). Pressing the line sets Passed (and takes it back when it is
   already Passed); the small Failed and N/A buttons beside it set those, and
-  pressing the one that is on clears it. The count stays `passed/total`, with
-  `N failed · N n/a` said in words beside it, so a failure never reads as
-  nearly done. View → Storage counts ticks of every state alike.
-- MCP `check_item` takes `state` (`passed`, the default, `failed` or `na`);
+  pressing the one that is on clears it — and Working (`…`) and Blocked (`‖`)
+  beside them the same way. The count stays `passed/total`, with
+  `N failed · N blocked · N working · N n/a` said in words beside it, so a
+  failure never reads as nearly done. View → Storage counts ticks of every state alike.
+- MCP `check_item` takes `state` (`passed`, the default, `failed`, `na`,
+  `working` or `blocked`);
   `done: false` still takes the tick back and has no state (the two together are
-  refused). `checklists` for a target prints `[x]` passed, `[!]` failed, `[-]` n/a
-  and `[ ]` unchecked, each with `(by, over MCP: note)`, then one line
+  refused). `checklists` for a target prints `[x]` passed, `[!]` failed, `[-]` n/a,
+  `[~]` working, `[/]` blocked and `[ ]` unchecked, each with `(by, over MCP: note)`, then one line
   `passed N · failed N · n/a N · unchecked N` under the heading.
 - **A tick the person made is theirs.** One made on the page (`viaMcp: false`)
   cannot be changed or taken back over MCP, and neither can the item that holds

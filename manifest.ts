@@ -251,8 +251,8 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   /* Where a host files this module in its list, most fitting first. */
   tags: ['planning', 'review'],
   summary:
-    'Checklists for a type of item and a role — merge requests as reviewer, issues, papers — plus lines for one '
-    + 'item, shown for the item you pick, from your angle.',
+    'Your standing checklists for every pull request, merge request, issue or paper — practices and expectations '
+    + 'agents answer per item — with progress, failures and work underway at a glance.',
   /**
    * What an agent should do about this module, given that it is here.
    *
@@ -268,19 +268,21 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * nothing else would still act correctly on.
    */
   guidance:
-    'Work here is held to checklists somebody wrote — nothing is hardcoded, so read them. A checklist applies to '
-    + 'types of item × roles (merge requests as reviewer, issues for any role, papers), and an item may have lines '
-    + 'of its own. Call `checklists` with the item you work on (a ref like gh#105, or an epic for its paper) and no '
-    + 'checklist id to get all that applies, with what is ticked there; pass `role`, or the person’s `my_roles` as '
-    + 'the host’s read_tracker says them. Answers are per item: two issues keep separate ticks. Before calling '
-    + 'anything done, answer each line or say plainly which you could not, and why. `check_item` answers under '
-    + 'your own name: state passed (default), failed or na, plus a note. An answer a person set is theirs: say '
-    + 'what you found in words. `add_item_for` adds a line just for one item; `hold_checklist` with types and roles '
-    + 'makes a list apply. If none fits, `create_checklist` — but look first.',
+    'Checklists here are the person’s STANDING expectations for kinds of item — what every pull request, merge '
+    + 'request, issue or paper owes: good practice, patterns, what they expect of all such work. Call `checklists` '
+    + 'with your item (a ref like gh#105, or an epic for its paper) and no checklist id: the standing checklists for '
+    + 'its kind come first, then any one-off lines; pass `role` or the person’s `my_roles`. Answers are per item. '
+    + 'Mark a line `working` with `check_item` while you are on it, then answer it — passed, failed or na — with a '
+    + 'note saying how you know; `blocked` with a note when it cannot be answered yet. Before calling anything done, '
+    + 'answer each line or say which you could not, and why. An answer a person set is theirs. Only the person makes '
+    + 'or changes a standing checklist: change one only when they asked, passing `person_asked`. Test runs, '
+    + 'verification commands and one-time test steps do NOT belong here — queue them in Test runs when installed.',
   /* What every agent session is told about it (protocol 2.36.0): beside its name where it is on the
      kehikko, and — for a session on a kehikko it is NOT on, while it is installed here — the second. */
-  agentSays: 'Before calling work done, read the checklists for the item (checklists) and answer each line with check_item.',
-  absentSays: "Checklist isn't on this kehikko: don't claim work is done against a checklist. If the person wants one, suggest adding Checklist here.",
+  agentSays:
+    'Answer the person’s standing checklists for your item (checklists, then check_item: working, then passed, failed or na). Test steps go in Test runs; only the person changes standards.',
+  absentSays:
+    "Checklist isn't on this kehikko: don't claim work meets the person's standing checklists. Test steps belong in Test runs; if they want standards checked, suggest adding Checklist.",
   entry: '/app',
   /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
   modes: [
@@ -289,7 +291,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
   mcp: {
     url: '/mcp',
     transport: 'http',
-    about: 'Checklists somebody wrote, and ticking one off against a specific issue, change or paper.',
+    about: 'The person’s standing checklists for kinds of item, and answering them for one issue, change or paper.',
   },
   extensions: { emits: [FORMAT], consumes: [] },
   /**

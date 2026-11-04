@@ -318,7 +318,7 @@ describe('a tick has a state: passed, failed or not applicable', () => {
     expect(stripped).toBeGreaterThan(0)
     const again = held(list, REF, dir).held!
     expect(again.rows[0]!.done?.state).toBe('passed')
-    expect(again.counts).toEqual({ passed: 1, failed: 0, na: 0, unchecked: 0 })
+    expect(again.counts).toEqual({ passed: 1, failed: 0, na: 0, working: 0, blocked: 0, unchecked: 0 })
   })
 
   test('a failed tick is stored with its note and who set it, and leaves the others unchecked', async () => {
@@ -340,7 +340,7 @@ describe('a tick has a state: passed, failed or not applicable', () => {
     change({ op: 'tick', id: list, item: ids[1]!, target: REF, done: true, state: 'failed', by: 'a test' }, dir)
     change({ op: 'tick', id: list, item: ids[2]!, target: REF, done: true, state: 'na', by: 'a test' }, dir)
     const now = held(list, REF, dir).held!
-    expect(now.counts).toEqual({ passed: 1, failed: 1, na: 1, unchecked: 1 })
+    expect(now.counts).toEqual({ passed: 1, failed: 1, na: 1, working: 0, blocked: 0, unchecked: 1 })
     expect(now.done).toBe(1)
     expect(now.total).toBe(4)
   })

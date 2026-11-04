@@ -324,6 +324,8 @@ export async function paperOutline(projectPath: string | null, path: string): Pr
 export type Edit =
   /* `rule`: what the new list applies to, said at once — the pane's "Add a checklist for <type> as <role>". */
   | { op: 'create'; name: string; rule?: RuleInput }
+  /** Adopt a starter: a standing checklist made from its lines and kinds (`list/starters.ts`). */
+  | { op: 'adopt'; starter: string }
   /** Every rule the list applies by, whole: types × roles, and the epic each is narrowed to. */
   | { op: 'applies'; id: string; rules: RuleInput[] }
   /** A line for one item alone — a ref, or a paper — on top of the lists that apply to it. */

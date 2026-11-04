@@ -73,6 +73,15 @@
   --unasked: oklch(0.68 0.04 260);
   --stale: oklch(0.66 0.13 300);
   --todo: oklch(0.75 0.01 260);
+
+  /*
+   * The glance (`src/components/glance.tsx`): progress, what is being worked on,
+   * and what is blocked. One hue per meaning, in both themes, and never the only
+   * way a number is said — every chart has its sentence, every state its word.
+   */
+  --chart-progress: oklch(0.55 0.14 155);
+  --working: oklch(0.55 0.15 255);
+  --blocked: oklch(0.6 0.15 60);
 }
 
 /*
@@ -104,6 +113,9 @@
     --accent-foreground: oklch(0.985 0 0);
     --primary: oklch(0.985 0 0);
     --primary-foreground: oklch(0.205 0 0);
+    --chart-progress: oklch(0.72 0.14 155);
+    --working: oklch(0.72 0.13 255);
+    --blocked: oklch(0.76 0.14 65);
   }
 }
 
@@ -122,6 +134,9 @@
   --accent-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
   --primary-foreground: oklch(0.205 0 0);
+  --chart-progress: oklch(0.72 0.14 155);
+  --working: oklch(0.72 0.13 255);
+  --blocked: oklch(0.76 0.14 65);
 }
 
 @theme inline {
@@ -145,6 +160,9 @@
   --color-unasked: var(--unasked);
   --color-stale: var(--stale);
   --color-todo: var(--todo);
+  --color-chart-progress: var(--chart-progress);
+  --color-working: var(--working);
+  --color-blocked: var(--blocked);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);

@@ -478,7 +478,7 @@ describe('the agent’s door', () => {
        to a person where it is held, and this is how an agent puts one there. */
     await aChapter('chapters/3_methods.tex')
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods' })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'chapters:3_methods' })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is now held against thesis · chapters:3_methods')
     const all = await tool('checklists', {})
@@ -490,7 +490,7 @@ describe('the agent’s door', () => {
   test('hold_checklist with release: true lets go, and says the ticks are kept', async () => {
     const { list, item } = await aList()
     await tool('check_item', { checklist: list, item, ref: 'gh#105' })
-    const out = await tool('hold_checklist', { checklist: list, ref: 'gh#105', release: true })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, ref: 'gh#105', release: true })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is no longer held against gh#105')
     expect(out.text).toContain('kept')
@@ -504,7 +504,7 @@ describe('the agent’s door', () => {
     const source = '\\section{Research design}\\label{sec:meth-design}\n\nWords.\n'
     writeFileSync(join(dir, 'chapters', '3_methods.tex'), source)
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', from: 40, to: 45 })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', from: 40, to: 45 })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('chapters:3_methods#sec:meth-design')
   })
@@ -512,17 +512,17 @@ describe('the agent’s door', () => {
   test('a path spelled from the paper’s own folder is that file, not the whole paper (Jalez/kehikko-checklist#14)', async () => {
     await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
     const { list } = await aList()
-    const file = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex' })
+    const file = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex' })
     expect(file.isError).toBe(false)
     expect(file.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
     expect(file.text).not.toContain('(the paper)')
-    const heading = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', ...WORDS })
+    const heading = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex', ...WORDS })
     expect(heading.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
   })
 
   test('a path that is not a file is refused, and nothing is held against the whole paper instead', async () => {
     const { list, item } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/nowhere.tex' })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', path: 'chapters/nowhere.tex' })
     expect(out.isError).toBe(true)
     expect(out.text).toContain('is not a file this app can open')
     expect(out.text).toContain('refused rather than read as the whole paper')
@@ -538,11 +538,11 @@ describe('the agent’s door', () => {
     const { list } = await aList()
     /* The bare label the description used to suggest: it is not the id this app
        mints for that heading, so no container's `showing` resolves to it. */
-    const bare = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:meth-design' })
+    const bare = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'sec:meth-design' })
     expect(bare.isError).toBe(true)
     expect(bare.text).toContain('names no file or heading')
     expect(bare.text).toContain('A bare label is not one')
-    const typo = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods#sec:design' })
+    const typo = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'chapters:3_methods#sec:design' })
     expect(typo.isError).toBe(true)
     expect(typo.text).toContain('has no heading with the id "sec:design"')
     expect(typo.text).toContain('Its headings are: .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
@@ -552,10 +552,10 @@ describe('the agent’s door', () => {
   test('a section spelled from the paper’s folder or from the project’s is one target, the one a reader arrives at', async () => {
     await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
     const { list } = await aList()
-    const short = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' })
+    const short = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'chapters:3_methods#sec:meth-design' })
     expect(short.isError).toBe(false)
     expect(short.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods#sec:meth-design')
-    const long = await tool('hold_checklist', {
+    const long = await tool('hold_checklist', { person_asked: 'Make it a standard',
       checklist: list,
       epic: 'thesis',
       section: '.kehikot:paper:thesis:chapters:3_methods#sec:meth-design',
@@ -584,11 +584,11 @@ describe('the agent’s door', () => {
     expect(read.text).toContain('1/1 ticked')
     const untick = await tool('check_item', { checklist: list, item, epic: 'thesis', section: 'sec:dependencies', done: false })
     expect(untick.isError).toBe(false)
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:dependencies', release: true })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'sec:dependencies', release: true })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is no longer held against thesis · sec:dependencies')
     /* And once let go it is a new target like any other, and refused. */
-    const again = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'sec:dependencies' })
+    const again = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'sec:dependencies' })
     expect(again.isError).toBe(true)
   })
 
@@ -616,7 +616,7 @@ describe('the agent’s door', () => {
     const held = await tool('hold_checklist', named)
     expect(held.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
 
-    const released = await tool('hold_checklist', { ...named, release: true })
+    const released = await tool('hold_checklist', { person_asked: 'Make it a standard', ...named, release: true })
     expect(released.isError).toBe(false)
     expect(released.text).toContain('is no longer held against thesis · chapters:3_methods')
     expect(released.text).toContain('Held against: thesis · .kehikot:paper:thesis:chapters:3_methods')
@@ -626,16 +626,16 @@ describe('the agent’s door', () => {
     await aChapter('chapters/3_methods.tex')
     await aChapter('.kehikot/paper/thesis/chapters/3_methods.tex')
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex' })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', path: 'chapters/3_methods.tex' })
     expect(out.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
     expect(out.text).toContain('The paper’s was taken')
     expect(out.text).toContain(`give its absolute path: "${join(dir, 'chapters/3_methods.tex')}"`)
-    const other = await tool('hold_checklist', { checklist: list, epic: 'thesis', path: join(dir, 'chapters/3_methods.tex') })
+    const other = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', path: join(dir, 'chapters/3_methods.tex') })
     expect(other.text).toContain('is now held against thesis · chapters:3_methods')
     expect(other.text).not.toContain('was taken')
 
     const second = await aList('What a chapter owes')
-    const byId = await tool('hold_checklist', { checklist: second.list, epic: 'thesis', section: 'chapters:3_methods' })
+    const byId = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: second.list, epic: 'thesis', section: 'chapters:3_methods' })
     expect(byId.text).toContain('is now held against thesis · .kehikot:paper:thesis:chapters:3_methods')
     expect(byId.text).toContain(`To mean the project’s instead, give path: "${join(dir, 'chapters/3_methods.tex')}"`)
   })
@@ -645,7 +645,7 @@ describe('the agent’s door', () => {
     mkdirSync(join(dir, 'notes'))
     writeFileSync(join(dir, 'notes.txt'), 'Words.\n')
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'notes' })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'notes' })
     expect(out.isError).toBe(false)
     expect(out.text).toContain('is now held against thesis · notes')
   })
@@ -655,7 +655,7 @@ describe('the agent’s door', () => {
     const headings = Array.from({ length: 30 }, (_, at) => `\\section{Part ${at}}\\label{sec:p${at}}\n\nWords.\n`)
     writeFileSync(join(dir, 'long.tex'), headings.join('\n'))
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'long#sec:nope' })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'long#sec:nope' })
     expect(out.isError).toBe(true)
     expect(out.text).toContain('long#sec:p23 — the first 24 of 30')
     expect(out.text).not.toContain('long#sec:p24')
@@ -665,19 +665,19 @@ describe('the agent’s door', () => {
     const name = 'a'.repeat(55)
     await aChapter(`.kehikot/paper/thesis/chapters/${name}.tex`)
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: `chapters:${name}` })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: `chapters:${name}` })
     expect(out.isError).toBe(true)
     expect(out.text).toContain('is on disk')
     expect(out.text).toContain('at most 80 characters')
     expect(out.text).not.toContain('names no file')
-    const heading = await tool('hold_checklist', {
+    const heading = await tool('hold_checklist', { person_asked: 'Make it a standard',
       checklist: list,
       epic: 'thesis',
       section: `chapters:${'a'.repeat(30)}#sec:meth-design`,
     })
     expect(heading.text).toContain('names no file')
     await aChapter(`.kehikot/paper/thesis/chapters/${'b'.repeat(40)}.tex`)
-    const tooLong = await tool('hold_checklist', {
+    const tooLong = await tool('hold_checklist', { person_asked: 'Make it a standard',
       checklist: list,
       epic: 'thesis',
       section: `chapters:${'b'.repeat(40)}#sec:meth-design`,
@@ -728,19 +728,19 @@ describe('the agent’s door', () => {
     await aChapter('My Thesis/ch/1.tex')
     await aChapter('My Thesis/Part One/2.tex')
     const { list } = await aList()
-    const file = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'My-Thesis:ch:1' })
+    const file = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'My-Thesis:ch:1' })
     expect(file.isError).toBe(false)
     expect(file.text).toContain('is now held against thesis · My-Thesis:ch:1')
-    const heading = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'My-Thesis:ch:1#sec:meth-design' })
+    const heading = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'My-Thesis:ch:1#sec:meth-design' })
     expect(heading.text).toContain('is now held against thesis · My-Thesis:ch:1#sec:meth-design')
-    const nested = await tool('hold_checklist', {
+    const nested = await tool('hold_checklist', { person_asked: 'Make it a standard',
       checklist: list,
       epic: 'thesis',
       section: 'My-Thesis:Part-One:2#sec:meth-design',
     })
     expect(nested.isError).toBe(false)
     expect(nested.text).toContain('is now held against thesis · My-Thesis:Part-One:2#sec:meth-design')
-    const typo = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'My-Thesis:Part-Two:2' })
+    const typo = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'My-Thesis:Part-Two:2' })
     expect(typo.isError).toBe(true)
   })
 
@@ -750,13 +750,13 @@ describe('the agent’s door', () => {
     writeFileSync(join(dir, 'pair.md'), '# Aims\n\nWords.\n')
     const { list } = await aList()
     for (const section of ['pair#sec:in-tex', 'pair#Aims']) {
-      const out = await tool('hold_checklist', { checklist: list, epic: 'thesis', section })
+      const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section })
       expect(out.isError).toBe(false)
       expect(out.text).toContain(`is now held against thesis · ${section}`)
     }
-    const neither = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'pair#sec:nope' })
+    const neither = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'pair#sec:nope' })
     expect(neither.isError).toBe(true)
-    const whole = await tool('hold_checklist', { checklist: list, epic: 'thesis', section: 'pair' })
+    const whole = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, epic: 'thesis', section: 'pair' })
     expect(whole.text).toContain('is now held against thesis · pair')
     expect(whole.text).not.toContain('was taken')
   })
@@ -788,7 +788,7 @@ describe('the agent’s door', () => {
 
   test('hold_checklist with nothing to hold against is refused and told what a target is', async () => {
     const { list } = await aList()
-    const out = await tool('hold_checklist', { checklist: list })
+    const out = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list })
     expect(out.isError).toBe(true)
     expect(out.text).toContain('needs to say WHAT to hold the list against')
   })
@@ -1104,7 +1104,7 @@ describe('states over MCP and the page', () => {
     const { list, item } = await aList()
     const out = await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'maybe' })
     expect(out.isError).toBe(true)
-    expect(out.text).toContain('passed, failed or na')
+    expect(out.text).toContain('passed, failed, na (not applicable), working')
     expect((await tool('checklists', { checklist: list, ref: 'gh#1' })).text).toContain('passed 0 · failed 0 · n/a 0 · unchecked 1')
   })
 
@@ -1146,49 +1146,132 @@ describe('states over MCP and the page', () => {
     const { list, item } = await aList()
     const reply = await page({ op: 'tick', id: list, item, ref: 'gh#1', done: true, state: 'maybe' })
     expect(reply?.status).toBe(400)
-    expect((reply?.body as { error: string }).error).toContain('passed, failed or na')
+    expect((reply?.body as { error: string }).error).toContain('passed, failed, na (not applicable), working')
   })
 
-  test('check_item’s schema offers the three states, defaulting to passed', async () => {
+  test('check_item’s schema offers the states, defaulting to passed', async () => {
     const { answerAt: answer } = await import('../doors.ts')
     const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, null)
     const tools = (reply?.body as { result: { tools: { name: string; inputSchema: { properties: Record<string, { enum?: string[] }> } }[] } }).result.tools
-    expect(tools.find((one) => one.name === 'check_item')?.inputSchema.properties.state?.enum).toEqual(['passed', 'failed', 'na'])
+    expect(tools.find((one) => one.name === 'check_item')?.inputSchema.properties.state?.enum).toEqual(['passed', 'failed', 'na', 'working', 'blocked'])
+  })
+})
+
+describe('standing checklists are the person’s, one-offs are steered away from', () => {
+  test('working and blocked are states an agent sets, with a note, and the listing marks them', async () => {
+    const { list, item } = await aList()
+    const working = await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'working', agent: 'claude' })
+    expect(working.isError).toBe(false)
+    expect(working.text).toContain('marked as being worked on for ref:gh#1')
+    expect((await tool('checklists', { checklist: list, ref: 'gh#1' })).text).toMatch(/\[~\]/)
+    const blocked = await tool('check_item', { checklist: list, item, ref: 'gh#1', state: 'blocked', note: 'needs a token' })
+    expect(blocked.text).toContain('marked blocked')
+    const read = (await tool('checklists', { checklist: list, ref: 'gh#1' })).text
+    expect(read).toMatch(/\[\/\]/)
+    expect(read).toContain('blocked 1')
+  })
+
+  test('an agent may not make a list standing, or change a standing one, without the person’s words', async () => {
+    const { list, item } = await aList('What a pull request owes')
+    const made = await tool('hold_checklist', { checklist: list, types: ['pr'] })
+    expect(made.isError).toBe(true)
+    expect(made.text).toContain('is a standing checklist')
+    expect(made.text).toContain('person_asked')
+    expect((await tool('hold_checklist', { checklist: list, types: ['pr'], person_asked: 'Make it apply to PRs' })).isError).toBe(false)
+    for (const [name, args] of [
+      ['add_checklist_item', { text: 'One more' }],
+      ['reword_checklist_item', { item, text: 'Reworded' }],
+      ['move_checklist_item', { item, position: 1 }],
+      ['drop_checklist_item', { item }],
+    ] as const) {
+      const refused = await tool(name, { checklist: list, ...args, person_asked: '' })
+      expect(refused.isError).toBe(true)
+      expect(refused.text).toContain('only the person decides what it says')
+    }
+    /* An answer is an agent's to give. */
+    expect((await tool('check_item', { checklist: list, item, ref: 'gh#4' })).isError).toBe(false)
+    /* And with the person's words, the change is made. */
+    const asked = await tool('add_checklist_item', { checklist: list, text: 'No secrets in the diff', person_asked: 'Add a line about secrets' })
+    expect(asked.isError).toBe(false)
+  })
+
+  test('create_checklist with types makes a standing checklist only when the person asked; without, a one-off said to be one', async () => {
+    const refused = await tool('create_checklist', { name: 'PR standards', types: ['pr', 'mr'] })
+    expect(refused.isError).toBe(true)
+    expect(refused.text).toContain('is a standing checklist')
+    const made = await tool('create_checklist', { name: 'PR standards', types: ['pr', 'mr'], person_asked: 'Make a PR standards list' })
+    expect(made.isError).toBe(false)
+    expect(made.text).toContain('applying to merge requests and pull requests · any role')
+    const oneOff = await tool('create_checklist', { name: 'Steps for gh#9' })
+    expect(oneOff.isError).toBe(false)
+    expect(oneOff.text).toContain('This is a ONE-OFF list')
+    expect(oneOff.text).toContain('belong on a checklist: queue them in Test runs')
+    const listed = (await tool('checklists', {})).text
+    expect(listed.indexOf('"PR standards"')).toBeLessThan(listed.indexOf('"Steps for gh#9"'))
+    expect(listed).toContain('Standard — the person')
+    expect(listed).toContain('One-off — held against particular items')
+  })
+
+  test('checklist_for puts the standing checklists for the kind first, and says when there are none', async () => {
+    const standard = await aList('Every MR')
+    await tool('hold_checklist', { checklist: standard.list, types: ['mr'], person_asked: 'yes' })
+    const oneOff = await aList('Just this one')
+    await tool('hold_checklist', { checklist: oneOff.list, ref: '!7' })
+    const read = (await tool('checklist_for', { ref: '!7' })).text
+    expect(read.indexOf('"Every MR" (standard')).toBeGreaterThan(-1)
+    expect(read.indexOf('"Every MR"')).toBeLessThan(read.indexOf('"Just this one" (one-off: held for !7 by hand)'))
+    const bare = (await tool('checklist_for', { ref: 'gh#3', type: 'pr' })).text
+    expect(bare).toContain('No standing checklist covers gh#3 as a pull request')
+  })
+
+  test('a starter is adopted by the person on the page, once, and never through the MCP door', async () => {
+    const { TICKET, answerAt: answer } = await import('../doors.ts')
+    const adopted = answer('POST', '/api/checklist', query, { op: 'adopt', starter: 'changes', project: dir }, TICKET)
+    expect(adopted?.status).toBe(200)
+    expect((adopted?.body as { said: string }).said).toContain('adopted “Pull and merge request standards”')
+    const again = answer('POST', '/api/checklist', query, { op: 'adopt', starter: 'changes', project: dir }, TICKET)
+    expect((again?.body as { error: string }).error).toContain('adopted already')
+    const listed = (await tool('checklists', {})).text
+    expect(listed).toContain('"Pull and merge request standards" (6 items')
+    expect(listed).toContain('applies to merge requests and pull requests · any role')
+    const { change } = await import('../list/checklists.ts')
+    const viaMcp = change({ op: 'adopt', starter: 'issues', by: 'claude', viaMcp: true }, dir)
+    expect(viaMcp.ok).toBe(false)
   })
 })
 
 describe('types × roles, and lines just for one item, at the doors', () => {
   test('hold_checklist takes types and roles, and checklists lists the rule', async () => {
     const { list } = await aList('What a review owes')
-    const held = await tool('hold_checklist', { checklist: list, types: ['mr', 'pr'], roles: ['reviewer'] })
+    const held = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['mr', 'pr'], roles: ['reviewer'] })
     expect(held.isError).toBe(false)
     expect(held.text).toContain('now applies to merge requests and pull requests · as reviewer')
     expect((await tool('checklists', {})).text).toContain('applies to merge requests and pull requests · as reviewer)')
     const one = await tool('checklists', { checklist: list })
     expect(one.text).toContain('Applies to: merge requests and pull requests · as reviewer (each item keeps its own ticks)')
-    const epic = await tool('hold_checklist', { checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis' })
+    const epic = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis' })
     expect(epic.text).toContain('now applies to papers of thesis · as author')
-    const released = await tool('hold_checklist', { checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis', release: true })
+    const released = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['paper'], roles: ['author'], epic: 'thesis', release: true })
     expect(released.text).toContain('no longer applies to papers of thesis · as author')
   })
 
   test('#31’s every still works, as issue × any role', async () => {
     const { list } = await aList('What an issue owes')
-    const held = await tool('hold_checklist', { checklist: list, every: 'issue' })
+    const held = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, every: 'issue' })
     expect(held.text).toContain('now applies to issues · any role')
-    expect((await tool('hold_checklist', { checklist: list, every: 'mr' })).isError).toBe(true)
+    expect((await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, every: 'mr' })).isError).toBe(true)
   })
 
   test('a type that is not one, a role that is not one, and a tick against a rule are refused in words; task is taken', async () => {
     const { list, item } = await aList('What an issue owes')
-    const typo = await tool('hold_checklist', { checklist: list, types: ['merge'] })
+    const typo = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['merge'] })
     expect(typo.isError).toBe(true)
     expect(typo.text).toContain('types is one or more of issue, mr, pr, paper, task')
-    const task = await tool('hold_checklist', { checklist: list, types: ['task'] })
+    const task = await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['task'] })
     expect(task.isError).toBeFalsy()
     expect(task.text).toContain('now applies to tasks · any role')
-    expect((await tool('hold_checklist', { checklist: list, types: ['issue'], roles: ['owner'] })).isError).toBe(true)
-    await tool('hold_checklist', { checklist: list, types: ['issue'] })
+    expect((await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['issue'], roles: ['owner'] })).isError).toBe(true)
+    await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['issue'] })
     const tick = await tool('check_item', { checklist: list, item, types: ['issue'] })
     expect(tick.isError).toBe(true)
     expect(tick.text).toContain('one item at a time')
@@ -1215,9 +1298,9 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     const review = await aList('What a review owes')
     const author = await aList('Before asking for review')
     const anyone = await aList('What every MR owes')
-    await tool('hold_checklist', { checklist: review.list, types: ['mr'], roles: ['reviewer'] })
-    await tool('hold_checklist', { checklist: author.list, types: ['mr'], roles: ['author'] })
-    await tool('hold_checklist', { checklist: anyone.list, types: ['mr'] })
+    await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: review.list, types: ['mr'], roles: ['reviewer'] })
+    await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: author.list, types: ['mr'], roles: ['author'] })
+    await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: anyone.list, types: ['mr'] })
 
     /* No role given: any role, and the role lists are named as elsewhere. */
     const plain = await tool('checklists', { ref: '!7' })
@@ -1230,7 +1313,7 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     /* The person's own roles, as the host's read_tracker says them. */
     const mine = await tool('checklist_for', { ref: '!7', my_roles: ['reviewer-asked'] })
     expect(mine.text).toContain('As reviewer on !7')
-    expect(mine.text).toContain('"What a review owes" (applies to merge requests · as reviewer)')
+    expect(mine.text).toContain('"What a review owes" (standard: applies to merge requests · as reviewer)')
     expect(mine.text).toContain('"What every MR owes"')
     expect(mine.text).not.toContain('"Before asking for review"')
 
@@ -1243,20 +1326,20 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     /* A PR is not a merge request: nothing applies, said from the angle, with what to do. */
     const pr = await tool('checklist_for', { ref: 'gh#200', type: 'pr', role: 'reviewer' })
     expect(pr.text).toContain('No checklist applies to gh#200 as reviewer.')
-    expect(pr.text).toContain('add_item_for adds a line just for this item')
+    expect(pr.text).toContain('add_item_for adds a one-off line just for this item')
     /* A GitHub ref whose type nobody said is not guessed, where it would decide something. */
-    await tool('hold_checklist', { checklist: anyone.list, types: ['issue'] })
+    await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: anyone.list, types: ['issue'] })
     const unknown = await tool('checklists', { ref: 'gh#9' })
     expect(unknown.text).toContain('Pass type')
   })
 
   test('add_item_for adds a line just for one item; it is ticked with check_item, and a person’s tick is safe', async () => {
     const { list } = await aList('What every MR owes')
-    await tool('hold_checklist', { checklist: list, types: ['mr'] })
+    await tool('hold_checklist', { person_asked: 'Make it a standard', checklist: list, types: ['mr'] })
     const added = await tool('add_item_for', { ref: '!7', text: 'Squash before merge', agent: 'claude' })
     expect(added.isError).toBe(false)
     expect(added.text).toContain('added "Squash before merge" just for !7')
-    expect(added.text).toContain('"Only for !7" (lines just for this item)')
+    expect(added.text).toContain('"Only for !7" (one-off: lines just for this item)')
     const own = /on its own list (\w+)/.exec(added.text)![1]!
     const line = new RegExp(`\\[ \\] (\\w+) — Squash before merge`).exec(added.text)![1]!
 
@@ -1272,7 +1355,7 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     expect(refused.text).toContain('only a person can change or take back what a person ticked')
 
     /* Listed apart from the named lists. */
-    expect((await tool('checklists', {})).text).toContain('Lines added for one item alone')
+    expect((await tool('checklists', {})).text).toContain('One-off lines added for one item alone')
     expect((await tool('add_item_for', { text: 'x' })).isError).toBe(true)
     const paper = await tool('add_item_for', { epic: 'thesis', text: 'Ask the supervisor' })
     expect(paper.text).toContain('just for thesis (the paper)')

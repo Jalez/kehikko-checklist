@@ -10,6 +10,7 @@ import { everywhere, following, rungTarget, showing } from './holding.ts'
 import { rungsFrom } from './scope.ts'
 import { moduleNamed } from './aim.ts'
 import { heldAs, part, readKey, targetKey, targetName, type Target } from './targets.ts'
+import { starterNamed, starterOrigin, STARTERS } from './starters.ts'
 import {
   angleRoles,
   covers,
@@ -25,6 +26,7 @@ import {
   rulesOf,
   ruleTarget,
   sameRule,
+  standardIsThePersons,
   tickedUnheld,
   typeOf,
   USABLE_TYPES,
@@ -541,6 +543,8 @@ export interface Summary {
   applies?: Target[]
   /** The module whose work it is for. Absent for every module's. */
   for?: string
+  /** Where it came from when it was not typed here: `starter:<id>`, `import:…`. Absent for a list typed here. */
+  origin?: string
   /**
    * The one item this list's lines are for, as a target key, when it is the
    * lines somebody added for that item alone rather than a list a person named.
@@ -553,6 +557,10 @@ export interface Counts {
   passed: number
   failed: number
   na: number
+  /** Somebody is on it now. */
+  working: number
+  /** It cannot be answered yet. */
+  blocked: number
   unchecked: number
 }
 
@@ -617,6 +625,7 @@ function summaries(book: Book): Summary[] {
       held: list.holds && list.holds <= SAMPLE ? sample(book, list.id) : [],
       applies: rulesOf(list).map(ruleTarget),
       ...(list.for ? { for: list.for } : {}),
+      ...(list.origin ? { origin: list.origin } : {}),
       ...(list.only ? { only: list.only } : {}),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -913,9 +922,15 @@ export interface RuleInput {
   epic?: string | null
 }
 
-export type Op =
+export type Op = (
   /** Start a list — and, with `rule`, say at once which types × roles it applies to. */
   | { op: 'create'; name: string; rule?: RuleInput; by: string; viaMcp?: boolean }
+  /**
+   * Adopt a starter (`list/starters.ts`): a standing checklist made from its
+   * lines and its kinds, in one press. The person's press only — refused
+   * through the MCP door — and never twice for one starter.
+   */
+  | { op: 'adopt'; starter: string; by: string; viaMcp?: boolean }
   /**
    * Say what a list applies to, whole: every rule it has, replaced by these.
    * The edit page's types × roles; an empty array is a list that applies by
@@ -988,6 +1003,15 @@ export type Op =
       note?: string
       evidence?: Evidence
     }
+) & {
+  /**
+   * The person's own words asking for this change, when an agent makes it.
+   * A standing checklist is the person's: through the MCP door every change to
+   * one — and making one — is refused without them (`personsCall`). Ignored
+   * for the page, which IS the person.
+   */
+  asked?: string
+}
 
 export type Result =
   | { ok: true; said: string; lists: Summary[]; held: Held | null; id: string }
@@ -998,6 +1022,8 @@ const STATE_PHRASE: Record<TickState, string> = {
   passed: 'ticked',
   failed: 'marked failed',
   na: 'marked not applicable',
+  working: 'marked as being worked on',
+  blocked: 'marked blocked',
 }
 
 /** The refusal an agent gets for touching what a person ticked. */
@@ -1122,6 +1148,51 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     if (refused) return { ok: false, error: `nothing was changed. ${refused}` }
     const list = book.lists[id]
     return { ok: true, said, id, lists: summaries(book), held: list ? heldOf(book, list, target) : null }
+  }
+
+  /* Making a standing checklist through the MCP door is the person's call. */
+  const personAsked = input.viaMcp !== true || Boolean(input.asked?.trim())
+  if (input.op === 'create' && input.rule && !personAsked) {
+    const rules = rulesFrom([input.rule])
+    return { ok: false, error: standardIsThePersons(input.name.trim().slice(0, MAX_NAME) || 'This list', 'rules' in rules ? rules.rules : []) }
+  }
+
+  if (input.op === 'adopt') {
+    if (input.viaMcp === true) {
+      return {
+        ok: false,
+        error:
+          'starters are adopted by the person, with one press on the Checklist page (Manage checklists, or the '
+          + 'header’s Create menu). Tell them which one fits. Nothing was changed.',
+      }
+    }
+    const starter = starterNamed(input.starter)
+    if (!starter) {
+      return { ok: false, error: `there is no starter "${input.starter.slice(0, 40)}". The starters are ${STARTERS.map((one) => one.id).join(', ')}.` }
+    }
+    const lists = Object.values(book.lists).filter((list) => !list.only)
+    const had = lists.find((list) => list.origin === starterOrigin(starter.id))
+    if (had) return { ok: false, error: `“${starter.name}” is adopted already, as "${had.name}" (${had.id}). Edit that one.` }
+    if (lists.length >= MAX_LISTS) {
+      return { ok: false, error: `there are already ${lists.length} checklists, which is the most this app holds. Remove one first.` }
+    }
+    const clash = lists.find((list) => list.name.toLowerCase() === starter.name.toLowerCase())
+    if (clash) return { ok: false, error: `there is already a checklist called "${clash.name}" (${clash.id}). Rename it first, or edit that one.` }
+    const rule = ruleOf({ types: starter.types, roles: starter.roles, epic: null })
+    const id = newId()
+    book.lists[id] = {
+      id,
+      name: starter.name,
+      at,
+      by,
+      origin: starterOrigin(starter.id),
+      items: starter.items.map((text) => ({ id: newId(), text, at, by })),
+      holds: 0,
+      next: 0,
+      ...(rule ? { applies: [stored(rule, at)] } : {}),
+    }
+    book.touch()
+    return answer(id, `adopted “${starter.name}” as ${id}${rule ? `, applying to ${ruleName(rule)}` : ''}, with ${starter.items.length} lines to keep, reword or drop`, null)
   }
 
   if (input.op === 'create') {
@@ -1374,6 +1445,20 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
         + 'add, reword, drop or tick its lines. To make a list that applies to every item of a type, create one. '
         + 'Nothing was changed.',
     }
+  }
+
+  /*
+   * A standing checklist is the person's. Through the MCP door an agent may
+   * answer its lines (a tick) and nothing else, unless the person asked for
+   * the change — and saying what a list applies to by kind (`applies`, or a
+   * hold of a rule) makes a list standing, so that is theirs too, on any list.
+   */
+  const kinds = rulesOf(list)
+  const ruleTargets = (input.op === 'hold' || input.op === 'release') && input.target.kind === 'rule' ? [input.target] : null
+  const makesStanding = input.op === 'applies' || ruleTargets !== null
+  if (!personAsked && input.op !== 'tick' && (kinds.length || makesStanding)) {
+    const said = ruleTargets ? rulesFrom(ruleTargets) : null
+    return { ok: false, error: standardIsThePersons(list.name, kinds.length ? kinds : said && 'rules' in said ? said.rules : []) }
   }
 
   if (input.op === 'applies') {

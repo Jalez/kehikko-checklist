@@ -4,7 +4,8 @@ import { ANGLE_LABELS, ANGLES, type Angle } from '../../list/standing.ts'
 
 /**
  * This page's header, as the host draws it (`kehikot.header`): the View
- * switch, and the angle the picked items are read from.
+ * switch, which checklist, the angle the picked items are read from, and the
+ * Create menu.
  *
  * `storage` is the option id a host looks for to open a module's own storage
  * view (the host's Storage overview presses a `switch` or `go` option with
@@ -23,9 +24,37 @@ export const VIEWS = [
 ] as const
 export type HeaderView = (typeof VIEWS)[number]['id']
 
-/** The header for the view the page is on and the angle it reads from. The edit page counts as the view it was opened from. */
-export function headerFor(view: HeaderView, angle: Angle = 'auto'): HeaderItemInput[] {
-  return [
+/** The ids of the header's Create menu, and of the switch that picks one checklist. */
+export const MAKE = { NEW: 'new', COPY: 'copy', ADOPT: 'adopt:' } as const
+export const PICK = 'list'
+/** The option of the checklist switch that shows every list in front. */
+export const EVERY = 'all'
+
+/** What the header needs beyond the view and the angle: the lists in front to pick from, and the starters. */
+export interface HeaderMore {
+  /** The lists in front on the reading page, in order, to pick one from. Empty elsewhere. */
+  lists?: readonly { id: string; name: string }[]
+  /** The list picked, or null for every list. */
+  picked?: string | null
+  /** The starters, and which are adopted already. */
+  starters?: readonly { id: string; name: string; adopted: boolean }[]
+  /** True while the person is being asked which project to copy from. */
+  importing?: boolean
+  busy?: boolean
+}
+
+const label = (text: string) => (text.length <= 48 ? text : `${text.slice(0, 47)}…`)
+
+/**
+ * The header, by the rule the person decided: how the module is set up. Which
+ * screen (the reading page, managing checklists, storage), which checklist of
+ * the ones in front, the angle, and the Create menu — a new checklist, a copy
+ * from another project, a starter adopted with one press. What is going on now
+ * — the item, its progress, what failed, what is being worked on — is the
+ * footer's (`src/wire/footer.ts`), never both.
+ */
+export function headerFor(view: HeaderView, angle: Angle = 'auto', more: HeaderMore = {}): HeaderItemInput[] {
+  const items: HeaderItemInput[] = [
     {
       kind: 'switch',
       id: 'view',
@@ -35,34 +64,73 @@ export function headerFor(view: HeaderView, angle: Angle = 'auto'): HeaderItemIn
       value: view,
       agents: false,
     },
-    {
-      kind: 'switch',
-      id: 'angle',
-      label: 'Angle',
-      group: 'Angle',
-      options: ANGLES.map((one) => ({ id: one, label: ANGLE_LABELS[one] })),
-      value: angle,
-      agents: false,
-    },
   ]
+  /* Which checklist: offered on the reading page when more than one is in front. */
+  const lists = view === 'here' ? (more.lists ?? []).slice(0, 63) : []
+  if (lists.length > 1) {
+    const picked = more.picked && lists.some((one) => one.id === more.picked) ? more.picked : EVERY
+    items.push({
+      kind: 'switch',
+      id: PICK,
+      label: 'Checklist',
+      group: 'Checklist',
+      options: [{ id: EVERY, label: 'Every checklist in front' }, ...lists.map((one) => ({ id: one.id, label: label(one.name) }))],
+      value: picked,
+      agents: false,
+    })
+  }
+  items.push({
+    kind: 'switch',
+    id: 'angle',
+    label: 'Angle',
+    group: 'Angle',
+    options: ANGLES.map((one) => ({ id: one, label: ANGLE_LABELS[one] })),
+    value: angle,
+    agents: false,
+  })
+  items.push({ kind: 'run', id: MAKE.NEW, label: 'New checklist', group: 'Create', disabled: more.busy ? 'Working on something else.' : null })
+  for (const starter of more.starters ?? []) {
+    items.push({
+      kind: 'run',
+      id: `${MAKE.ADOPT}${starter.id}`,
+      label: label(`Adopt ${starter.name}`),
+      group: 'Starters',
+      disabled: starter.adopted ? 'Adopted already: edit it under Manage checklists.' : more.busy ? 'Working on something else.' : null,
+    })
+  }
+  items.push({
+    kind: 'run',
+    id: MAKE.COPY,
+    label: more.importing ? 'Choosing…' : 'Copy from another project',
+    group: 'Create',
+    disabled: more.importing ? 'Choosing a project already.' : more.busy ? 'Working on something else.' : null,
+  })
+  return items
 }
 
 /** What a press in the header asks for. */
-export type Pressed = { view: HeaderView } | { angle: Angle }
+export type Pressed = { view: HeaderView } | { angle: Angle } | { pick: string | null } | { make: 'new' | 'copy' } | { adopt: string }
 
-/** The view or the angle a press asks for, or a sentence saying why not. */
+/** The view, the angle, the checklist or the act a press asks for, or a sentence saying why not. */
 export function pressed(press: { item: string; value?: string | boolean }): Pressed | string {
   if (press.item === 'angle') {
     const wanted = ANGLES.find((one) => one === press.value)
     return wanted ? { angle: wanted } : `"angle" takes one of: ${ANGLES.join(', ')}.`
   }
+  if (press.item === PICK) {
+    if (typeof press.value !== 'string') return '"list" takes a checklist id, or "all".'
+    return { pick: press.value === EVERY ? null : press.value }
+  }
+  if (press.item === MAKE.NEW) return { make: 'new' }
+  if (press.item === MAKE.COPY) return { make: 'copy' }
+  if (press.item.startsWith(MAKE.ADOPT)) return { adopt: press.item.slice(MAKE.ADOPT.length) }
   const view = viewPressed(press)
   return VIEWS.some((one) => one.id === view) ? { view: view as HeaderView } : view
 }
 
 /** The view a press asks for, or a sentence saying why not. */
 export function viewPressed(press: { item: string; value?: string | boolean }): HeaderView | string {
-  if (press.item !== 'view') return `There is no "${press.item}" here. What can be pressed: view, angle.`
+  if (press.item !== 'view') return `There is no "${press.item}" here. What can be pressed: view, list, angle, new, copy and the starters.`
   const wanted = VIEWS.find((one) => one.id === press.value)
   return wanted ? wanted.id : `"view" takes one of: ${VIEWS.map((one) => one.id).join(', ')}.`
 }

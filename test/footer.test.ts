@@ -1,40 +1,82 @@
 import { describe, expect, test } from 'bun:test'
 import { footerItemsSchema, footerLayout, type FooterItem } from 'kehikot-module-protocol'
 
-import { FOOT, footerItems, footerPressed, type FooterState } from '../src/wire/footer.ts'
+import { footerItems, footerPressed, type FooterState } from '../src/wire/footer.ts'
+import type { Progress } from '../list/glance.ts'
 
-/** The footer the host draws: the items declared for each screen's bar. */
+/**
+ * The footer the host draws: what is going on now, by the person's rule — the item the lists
+ * concern, its progress, what failed or is blocked, what is being worked on. Nothing pressable:
+ * Manage, Storage and Copy are the header's.
+ */
 
-const base: FooterState = { view: 'here', trouble: null, busy: false, importing: false, canStorage: true, aside: null, troubleInBar: true }
+const progress = (over: Partial<Progress> = {}): Progress => ({ total: 8, answered: 3, passed: 2, na: 1, failed: 0, blocked: 0, working: 0, unchecked: 5, ...over })
+const base: FooterState = {
+  view: 'here',
+  trouble: null,
+  troubleInBar: true,
+  concerns: { said: 'Pull request gh#105 · Fix the login race', more: 0 },
+  progress: progress(),
+  working: [],
+  standing: { standards: 2, oneOff: 1 },
+  aside: null,
+}
 const parsed = (state: Partial<FooterState>): FooterItem[] => footerItemsSchema.parse(footerItems({ ...base, ...state }))
 const byId = (items: FooterItem[], id: string) => items.find((one) => one.id === id)
 
 describe('the footer declared', () => {
-  test('the reading page ends in Manage checklists, with what was put aside as its hint', () => {
-    expect(parsed({}).map((one) => one.id)).toEqual(['manage'])
-    expect(byId(parsed({ aside: 'Two lists are put aside.' }), 'manage')).toMatchObject({ kind: 'run', label: 'Manage checklists', tooltip: 'Two lists are put aside.', align: 'end' })
+  test('the reading page says which item, and its progress as a meter', () => {
+    const items = parsed({})
+    expect(items.map((one) => one.id)).toEqual(['concerns', 'progress'])
+    expect(byId(items, 'concerns')).toMatchObject({ kind: 'text', text: 'Pull request gh#105 · Fix the login race' })
+    expect(byId(items, 'progress')).toMatchObject({ kind: 'meter', value: 3 / 8, text: '3/8', level: 'normal' })
+  })
+
+  test('failed and blocked are said in words, at critical or warn, and the meter says it too', () => {
+    const items = parsed({ progress: progress({ failed: 2, blocked: 1 }) })
+    expect(byId(items, 'failing')).toMatchObject({ kind: 'text', text: '2 failed · 1 blocked', level: 'critical' })
+    expect(byId(items, 'progress')).toMatchObject({ level: 'critical' })
+    expect(byId(parsed({ progress: progress({ blocked: 1 }) }), 'failing')).toMatchObject({ text: '1 blocked', level: 'warn' })
+  })
+
+  test('what is being worked on is said, and is the first to go when the row is narrow', () => {
+    const items = parsed({ working: ['Tests added', 'No secrets'] })
+    expect(byId(items, 'working')).toMatchObject({ text: 'Working: Tests added +1', optional: true })
+    const drawn = (width: number) => {
+      const laid = footerLayout(items, width)
+      return [...laid.start, ...laid.center, ...laid.end].map((one) => one.id)
+    }
+    expect(drawn(380)).toContain('working')
+    expect(drawn(280)).not.toContain('working')
+    /* At 200 the first text stays: which item. */
+    expect(drawn(200)).toContain('concerns')
+  })
+
+  test('several items picked: the first is named, with how many more', () => {
+    expect(byId(parsed({ concerns: { said: 'Issue #4', more: 2 } }), 'concerns')).toMatchObject({ text: 'Issue #4 +2' })
+  })
+
+  test('nothing picked says so; no meter for an item with no lines', () => {
+    expect(parsed({ concerns: null }).map((one) => one.id)).toEqual(['concerns'])
+    expect(parsed({ progress: progress({ total: 0, answered: 0 }) }).map((one) => one.id)).toEqual(['concerns'])
   })
 
   test('what went wrong stands first, in words and at critical', () => {
     const items = parsed({ trouble: 'The server did not answer.' })
     expect(items[0]).toMatchObject({ kind: 'text', id: 'trouble', level: 'critical', text: 'The server did not answer.' })
-    expect(items.map((one) => one.id)).toEqual(['trouble', 'manage'])
   })
 
-  test('the manager: Copy from another project, and Storage, which goes first when the row is narrow', () => {
-    const items = parsed({ view: 'all' })
-    expect(items.map((one) => one.id)).toEqual(['import', 'storage'])
-    expect(byId(items, 'import')).toMatchObject({ label: 'Copy from another project', disabled: null })
-    expect(byId(items, 'storage')).toMatchObject({ optional: true })
-    expect(footerLayout(items, 200).overflow.map((one) => one.id)).toContain('storage')
-    expect(byId(parsed({ view: 'all', importing: true }), 'import')).toMatchObject({ label: 'Choosing…', disabled: 'Choosing a project already.' })
-    expect(byId(parsed({ view: 'all', busy: true }), 'import')).toMatchObject({ disabled: 'Working on something else.' })
-    expect(parsed({ view: 'all', canStorage: false }).map((one) => one.id)).toEqual(['import'])
+  test('the manager counts standing and one-off checklists; trouble in its bar only where it composes as an overlay', () => {
+    expect(byId(parsed({ view: 'all' }), 'standing')).toMatchObject({ text: '2 standing · 1 one-off' })
+    expect(parsed({ view: 'all', trouble: 'No.' }).map((one) => one.id)).toEqual(['trouble', 'standing'])
+    expect(parsed({ view: 'all', trouble: 'No.', troubleInBar: false }).map((one) => one.id)).toEqual(['standing'])
   })
 
-  test('the manager says trouble in its bar only where the page composes as an overlay; flowing, the form says it', () => {
-    expect(parsed({ view: 'all', trouble: 'No.' }).map((one) => one.id)).toEqual(['trouble', 'import', 'storage'])
-    expect(parsed({ view: 'all', trouble: 'No.', troubleInBar: false }).map((one) => one.id)).toEqual(['import', 'storage'])
+  test('nothing in the footer is pressable: managing and creating are the header’s', () => {
+    for (const state of [{}, { view: 'all' as const }, { working: ['x'], progress: progress({ failed: 1 }) }]) {
+      expect(parsed(state).every((one) => one.kind === 'text' || one.kind === 'meter')).toBe(true)
+    }
+    expect(footerPressed('progress')).toContain('is a readout')
   })
 
   test('the edit page, the import screen and Storage keep their own rows', () => {
@@ -42,20 +84,8 @@ describe('the footer declared', () => {
   })
 
   test('a long sentence is cut to the protocol’s limit', () => {
-    const items = parsed({ trouble: 'x'.repeat(500) })
+    const items = parsed({ trouble: 'x'.repeat(500), concerns: { said: 'y'.repeat(500), more: 0 } })
     expect((byId(items, 'trouble') as { text: string }).text.length).toBeLessThanOrEqual(120)
-  })
-})
-
-describe('a press in the footer', () => {
-  test('is judged against the screen on show', () => {
-    expect(footerPressed(FOOT.MANAGE, base)).toBe('manage')
-    expect(footerPressed(FOOT.MANAGE, { ...base, view: 'all' })).toBe('That is not here now.')
-    expect(footerPressed(FOOT.IMPORT, { ...base, view: 'all' })).toBe('import')
-    expect(footerPressed(FOOT.IMPORT, { ...base, view: 'all', importing: true })).toBe('Choosing a project already.')
-    expect(footerPressed(FOOT.IMPORT, { ...base, view: 'all', busy: true })).toBe('Working on something else.')
-    expect(footerPressed(FOOT.IMPORT, base)).toBe('That is not here now.')
-    expect(footerPressed(FOOT.STORAGE, { ...base, view: 'all' })).toBe('storage')
-    expect(footerPressed('trouble', base)).toBe('That is not something here.')
+    expect((byId(items, 'concerns') as { text: string }).text.length).toBeLessThanOrEqual(120)
   })
 })

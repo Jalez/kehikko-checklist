@@ -480,3 +480,60 @@ function orList(names: readonly string[]): string {
   const last = all.pop()
   return `${all.join(', ')} or ${last}`
 }
+
+/* ------------------------------------------------------------------ *
+ * Standing checklists and one-off lists
+ * ------------------------------------------------------------------ */
+
+/**
+ * What a list IS, for the person and for an agent: a standing checklist — the
+ * person's expectations for every item of some kinds (`applies` names types ×
+ * roles), in front of each such item without anybody holding it — or a one-off,
+ * held against particular items by hand or holding one item's own lines.
+ *
+ * ## Why the difference is said out loud now
+ *
+ * > "I don't see much use of a specific shared checklist for specific kinds of
+ * > items like issues/MRs/PRs that ensures good coding practices, specific
+ * > patterns or general expectations the user expects the AI to follow in all
+ * > items of a similar type. Checklist has become more of an extension of the
+ * > Test runs queue, which defeats its purpose."
+ *
+ * The rules were there; nothing said which lists used them. So every list is
+ * called one or the other wherever it is drawn or answered, the standing ones
+ * first, and a standing checklist is the person's: an agent answers its lines
+ * and changes it only when the person asked (`STANDARD_IS_THE_PERSONS`).
+ */
+export type Standing = 'standard' | 'one-off'
+
+/** Whether a list is a standing checklist (it applies to a kind of item) or a one-off. */
+export function standingOf(list: { applies?: readonly unknown[]; only?: string }): Standing {
+  return !list.only && (list.applies?.length ?? 0) > 0 ? 'standard' : 'one-off'
+}
+
+/** The word a list is called by, for a row: "Standard" or "One-off". */
+export const STANDING_WORD: Record<Standing, string> = { standard: 'Standard', 'one-off': 'One-off' }
+
+/**
+ * What an agent is told when it would change a standing checklist without the
+ * person having asked. One sentence for every tool, from the store.
+ */
+export function standardIsThePersons(name: string, rules: readonly Rule[]): string {
+  return (
+    `"${name}" is a standing checklist — the person's own expectations for every `
+    + `${rules.length ? rules.map((rule) => typesName(rule.types)).join(' and ') : 'item of its kinds'}. Agents answer its `
+    + 'lines with check_item; only the person decides what it says and what it applies to. Change it only when they '
+    + 'asked you to, and pass person_asked with their words. Nothing was changed. If a line seems missing or wrong, '
+    + 'tell the person instead.'
+  )
+}
+
+/**
+ * Where test steps belong. Said by the tools and the notes wherever an agent is
+ * about to write lines for one item: a checklist is the person's standing
+ * expectations, and a run of tests is not one.
+ */
+export const TESTS_ELSEWHERE =
+  'Test runs, verification commands and one-time test steps do not belong on a checklist: queue them in Test runs '
+  + 'when it is installed, whose results show here as automatic items. A checklist is for the person’s standing '
+  + 'expectations of every item of a kind.'
