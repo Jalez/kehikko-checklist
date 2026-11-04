@@ -23,7 +23,8 @@ import {
   standingOf,
   STANDING_WORD,
 } from '../../list/standing.ts'
-import { ItemGlance, ItemHistory, type Concerns } from '@/components/glance.tsx'
+import { ItemGlance, ItemHistory, ItemLine, type Concerns } from '@/components/glance.tsx'
+import type { GlanceLayout } from '@/components/glance-layout.ts'
 import type { Level } from '../../list/glance.ts'
 import type { TrackerRow } from 'kehikot-module-protocol'
 
@@ -307,6 +308,7 @@ export function HereView({
               runs={section.item?.target.kind === 'ref' ? (runs[section.item.target.ref] ?? []) : []}
               onHideRun={onHideRun}
               level={room.level}
+              layout={room.glance}
               facts={facts}
             >
               {section.instances.map((held) => {
@@ -468,12 +470,15 @@ function ItemSection({
   runs = [],
   onHideRun,
   level = 'items',
+  layout,
   facts = null,
   children,
 }: {
   section: Section
-  /** How much of the item to draw: its glance alone, its lists, or those and its history. */
+  /** How much of the item to draw: one line, its glance alone, its lists, or those and its history. */
   level?: Level
+  /** How the glance's tiles are laid out at this container's width. */
+  layout?: GlanceLayout
   /** What the tracker says about the refs, for the line saying which item this is. */
   facts?: Facts | null
   snap: boolean
@@ -512,7 +517,21 @@ function ItemSection({
   }
   const roles: Role[] = item.as.length ? item.as : ['any']
   const lists = section.instances.map((held) => ({ checklist: held.checklist, rows: held.rows }))
-  const glance = section.instances.length ? <ItemGlance concerns={concernsOf(item, facts)} lists={lists} now={0} /> : null
+  const glance = section.instances.length ? <ItemGlance concerns={concernsOf(item, facts)} lists={lists} now={0} layout={layout} /> : null
+  if (level === 'line') {
+    /* One or two rows tall: the item as one line and a tiny ring, and nothing else. */
+    return (
+      <section className="border-t first:border-t-0" data-section={section.key} data-level="line">
+        {section.instances.length ? (
+          <ItemLine concerns={concernsOf(item, facts)} lists={lists} />
+        ) : (
+          <p className="truncate px-2 text-[0.7rem] leading-6 text-muted-foreground" data-none="applies" title={unsure ?? nothingLine(name, roles)}>
+            {unsure ?? nothingLine(name, roles)}
+          </p>
+        )}
+      </section>
+    )
+  }
   if (level === 'glance') {
     /* A short container: the item at a glance, and nothing else. Every list is a press on the header's View away. */
     return (

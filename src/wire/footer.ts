@@ -1,6 +1,7 @@
 import { LIMITS, type FooterItemInput } from 'kehikot-module-protocol'
 
 import type { Progress } from '../../list/glance.ts'
+import { summaryTip, troubleSaid } from '../components/glance-layout.ts'
 
 /**
  * This page's footer, as the host draws it (`kehikot.footer`, protocol 2.38.0): what is going on
@@ -25,9 +26,11 @@ export interface FooterState {
   troubleInBar: boolean
   /**
    * The reading page: the item the lists in front concern ("Pull request gh#105 · Fix login"), and
-   * how many more items are picked besides it. Null with nothing picked.
+   * how many more items are picked besides it, and its ref alone ("gh#105"), which is what the row
+   * shows — so a narrow footer reads like the glance's one line, "gh#105 · 7/12 · 2 failing", and
+   * the full sentence is the tooltip. Null with nothing picked.
    */
-  concerns?: { said: string; more: number } | null
+  concerns?: { said: string; more: number; short?: string } | null
   /** Over every line in front: answered, failed, blocked, working. */
   progress?: Progress | null
   /** The lines being worked on, latest first. */
@@ -68,7 +71,7 @@ export function footerItems(state: FooterState): FooterItemInput[] {
     items.push({ kind: 'text', id: 'concerns', text: 'Nothing picked', tooltip: 'Pick an issue, MR, PR or paper to see its checklists.' })
     return items
   }
-  const target = `${concerns.said}${concerns.more ? ` +${concerns.more}` : ''}`
+  const target = `${concerns.short ?? concerns.said}${concerns.more ? ` +${concerns.more}` : ''}`
   items.push({
     kind: 'text',
     id: 'concerns',
@@ -88,11 +91,11 @@ export function footerItems(state: FooterState): FooterItemInput[] {
       text: clip(`${progress.answered}/${progress.total}`, LIMITS.FOOTER_METER_TEXT),
       level: progress.failed ? 'critical' : progress.blocked ? 'warn' : 'normal',
       align: 'center',
-      tooltip: clip(`${progress.answered} of ${progress.total} lines answered (${progress.passed} passed, ${progress.na} not applicable).`, LIMITS.FOOTER_TOOLTIP),
+      tooltip: clip(`${summaryTip(progress)}. ${progress.passed} passed, ${progress.na} not applicable.`, LIMITS.FOOTER_TOOLTIP),
     })
+    /* The same words as the glance's one line: "2 failing · 1 blocked". */
     if (progress.failed || progress.blocked) {
-      const said = [progress.failed ? `${progress.failed} failed` : '', progress.blocked ? `${progress.blocked} blocked` : ''].filter(Boolean).join(' · ')
-      items.push({ kind: 'text', id: 'failing', text: said, level: progress.failed ? 'critical' : 'warn', align: 'end' })
+      items.push({ kind: 'text', id: 'failing', text: troubleSaid(progress), level: progress.failed ? 'critical' : 'warn', align: 'end' })
     }
     const working = state.working ?? []
     if (working.length) {

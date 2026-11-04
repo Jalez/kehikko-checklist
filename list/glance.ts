@@ -15,17 +15,28 @@ import { ANSWERS, stateOf, type Tick, type TickState } from './shapes.ts'
  * The container is the person's: a frame on a canvas is resized by them, so the
  * page picks a level from its own width and height (`levelOf`):
  *
+ * - `line`   — one or two grid rows tall (under `LINE_BELOW`, more in a
+ *              one-column container where the tiles stack): each item as one
+ *              line, "gh#105 · 7/12 · 2 failing", with a tiny ring.
  * - `glance` — under 240 px tall: each item's glance and nothing else.
  * - `items`  — the glance, then every list with its lines and their states.
  * - `full`   — 560 × 560 and more: those, and each item's history — who
  *              answered what, when, and how they know.
  */
 
-export type Level = 'glance' | 'items' | 'full'
+export type Level = 'line' | 'glance' | 'items' | 'full'
+
+/**
+ * Under this height the tiles do not fit and each item is one line. Three tiles side by side need
+ * about 80 px with the item's name above them; stacked in one column (under 360 px wide) they need
+ * about 170, so a one-column container goes to lines sooner.
+ */
+export const LINE_BELOW = { across: 96, stacked: 150 } as const
 
 export function levelOf(width: number, height: number): Level {
   /* Not measured yet (a test, or the first frame): the items, as before there were levels. */
   if (!width || !height) return 'items'
+  if (height < (width >= 360 ? LINE_BELOW.across : LINE_BELOW.stacked)) return 'line'
   if (height < 240) return 'glance'
   if (width >= 560 && height >= 560) return 'full'
   return 'items'

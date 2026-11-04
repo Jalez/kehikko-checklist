@@ -1,4 +1,5 @@
 import { levelOf, type Level } from '../../list/glance.ts'
+import { glanceLayout, type GlanceLayout } from '../components/glance-layout.ts'
 
 /**
  * How much room this container has, and what that buys.
@@ -249,6 +250,8 @@ export interface Room {
    * The container's own width and height, never the window's, as Test runs does.
    */
   level: Level
+  /** How the glance's tiles are laid out at this width: columns, axes or sparklines, plot and ring sizes (`glanceLayout`). */
+  glance: GlanceLayout
 }
 
 /** What a container of this size gets. */
@@ -270,6 +273,7 @@ export function room(width: number, height: number): Room {
        simply there than by one behind a press. */
     compose: tall ? 'inline' : 'overlay',
     level: levelOf(width, height),
+    glance: glanceLayout(width),
   }
 }
 

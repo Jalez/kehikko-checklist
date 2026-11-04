@@ -34,7 +34,7 @@ describe('the footer declared', () => {
 
   test('failed and blocked are said in words, at critical or warn, and the meter says it too', () => {
     const items = parsed({ progress: progress({ failed: 2, blocked: 1 }) })
-    expect(byId(items, 'failing')).toMatchObject({ kind: 'text', text: '2 failed · 1 blocked', level: 'critical' })
+    expect(byId(items, 'failing')).toMatchObject({ kind: 'text', text: '2 failing · 1 blocked', level: 'critical' })
     expect(byId(items, 'progress')).toMatchObject({ level: 'critical' })
     expect(byId(parsed({ progress: progress({ blocked: 1 }) }), 'failing')).toMatchObject({ text: '1 blocked', level: 'warn' })
   })
@@ -50,6 +50,22 @@ describe('the footer declared', () => {
     expect(drawn(280)).not.toContain('working')
     /* At 200 the first text stays: which item. */
     expect(drawn(200)).toContain('concerns')
+  })
+
+  test('with its ref given, the row names the ref and the tooltip the whole item: the glance’s one line, kept at 200 px', () => {
+    const items = parsed({ concerns: { said: 'Pull request gh#105 · Fix the login race', short: 'gh#105', more: 0 }, progress: progress({ total: 12, answered: 7, failed: 2, blocked: 1 }) })
+    expect(byId(items, 'concerns')).toMatchObject({ text: 'gh#105' })
+    expect((byId(items, 'concerns') as { tooltip: string }).tooltip).toContain('Fix the login race')
+    expect(byId(items, 'progress')).toMatchObject({ text: '7/12' })
+    expect((byId(items, 'progress') as { tooltip: string }).tooltip).toContain('7/12 done · 2 failing · 1 blocked')
+    expect(byId(items, 'failing')).toMatchObject({ text: '2 failing · 1 blocked' })
+    const drawn = (width: number) => {
+      const laid = footerLayout(items, width)
+      return [...laid.start, ...laid.center, ...laid.end].map((one) => one.id)
+    }
+    expect(drawn(280)).toEqual(['concerns', 'progress', 'failing'])
+    expect(drawn(200)).toContain('concerns')
+    expect(drawn(200)).toContain('progress')
   })
 
   test('several items picked: the first is named, with how many more', () => {
