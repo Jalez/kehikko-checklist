@@ -13,7 +13,7 @@ import {
   type TrackerReading,
 } from 'kehikot-module-protocol'
 import { PERSON_ANSWERS_WITHIN_MS, type HostEvents } from 'kehikot-module-protocol/client'
-import { useHost, type Host } from 'kehikot-module-protocol/client/react'
+import { useHost, useKept, type Host } from 'kehikot-module-protocol/client/react'
 
 import { openerOf, type OpenAddress } from '../lib/links.ts'
 import { pump } from './emit.ts'
@@ -43,9 +43,9 @@ import { flattenParts } from '../../list/focus.ts'
  *   the trackers say about the refs the lists are held against — to be drawn beside them and kept
  *   on a tick as evidence, never to tick anything (Jalez/kehikko-checklist#1).
  *
- * Nothing is kept with the host: what is in front of a reader is decided by where they are and
- * what every list is held against (`list/holding.ts`), and a remembered pick would be a second
- * answer to the same question. So the greeting's kept `state` is deliberately not read.
+ * One thing is kept with the host: this kehikko's own choice of checklist per type
+ * (`kehikkoChoices`, protocol 2.51.0 `useKept`, per container). What is in front of a reader is
+ * still decided by what they picked (`list/one.ts`) and never remembered.
  */
 
 /** Whether anything is framing this page: `listening` for under a second, then `unhosted`, or `hosted`. */
@@ -289,6 +289,14 @@ export interface Kehikot {
   drawsFooter: boolean | null
   /** Declare this page's footer (`kehikot.footer`), whole. Only when `drawsFooter` is true. */
   footer: (items: FooterItemInput[]) => void
+  /**
+   * This kehikko's own choice of checklist per type, over the project's (`list/choices.ts`), as one
+   * string: the host's per-container kept state (protocol 2.51.0, `useKept`), `''` for none. The
+   * one thing this page keeps with the host.
+   */
+  kehikkoChoices: string
+  /** Keep this kehikko's choices (`''` or `{}` for none: the project's choices again). */
+  keepChoices: (choices: Record<string, string>) => void
 }
 
 export type PressHandler = NonNullable<HostEvents['onPress']>
@@ -329,6 +337,10 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   const hostAnswers = host.answers
   const openAddress = useMemo(() => openerOf({ answers: hostAnswers, openAddress: hostOpens }), [hostAnswers, hostOpens])
   const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header, footer, drawsFooter } = host
+  /* This kehikko's choice of checklist per type: kept by the host for this container, never in the browser. */
+  const [keptChoices, setKeptChoices] = useKept<Record<string, string>>(host, 'choices', {}, (value) => typeof value === 'object' && value !== null && !Array.isArray(value))
+  const kehikkoChoices = flattenChoice(keptChoices)
+  const keepChoices = useCallback((next: Record<string, string>) => setKeptChoices(next), [setKeptChoices])
 
   /* The doorbell, read through a ref so the pump below is started once and always rings the newest one. */
   const door = useRef(onDoor)
@@ -476,8 +488,12 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       footer,
       drawsFooter,
       openAddress,
+      kehikkoChoices,
+      keepChoices,
     }),
     [
+      kehikkoChoices,
+      keepChoices,
       where,
       epic,
       projectPath,

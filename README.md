@@ -22,6 +22,43 @@ bun run register         # tell a host on this machine where it is
 bun test && bun run typecheck
 ```
 
+## One target, and one checklist per type
+
+The person, who owns this module:
+
+> "It should ONLY show the checklist for the module that's currently picked, or in the case of
+> References, only the referenced item that is picked."
+
+> "In a project, or inside that kehikko, users should select a single checklist for each item
+> type, so every item of the same type gets the same checklist. Checklist by default is meant to be
+> generic, overarching guidelines to make sure all features are accounted for."
+
+- **Exactly one target** (`list/one.ts`). A container picked as a target on the kehikko wins, and
+  its subject is the target: References' picked item, Paper's paper. If several are picked, the one
+  picked last wins. With nothing picked, the target is the most recently picked or selected thing:
+  a ref clicked, or the passage the reader moved to. With neither, nothing is shown, and the page
+  says how to pick something. It never shows a union of everything visible. The footer's readout
+  says which target and why, e.g. "For !4233 (picked in References)".
+- **One standing checklist per type** (`list/choices.ts`). The types are merge request, pull
+  request, issue, task and paper. `choices` in `lists.json` names the one list each type uses in the
+  project. The page's kept state (protocol 2.51.0 `useKept`, per container) may override it for one
+  kehikko. Every item of a type is read against that list, and against nothing else that is
+  standing. The role no longer decides: `applies` keeps its roles, and nothing reads them to choose.
+- **The picker** is the header's Checklist menu: "Checklist for merge requests: <name>" for each
+  type. It offers the project's lists, then the starters for that type, plus a toggle,
+  "Choices for this kehikko only".
+  - Choosing is the person's: the `choose` op is refused through the MCP door.
+  - A type with no choice shows no standard, and its items offer its starter. Nothing is
+    assigned by itself.
+  - Making or adopting a standard for a type with no choice makes it that type's choice.
+- **Existing data.** A `lists.json` with no `choices` is migrated once, on read. Each type keeps
+  the standard that applied to it. Where several did, the most recently used one is kept (its
+  latest tick, else when its rule was made), and the rest become unassigned standards. The help
+  says this once.
+- **Agents.** `checklist_for` with an item returns its type's single chosen checklist. When none
+  is chosen, it says so and names none.
+- **How to use** (protocol 2.52.0 `help` in the manifest) states these rules for the person.
+
 ## Standing checklists, and one-off lists
 
 A checklist here is first of all the person's **standing expectations for a kind

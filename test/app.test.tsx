@@ -128,16 +128,17 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
       { id: 'seam', heading: 'The posting seam', refs: ['gh#10'], picked: seam, files: ['chapters/3_methods.tex'] },
       { id: 'tests', heading: 'What the tests check', refs: ['gh#7'], picked: tests },
     ])
-  const drawn = () => [...document.querySelectorAll('[data-instance]')].map((one) => one.getAttribute('data-instance'))
+  /* Sorted: with the paper as the one target, the order of the mock server's ref rows is not what is tested. */
+  const drawn = () => [...document.querySelectorAll('[data-instance]')].map((one) => one.getAttribute('data-instance')).sort()
   /** Anything on the page that talks about the picked parts while a list is drawn: there is to be none. */
   const notice = () => document.querySelector('[data-focus]') !== null || /outside the|picked part|host’s bar/.test(document.body.textContent ?? '')
   const last = () => asked.at(-1)!
 
-  /* Parts listed and none picked: the page as it always was, asked by the passage. */
+  /* Parts listed and none picked: the page as it always was, asked by the passage — the one target, nothing selected. */
   wire = {
     projectPath: '/p',
     epic: 'thesis',
-    selection: ['gh#10', 'gh#7'],
+    selection: [],
     passage: '/p/.kehikot/paper/thesis/chapters/4_results.tex\t\t\t',
     parts: parts(false, false),
   }
@@ -155,7 +156,8 @@ test('a parts focus asks for the whole paper, puts aside what is outside the pic
   expect(last().get('whole')).toBe('1')
   /* No place is named: not the passage's, and not the part's — the server says where each list is held. */
   expect(last().getAll('doc')).toEqual([])
-  expect(last().get('refs')).toBe('gh#10 gh#7')
+  /* The paper is the one target: no ref is asked about beside it. */
+  expect(last().get('refs')).toBeNull()
 
   /* Another part, which owns no file: the section's list is put aside with the other ref's. */
   wire = { ...wire, parts: parts(false, true) }
@@ -388,7 +390,7 @@ describe('the footer', () => {
     expect(screen.queryByText('Manage checklists')).toBeNull()
     expect(pressFoot('concerns')).toContain('is a readout')
     /* The header has the screens, the angle and the Create menu, the starters among it. */
-    await waitFor(() => expect(headers.at(-1)?.map((one) => one.id)).toEqual(['view', 'angle', 'new', 'adopt:changes', 'adopt:issues', 'adopt:papers', 'copy']))
+    await waitFor(() => expect(headers.at(-1)?.map((one) => one.id)).toEqual(['view', 'choose:issue', 'choose:mr', 'choose:pr', 'choose:paper', 'choose:task', 'choose-here', 'new', 'adopt:changes', 'adopt:issues', 'adopt:papers', 'copy']))
     expect(pressHead('view', 'all')).toBeUndefined()
     await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['standing']))
     /* The manager's heading is the page's own; its bottom row is not drawn. */

@@ -6,7 +6,7 @@ import { Cover, coverFor, useFocus, useServerStanding, type CoverState } from 'k
 import { ID } from '../manifest.ts'
 
 import { aimOf, aimOffer, forPicked, inFrontOf, moduleLabels, setAside, whyAside, whyEmpty } from '../list/aim.ts'
-import { angleOf, rolesFromMine, typeOfRow, typesName, type Angle, type ItemType, type RefsRead, type Role } from '../list/standing.ts'
+import { rolesFromMine, typeOfRow, typesName, type Angle, type ItemType, type RefsRead, type Role } from '../list/standing.ts'
 import { NOUN, anchorOf, readParts } from '../list/focus.ts'
 import {
   edit,
@@ -35,7 +35,9 @@ import { progressOf, workingOn } from '../list/glance.ts'
 import { standingOf } from '../list/standing.ts'
 import { STARTERS, starterOrigin } from '../list/starters.ts'
 import { concernsSaid } from '@/components/glance.tsx'
-import { ANGLE_FILTER, angleOffer, headerFor, pressed } from '@/wire/header.ts'
+import { headerFor, pressed } from '@/wire/header.ts'
+import { NO_RECENT, oneInFront, type Recent } from '../list/one.ts'
+import { choicesOf, madeFor } from '../list/choices.ts'
 import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
 import { OpenAddressContext } from '@/view/out-link.tsx'
@@ -196,8 +198,9 @@ export function App() {
     )
   }, [])
 
-  /* What a press of the angle does, filled in below once the host's choice is known; a ref, so the press handler is made once. */
-  const angleTo = useRef<(next: Angle) => void>(() => {})
+  /* What a choice in the header's Checklist menu does, filled in below once the page's handlers exist; a ref, so the press handler is made once. */
+  const chooseTo = useRef<(type: ItemType, id: string | null, starter?: string) => void>(() => {})
+  const hereTo = useRef<(here: boolean) => void>(() => {})
 
   /* What the header's Create menu does, filled in below once the page's handlers exist; a ref, for the same reason. */
   const makeTo = useRef<(make: 'new' | 'copy' | { adopt: string }) => string | undefined>(() => 'This page is not ready for that yet.')
@@ -209,7 +212,9 @@ export function App() {
     if (press.place === 'footer') return footerPressed(press.item)
     const wanted = pressed(press)
     if (typeof wanted === 'string') return wanted
-    if ('angle' in wanted) angleTo.current(wanted.angle)
+    if ('angle' in wanted) return 'The angle is gone: every item of a type is read against the one checklist chosen for that type.'
+    else if ('choose' in wanted) chooseTo.current(wanted.choose, wanted.id, wanted.starter)
+    else if ('here' in wanted) hereTo.current(wanted.here)
     else if ('pick' in wanted) setPicked(wanted.pick)
     else if ('make' in wanted) return makeTo.current(wanted.make)
     else if ('adopt' in wanted) return makeTo.current({ adopt: wanted.adopt })
@@ -243,6 +248,8 @@ export function App() {
     footer,
     drawsFooter,
     openAddress,
+    kehikkoChoices,
+    keepChoices,
   } = useKehikot(ID, onGoto, bump, onPress)
 
   /**
@@ -253,18 +260,12 @@ export function App() {
    * for the session when the host will not.
    */
   const choice = useMemo(() => (chosen ? (JSON.parse(chosen) as Record<string, string>) : {}), [chosen])
-  const kept = angleOf(choice[ANGLE_FILTER])
-  const [angleNow, setAngleNow] = useState<Angle | null>(null)
-  useEffect(() => setAngleNow(null), [kept])
-  const angle = angleNow ?? kept
-  const onAngle = useCallback(
-    (next: Angle) => {
-      setAngleNow(next)
-      void choose?.({ ...choice, [ANGLE_FILTER]: next })
-    },
-    [choose, choice],
-  )
-  angleTo.current = onAngle
+  /* No angle any more: every item of a type is read against the ONE checklist chosen for it (`list/choices.ts`). */
+  const angle: Angle = 'auto'
+  /** This kehikko's own choices, over the project's: kept by the host for this container. */
+  const kehikkoChosen = useMemo(() => choicesOf(kehikkoChoices ? JSON.parse(kehikkoChoices) : {}), [kehikkoChoices])
+  /* On while the host keeps anything for this kehikko's choices, even before one is chosen (`kept`). */
+  const choicesHere = Boolean(kehikkoChoices) && kehikkoChoices !== '{}'
 
   /**
    * Where the reader is pointing, inflated once from the string the wire holds.
@@ -297,17 +298,48 @@ export function App() {
    * object and the fetch below does not re-run. The rule is in `list/aim.ts`;
    * this is where its inputs meet.
    */
-  const front = useMemo(
-    () =>
-      inFrontOf({
-        passage: at,
-        selection: selected ? selected.split(' ') : [],
-        containers: shown(containers),
-        aim: aimOf(chosen ? (JSON.parse(chosen) as Record<string, string>) : null),
-        focused: focusedNow,
-      }),
-    [at, selected, containers, chosen, focusedNow],
-  )
+  /*
+   * EXACTLY ONE target (`list/one.ts`): the picked container's subject, else the most recently
+   * picked or selected thing, else nothing. Never a union. The page's memory of "most recently"
+   * rides in a ref; `oneInFront` gives the same answer for the same canvas, so a re-render is safe.
+   */
+  const recent = useRef<Recent>(NO_RECENT)
+  const single = useMemo(() => {
+    const got = oneInFront(recent.current, {
+      passage: at,
+      selection: selected ? selected.split(' ') : [],
+      containers: shown(containers),
+      follow: aimOf(chosen ? (JSON.parse(chosen) as Record<string, string>) : null) === 'follow',
+    })
+    recent.current = got.recent
+    return got
+  }, [at, selected, containers, chosen])
+  const front = useMemo(() => {
+    const base = inFrontOf({
+      passage: at,
+      selection: selected ? selected.split(' ') : [],
+      containers: shown(containers),
+      aim: aimOf(chosen ? (JSON.parse(chosen) as Record<string, string>) : null),
+      focused: focusedNow,
+    })
+    const one = single.one
+    /* Picked parts still say which of the paper's lists are in front, when the one target is the paper or nothing. */
+    const byParts = focusedNow && (one === null ? single.quiet === null : one.kind === 'place' && one.from.by !== 'picked')
+    const documents = one?.kind === 'place' && !byParts ? one.places : []
+    const from = one?.from.by === 'picked' ? one.from.module : one?.from.by === 'reading' ? one.from.module : null
+    return {
+      ...base,
+      refs: one?.kind === 'ref' ? [one.ref] : [],
+      documents,
+      paper: documents.length > 0 || byParts,
+      byParts,
+      /* The containers whose lists held against them are in front: the one the target came from. */
+      modules: from ? [from] : [],
+      picked: one?.from.by === 'picked' ? [one.from.module] : base.picked,
+    }
+  }, [at, selected, containers, chosen, focusedNow, single])
+  /** The footer's one line: which one thing, and why it is the one. */
+  const forSaid = single.one === null && front.byParts && epic ? `For the paper of ${epic} (parts picked in the bar)` : single.said
   /**
    * The places named to the server. None while the picked parts decide what
    * is in front (`front.documents` is empty then): `whole` is what is asked,
@@ -324,7 +356,7 @@ export function App() {
    */
   const kehikkoKey = kehikko?.key ?? null
   const following = useMemo(
-    () => (kehikkoKey ? { kehikko: kehikkoKey, modules: front.narrowed ? front.picked : front.modules, epic } : null),
+    () => (kehikkoKey ? { kehikko: kehikkoKey, modules: front.modules, epic } : null),
     [kehikkoKey, front, epic],
   )
   /**
@@ -392,7 +424,7 @@ export function App() {
   const paperPicked = Boolean(epic) && (documents.length > 0 || front.byParts)
 
   /** And the same, as one string, for the fetch to depend on. */
-  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following, read: readKey, angle, paper: paperPicked })
+  const frontKey = JSON.stringify({ refs: front.refs, documents, whole: front.byParts, following, read: readKey, angle, paper: paperPicked, choices: kehikkoChoices })
 
   /**
    * Whether there is anywhere at all to read from or write to.
@@ -412,7 +444,7 @@ export function App() {
      changes: the aim (none on a host that lists no containers — see the essay
      above), and the angle, which is how the host remembers it per container. */
   useEffect(() => {
-    if (where === 'hosted') filters([...aimOffer(shown(containers)), ...angleOffer()])
+    if (where === 'hosted') filters([...aimOffer(shown(containers))])
   }, [where, filters, containers])
 
   /* Which screen is showing, for the header and the footer: the edit page counts as the one it was opened from. */
@@ -455,7 +487,7 @@ export function App() {
        `InFront`. The server builds the whole-paper rung from the epic alone,
        and a page narrowed to containers showing no document must not hand it
        one. */
-    void whatIsHere(projectPath, paperPicked ? epic : null, documents, front.refs, front.byParts, following, refsRead, angle, paperPicked)
+    void whatIsHere(projectPath, paperPicked ? epic : null, documents, front.refs, front.byParts, following, refsRead, angle, paperPicked, kehikkoChosen)
       .then((got) => {
         if (alive) setHere(got)
       })
@@ -637,20 +669,44 @@ export function App() {
    * this container's aim on everything, the angle kept as it is.
    */
   const clicked = useMemo(() => setAside(front, selected ? selected.split(' ') : []), [front, selected])
-  const onShowClicked = useCallback(() => choose({ ...choice, aim: 'all', [ANGLE_FILTER]: angle }), [choose, choice, angle])
+  const onShowClicked = useCallback(() => choose({ ...choice, aim: 'all' }), [choose, choice])
 
   /*
    * "Add a checklist for merge requests as reviewer": a list made with its
    * rule said at once, opened on its edit page for its first line.
    */
   const onNewFor = useCallback(
-    (type: ItemType, role: Role) => {
+    (type: ItemType, _role: Role = 'any') => {
       const words = typesName([type])
-      const name = `${words.charAt(0).toUpperCase()}${words.slice(1)} ${role === 'any' ? 'for any role' : `as ${role}`}`
-      void onEditRef.current({ op: 'create', name, rule: { types: [type], roles: [role] } })
+      const name = `${words.charAt(0).toUpperCase()}${words.slice(1)} checklist`
+      void onEditRef.current({ op: 'create', name, rule: { types: [type], roles: ['any'] } })
     },
     [],
   )
+  /* Choose the one checklist a type uses: in the project, or — with this kehikko's own choices on — here only. */
+  const onChoose = useCallback(
+    (type: ItemType, id: string | null, starter?: string) => {
+      if (choicesHere && !starter) {
+        const next: Record<string, string> = { ...kehikkoChosen, kept: 'yes' }
+        if (id) next[type] = id
+        else delete next[type]
+        keepChoices(next)
+        return
+      }
+      void onEditRef.current({ op: 'choose', type, id, ...(starter ? { starter } : {}) })
+    },
+    [choicesHere, kehikkoChosen, keepChoices],
+  )
+  chooseTo.current = onChoose
+  hereTo.current = (on: boolean) => {
+    /* On: this kehikko starts from the project's choices and keeps its own from here. Off: the project's again. */
+    if (!on) keepChoices({})
+    else {
+      const start: Record<string, string> = {}
+      for (const one of lists) for (const type of one.chosen ?? []) start[type] = one.id
+      keepChoices({ ...start, kept: 'yes' })
+    }
+  }
   /* A line for one item alone. */
   const onAddFor = useCallback((target: Target, text: string) => void onEditRef.current({ op: 'add-for', target, text }), [])
 
@@ -947,6 +1003,7 @@ export function App() {
     working: workingOn(glanceLists).map((one) => one.text),
     standing: { standards: named.filter((one) => standingOf(one) === 'standard').length, oneOff: named.filter((one) => standingOf(one) === 'one-off').length },
     aside: drawn.current.putAside,
+    why: forSaid,
   }
   const footerSaid = footed ? JSON.stringify(footerItems(footState)) : null
   useEffect(() => {
@@ -960,7 +1017,21 @@ export function App() {
   )
   const headerSaid =
     where === 'hosted'
-      ? JSON.stringify(headerFor(showing, angle, { lists: pickable, picked: pickNow, starters, importing: choosing, busy }))
+      ? JSON.stringify(
+          headerFor(showing, angle, {
+            lists: pickable,
+            picked: pickNow,
+            starters,
+            importing: choosing,
+            busy,
+            choices: {
+              lists: lists.filter((one) => !one.only).map((one) => ({ id: one.id, name: one.name, madeFor: madeFor({ applies: (one.applies ?? []).flatMap((rule) => (rule.kind === 'rule' ? [{ types: rule.types, roles: rule.roles, since: '' }] : [])) }) })),
+              starters: STARTERS.map((one) => ({ id: one.id, name: one.name, types: one.types, adopted: lists.some((list) => list.origin === starterOrigin(one.id)) })),
+              chosen: { ...Object.fromEntries(lists.flatMap((one) => (one.chosen ?? []).map((type) => [type, one.id]))), ...kehikkoChosen },
+              here: choicesHere,
+            },
+          }),
+        )
       : null
   useEffect(() => {
     if (headerSaid !== null) header(JSON.parse(headerSaid))
@@ -1070,8 +1141,8 @@ export function App() {
       kehikko={kehikko}
       clicked={clicked}
       onShowClicked={where === 'hosted' ? onShowClicked : undefined}
-      onAngle={onAngle}
       onNewFor={onNewFor}
+      onChoose={onChoose}
       onAddFor={onAddFor}
       runs={runs}
       onHideRun={onHideRun}

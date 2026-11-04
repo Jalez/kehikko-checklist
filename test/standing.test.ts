@@ -279,61 +279,58 @@ describe('#31’s standing holds become type × any role', () => {
 })
 
 describe('a list that applies by type × role', () => {
-  test('a new item picks it up, with nothing written per item', () => {
+  test('a new item picks it up, with nothing written per item: made for a type with no choice, it is that type’s checklist', () => {
     const { list } = made('What a review owes', ['Read the diff'])
     const held = ok(change({ op: 'hold', id: list, target: target(['mr', 'pr'], ['reviewer']), by: 'a test' }, dir))
-    expect(held.said).toContain('now applies to merge requests and pull requests · as reviewer')
-    const file = JSON.parse(readFileSync(join(folder(), 'lists.json'), 'utf8')) as { checklists: Record<string, { applies?: unknown[] }> }
+    expect(held.said).toContain('is made for merge requests and pull requests; it is the checklist for merge requests and pull requests now')
+    const file = JSON.parse(readFileSync(join(folder(), 'lists.json'), 'utf8')) as { checklists: Record<string, { applies?: unknown[] }>; choices: Record<string, string> }
     expect(file.checklists[list]!.applies).toHaveLength(1)
+    expect(file.choices).toEqual({ mr: list, pr: list })
     expect(existsSync(join(folder(), 'targets', list))).toBe(false)
 
-    /* gh#200 is a PR the person reviews: the list is in front as gh#200, through the rule, as reviewer. */
+    /* gh#200 is a pull request: the list is in front as gh#200, because it is the one pull requests use. */
     const got = front(['gh#200'])
     expect(got.instances).toHaveLength(1)
     expect(got.instances[0]!.target).toEqual({ kind: 'ref', ref: 'gh#200' })
-    expect(got.instances[0]!.through).toEqual([target(['mr', 'pr'], ['reviewer'])])
-    expect(got.instances[0]!.as).toEqual(['reviewer'])
-    expect(got.items).toEqual([{ target: { kind: 'ref', ref: 'gh#200' }, type: 'pr', as: ['reviewer'], elsewhere: [] }])
+    expect(got.instances[0]!.through).toEqual([target(['pr'])])
+    expect(got.instances[0]!.as).toEqual(['any'])
+    expect(got.items).toEqual([{ target: { kind: 'ref', ref: 'gh#200' }, type: 'pr', as: ['reviewer'], elsewhere: [], chosen: { id: list, name: 'What a review owes', by: 'project' } }])
     /* An issue is not a change. */
     expect(front(['gh#105']).instances).toEqual([])
     expect(holds(list, target(['mr', 'pr'], ['reviewer']), dir)).toBe(true)
     expect(targetsOf(list, dir)[0]).toEqual({ target: target(['mr', 'pr'], ['reviewer']), done: 0 })
     expect(checklists(dir).lists[0]!.applies).toEqual([target(['mr', 'pr'], ['reviewer'])])
+    expect(checklists(dir).lists[0]!.chosen).toEqual(['mr', 'pr'])
   })
 
-  test('the default angle is the person’s role from myRoles; another angle hides the list and says it is there', () => {
+  test('the role no longer decides: the type’s one checklist is in front from every angle', () => {
     const { list } = made('What a review owes', ['Read the diff'])
     ok(change({ op: 'hold', id: list, target: target(['pr'], ['reviewer']), by: 'a test' }, dir))
-    expect(front(['gh#200'], READ, 'auto').instances).toHaveLength(1)
-    expect(front(['gh#200'], READ, 'reviewer').instances).toHaveLength(1)
-    const asAuthor = front(['gh#200'], READ, 'author')
-    expect(asAuthor.instances).toEqual([])
-    expect(asAuthor.items[0]).toMatchObject({ as: ['author'], elsewhere: ['reviewer'] })
-    /* Roles unknown: any role, and the reviewer list is elsewhere. */
-    const unknown = front(['gh#200'], { ...READ, roles: {} }, 'auto')
-    expect(unknown.instances).toEqual([])
-    expect(unknown.items[0]).toMatchObject({ as: ['any'], elsewhere: ['reviewer'] })
+    for (const angle of ['auto', 'reviewer', 'author', 'assignee', 'any'] as Angle[]) {
+      const got = front(['gh#200'], READ, angle)
+      expect(got.instances).toHaveLength(1)
+      expect(got.items[0]!.elsewhere).toEqual([])
+    }
+    expect(front(['gh#200'], { ...READ, roles: {} }, 'auto').instances).toHaveLength(1)
   })
 
-  test('several roles: each role’s lists, each saying through which, and a list for any role once', () => {
+  test('several standards for one type: one is chosen and in front, the rest are unassigned; no stacking', () => {
     const asAuthor = made('Before asking for review', ['Description says why']).list
     const asReviewer = made('What a review owes', ['Read the diff']).list
     const anyone = made('What every MR owes', ['Pipeline green']).list
     ok(change({ op: 'hold', id: asAuthor, target: target(['mr'], ['author']), by: 'a test' }, dir))
     ok(change({ op: 'hold', id: asReviewer, target: target(['mr'], ['reviewer']), by: 'a test' }, dir))
     ok(change({ op: 'hold', id: anyone, target: target(['mr']), by: 'a test' }, dir))
-    /* !7: the person is its author and a reviewer. */
-    const got = front(['!7'])
-    expect(got.items[0]!.as).toEqual(['reviewer', 'author'])
-    expect(got.instances.map((one) => [one.checklist.name, one.as])).toEqual([
-      ['Before asking for review', ['author']],
-      ['What a review owes', ['reviewer']],
-      ['What every MR owes', ['any']],
-    ])
-    /* As assignee only: just the list for any role, and the others are elsewhere. */
-    const assignee = front(['!7'], READ, 'assignee')
-    expect(names(assignee)).toEqual([['What every MR owes', '!7']])
-    expect(assignee.items[0]!.elsewhere).toEqual(['reviewer', 'author'])
+    /* !7: the person is its author and a reviewer — and still ONE standard, the first made for merge requests. */
+    expect(names(front(['!7']))).toEqual([['Before asking for review', '!7']])
+    const rows = checklists(dir).lists
+    expect(rows.find((one) => one.id === asAuthor)!.chosen).toEqual(['mr'])
+    expect(rows.find((one) => one.id === asReviewer)!.chosen).toBeUndefined()
+    expect(rows.find((one) => one.id === anyone)!.chosen).toBeUndefined()
+    /* The person chooses another: that one, alone. */
+    const chose = ok(change({ op: 'choose', type: 'mr', id: anyone, by: 'a test' }, dir))
+    expect(chose.said).toBe('"What every MR owes" is the checklist for merge requests now: every one of them is read against it')
+    expect(names(front(['!7']))).toEqual([['What every MR owes', '!7']])
   })
 
   test('a paper is an item when one is picked, and a list for papers is in front of it as the paper', () => {
@@ -342,7 +339,7 @@ describe('a list that applies by type × role', () => {
     expect(inFront({ ladders: [], selection: [], read: READ, paper: null }, dir).instances).toEqual([])
     const got = inFront({ ladders: [PAPER], selection: [], read: READ, paper: 'thesis' }, dir)
     expect(got.instances.map((one) => one.target)).toEqual([{ kind: 'paper', epic: 'thesis', section: null }])
-    expect(got.items).toEqual([{ target: { kind: 'paper', epic: 'thesis', section: null }, type: 'paper', as: ['any'], elsewhere: [] }])
+    expect(got.items).toEqual([{ target: { kind: 'paper', epic: 'thesis', section: null }, type: 'paper', as: ['any'], elsewhere: [], chosen: { id: list, name: 'What a chapter owes', by: 'project' } }])
     /* Ticked as the paper, holding nothing. */
     const ticked = ok(change({ op: 'tick', id: list, item: items[0]!, target: { kind: 'paper', epic: 'thesis', section: null }, done: true, by: 'a test' }, dir))
     expect(ticked.said).toContain('was not held on its own')
@@ -386,6 +383,7 @@ describe('a list that applies by type × role', () => {
     ok(change({ op: 'tick', id: list, item: items[0]!, target: { kind: 'ref', ref: 'gh#105' }, done: true, by: 'a test' }, dir))
     const released = ok(change({ op: 'release', id: list, target: ISSUES, by: 'a test' }, dir))
     expect(released.said).toContain('no longer applies to issues · any role')
+    expect(checklists(dir).lists[0]!.chosen).toBeUndefined()
     expect(released.said).toContain('kept')
     expect(front(['gh#105']).instances).toEqual([])
     const row = usage(dir).lists[0]!
@@ -401,11 +399,13 @@ describe('a list that applies by type × role', () => {
     ok(change({ op: 'applies', id: list, rules: [{ types: ['mr'], roles: ['reviewer'] }], by: 'a test' }, dir))
     const since = (JSON.parse(readFileSync(join(folder(), 'lists.json'), 'utf8')) as { checklists: Record<string, { applies: { since: string }[] }> }).checklists[list]!.applies[0]!.since
     const both = ok(change({ op: 'applies', id: list, rules: [{ types: ['mr'], roles: ['reviewer'] }, { types: ['pr', 'issue'], roles: ['author', 'any'], epic: 'thesis' }], by: 'a test' }, dir))
-    expect(both.said).toBe('"What a change owes" applies to merge requests · as reviewer; issues and pull requests of thesis · any role')
+    expect(both.said).toBe('"What a change owes" is made for merge requests; issues and pull requests; it is the checklist for issues and pull requests now')
     const file = JSON.parse(readFileSync(join(folder(), 'lists.json'), 'utf8')) as { checklists: Record<string, { applies: { since: string }[] }> }
     expect(file.checklists[list]!.applies[0]!.since).toBe(since)
     const task = ok(change({ op: 'applies', id: list, rules: [{ types: ['task'] }], by: 'a test' }, dir))
-    expect(task.said).toContain('applies to tasks · any role')
+    expect(task.said).toContain('is made for tasks; it is the checklist for tasks now')
+    /* No longer made for merge requests, pull requests or issues: no longer their checklist. */
+    expect(checklists(dir).lists[0]!.chosen).toEqual(['task'])
     expect(change({ op: 'applies', id: list, rules: [{ types: ['merge'] }], by: 'a test' }, dir).ok).toBe(false)
     expect(change({ op: 'applies', id: list, rules: [{ types: ['mr'], roles: ['owner'] }], by: 'a test' }, dir).ok).toBe(false)
     const none = ok(change({ op: 'applies', id: list, rules: [], by: 'a test' }, dir))
@@ -414,7 +414,7 @@ describe('a list that applies by type × role', () => {
 
   test('a list made with its rule said at once', () => {
     const made_ = ok(change({ op: 'create', name: 'Merge requests as reviewer', rule: { types: ['mr'], roles: ['reviewer'] }, by: 'a test' }, dir))
-    expect(made_.said).toContain('applying to merge requests · as reviewer')
+    expect(made_.said).toContain('made for merge requests; it is the checklist for merge requests now')
     expect(checklists(dir).lists[0]!.applies).toEqual([target(['mr'], ['reviewer'])])
   })
 
@@ -430,11 +430,14 @@ describe('a list that applies by type × role', () => {
     )
   })
 
-  test('one epic’s: only the refs the epic names', () => {
+  test('an epic on a rule no longer narrows: every item of the type uses the type’s one checklist', () => {
     const { list } = made('What a thesis issue owes', ['Cites the chapter'])
     ok(change({ op: 'hold', id: list, target: target(['issue'], ['any'], 'thesis'), by: 'a test' }, dir))
     const read: RefsRead = { ...READ, epics: { thesis: ['gh#105'] } }
-    expect(front(['gh#105', 'gh#106'], read).instances.map((one) => one.target)).toEqual([{ kind: 'ref', ref: 'gh#105' }])
+    expect(front(['gh#105', 'gh#106'], read).instances.map((one) => one.target)).toEqual([
+      { kind: 'ref', ref: 'gh#105' },
+      { kind: 'ref', ref: 'gh#106' },
+    ])
   })
 
   test('a tick against the rule itself is refused: ticks are per item', () => {
@@ -539,7 +542,7 @@ describe('lines just for one item', () => {
 
 describe('the empty sentences', () => {
   test('nothing picked', () => {
-    expect(NOTHING_PICKED).toBe('Pick an issue, MR, PR or paper to see its checklists.')
+    expect(NOTHING_PICKED).toBe('Nothing picked: tick the box in a container’s header, or click an issue, MR, PR or a place in a paper.')
   })
   test('nothing applies, from the angle', () => {
     expect(nothingLine('!123', ['reviewer'])).toBe('No checklist applies to !123 as reviewer.')

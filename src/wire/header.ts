@@ -1,6 +1,7 @@
 import type { FilterGroup, HeaderItemInput } from 'kehikot-module-protocol'
 
-import { ANGLE_LABELS, ANGLES, type Angle } from '../../list/standing.ts'
+import { ANGLE_LABELS, ANGLES, USABLE_TYPES, type Angle, type ItemType } from '../../list/standing.ts'
+import { pickerLabel, starterLabel } from '../../list/choices.ts'
 
 /**
  * This page's header, as the host draws it (`kehikot.header`): the View
@@ -30,8 +31,25 @@ export const PICK = 'list'
 /** The option of the checklist switch that shows every list in front. */
 export const EVERY = 'all'
 
+/** The ids of the per-type pickers: `choose:<type>`, and the toggle that keeps the choices for this kehikko only. */
+export const CHOOSE = { PREFIX: 'choose:', NONE: 'none', STARTER: 'starter:', HERE: 'choose-here' } as const
+
+/** What the per-type pickers offer: the project's standards, the starters, and what each type uses now. */
+export interface ChoiceOffer {
+  /** Every list a type may use (a standard, or any list a person named), with the types it was made for. */
+  lists: readonly { id: string; name: string; madeFor: readonly ItemType[] }[]
+  /** The starters, with the types each is for and whether it is adopted already. */
+  starters: readonly { id: string; name: string; types: readonly ItemType[]; adopted: boolean }[]
+  /** What each type uses where this container is: the kehikko's choice over the project's. */
+  chosen: Partial<Record<ItemType, string>>
+  /** Whether this kehikko keeps choices of its own. */
+  here: boolean
+}
+
 /** What the header needs beyond the view and the angle: the lists in front to pick from, and the starters. */
 export interface HeaderMore {
+  /** The ONE checklist per type: the pickers in the Checklist menu. Absent: none drawn. */
+  choices?: ChoiceOffer
   /** The lists in front on the reading page, in order, to pick one from. Empty elsewhere. */
   lists?: readonly { id: string; name: string }[]
   /** The list picked, or null for every list. */
@@ -79,15 +97,42 @@ export function headerFor(view: HeaderView, angle: Angle = 'auto', more: HeaderM
       agents: false,
     })
   }
-  items.push({
-    kind: 'switch',
-    id: 'angle',
-    label: 'Angle',
-    group: 'Angle',
-    options: ANGLES.map((one) => ({ id: one, label: ANGLE_LABELS[one] })),
-    value: angle,
-    agents: false,
-  })
+  void angle
+  /*
+   * ONE checklist per type of item (`list/choices.ts`): "Checklist for merge requests: <name>",
+   * offering the project's lists (those made for the type first) and the starters for it. Choosing is
+   * the person's: not for agents. Then whether this kehikko keeps choices of its own.
+   */
+  const offer = more.choices
+  if (offer) {
+    for (const type of USABLE_TYPES) {
+      const mine = [...offer.lists].sort((a, b) => Number(b.madeFor.includes(type)) - Number(a.madeFor.includes(type)) || a.name.localeCompare(b.name))
+      const starters = offer.starters.filter((one) => one.types.includes(type) && !one.adopted)
+      const chosen = offer.chosen[type]
+      const value = chosen && mine.some((one) => one.id === chosen) ? chosen : CHOOSE.NONE
+      items.push({
+        kind: 'switch',
+        id: `${CHOOSE.PREFIX}${type}`,
+        label: pickerLabel(type),
+        group: 'Checklist',
+        options: [
+          { id: CHOOSE.NONE, label: value === CHOOSE.NONE ? `Pick a checklist for ${pickerLabel(type).slice('Checklist for '.length)}` : 'None' },
+          ...mine.slice(0, 40).map((one) => ({ id: one.id, label: label(one.name) })),
+          ...starters.map((one) => ({ id: `${CHOOSE.STARTER}${one.id}`, label: label(starterLabel(one.name)) })),
+        ],
+        value,
+        agents: false,
+      })
+    }
+    items.push({
+      kind: 'toggle',
+      id: CHOOSE.HERE,
+      label: 'Choices for this kehikko only',
+      group: 'Checklist',
+      checked: offer.here,
+      agents: false,
+    })
+  }
   items.push({ kind: 'run', id: MAKE.NEW, label: 'New checklist', group: 'Create', disabled: more.busy ? 'Working on something else.' : null })
   for (const starter of more.starters ?? []) {
     items.push({
@@ -109,7 +154,14 @@ export function headerFor(view: HeaderView, angle: Angle = 'auto', more: HeaderM
 }
 
 /** What a press in the header asks for. */
-export type Pressed = { view: HeaderView } | { angle: Angle } | { pick: string | null } | { make: 'new' | 'copy' } | { adopt: string }
+export type Pressed =
+  | { view: HeaderView }
+  | { angle: Angle }
+  | { pick: string | null }
+  | { make: 'new' | 'copy' }
+  | { adopt: string }
+  | { choose: ItemType; id: string | null; starter?: string }
+  | { here: boolean }
 
 /** The view, the angle, the checklist or the act a press asks for, or a sentence saying why not. */
 export function pressed(press: { item: string; value?: string | boolean }): Pressed | string {
@@ -121,6 +173,15 @@ export function pressed(press: { item: string; value?: string | boolean }): Pres
     if (typeof press.value !== 'string') return '"list" takes a checklist id, or "all".'
     return { pick: press.value === EVERY ? null : press.value }
   }
+  if (press.item.startsWith(CHOOSE.PREFIX)) {
+    const type = USABLE_TYPES.find((one) => `${CHOOSE.PREFIX}${one}` === press.item)
+    if (!type) return `There is no "${press.item.slice(0, 40)}" here.`
+    if (typeof press.value !== 'string') return `"${press.item}" takes a checklist id, a starter or "none".`
+    if (press.value === CHOOSE.NONE) return { choose: type, id: null }
+    if (press.value.startsWith(CHOOSE.STARTER)) return { choose: type, id: null, starter: press.value.slice(CHOOSE.STARTER.length) }
+    return { choose: type, id: press.value }
+  }
+  if (press.item === CHOOSE.HERE) return { here: press.value === true }
   if (press.item === MAKE.NEW) return { make: 'new' }
   if (press.item === MAKE.COPY) return { make: 'copy' }
   if (press.item.startsWith(MAKE.ADOPT)) return { adopt: press.item.slice(MAKE.ADOPT.length) }
@@ -130,7 +191,7 @@ export function pressed(press: { item: string; value?: string | boolean }): Pres
 
 /** The view a press asks for, or a sentence saying why not. */
 export function viewPressed(press: { item: string; value?: string | boolean }): HeaderView | string {
-  if (press.item !== 'view') return `There is no "${press.item}" here. What can be pressed: view, list, angle, new, copy and the starters.`
+  if (press.item !== 'view') return `There is no "${press.item}" here. What can be pressed: view, list, the checklist for each type, new, copy and the starters.`
   const wanted = VIEWS.find((one) => one.id === press.value)
   return wanted ? wanted.id : `"view" takes one of: ${VIEWS.map((one) => one.id).join(', ')}.`
 }

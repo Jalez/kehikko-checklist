@@ -373,6 +373,12 @@ export type List = z.infer<typeof listSchema>
 export const listsFileSchema = z.object({
   layout: z.literal(2),
   checklists: z.record(z.string(), listSchema).default({}),
+  /**
+   * The ONE standing checklist each type of item uses, by type (`list/choices.ts`). Absent from a
+   * file written before there was a choice: then it is migrated from the lists' rules on read.
+   * Lenient: an unknown type or a value that is not a string is dropped (`choicesOf`).
+   */
+  choices: z.record(z.string(), z.unknown()).optional(),
 })
 export type ListsFile = z.infer<typeof listsFileSchema>
 

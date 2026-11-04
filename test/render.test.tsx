@@ -277,7 +277,7 @@ describe('the reading page: what is in front of the reader', () => {
 
   test('with nothing picked, says one sentence and offers to manage the checklists — and lists no item to choose from', () => {
     const { container } = render(<Reading here={here([])} room={ROOMY} />)
-    expect(container.querySelector('[data-none="picked"]')?.textContent).toBe('Pick an issue, MR, PR or paper to see its checklists.')
+    expect(container.querySelector('[data-none="picked"]')?.textContent).toBe('Nothing picked: tick the box in a container’s header, or click an issue, MR, PR or a place in a paper.')
     expect(container.querySelector('[data-all]')?.textContent).toBe('Manage checklists')
     /* No section, no item, no button for one. */
     expect(container.querySelectorAll('[data-section]')).toHaveLength(0)
@@ -286,24 +286,33 @@ describe('the reading page: what is in front of the reader', () => {
     nothingOld(container)
   })
 
-  test('with an item picked and nothing applying, says so from the angle and offers a checklist for its type and role, or a line just for it', () => {
+  test('with an item picked and no checklist chosen for its type, says so and offers the starter, a new one, or a line just for it', () => {
     const made: unknown[] = []
+    const chose: unknown[] = []
     const added: unknown[] = []
-    const item = { target: { kind: 'ref', ref: '!123' } as Target, type: 'mr' as const, as: ['reviewer' as const], elsewhere: [] }
+    const item = { target: { kind: 'ref', ref: '!123' } as Target, type: 'mr' as const, as: ['reviewer' as const], elsewhere: [], chosen: null }
     const { container } = render(
       <Reading
         here={here([])}
         items={[item]}
         onNewFor={(type, role) => made.push([type, role])}
+        onChoose={(type, id, starter) => chose.push([type, id, starter])}
         onAddFor={(target, text) => added.push([target, text])}
         room={ROOMY}
       />,
     )
-    expect(container.querySelector('[data-angle]')?.textContent).toContain('As reviewer on !123')
+    /* The item, not an angle. */
+    expect(container.querySelector('[data-item-line]')?.textContent).toContain('!123')
+    expect(container.querySelector('[data-angle]')).toBeNull()
     expect(container.querySelector('[data-type]')?.textContent).toBe('merge request')
-    expect(container.querySelector('[data-none="applies"]')?.textContent).toBe('No checklist applies to !123 as reviewer.')
-    fireEvent.click(screen.getByText('Add a checklist for merge requests as reviewer'))
-    expect(made).toEqual([['mr', 'reviewer']])
+    expect(container.querySelector('[data-none="applies"]')?.textContent).toBe(
+      'No checklist is chosen for merge requests. Pick a checklist for merge requests in the header’s Checklist menu.',
+    )
+    /* Never chosen by itself: the starter for its type is a press. */
+    fireEvent.click(screen.getByText('Use “Pull and merge request standards”'))
+    expect(chose).toEqual([['mr', null, 'changes']])
+    fireEvent.click(screen.getByText('New checklist for merge requests'))
+    expect(made).toEqual([['mr', 'any']])
     fireEvent.click(screen.getByText('Add an item just for !123'))
     const box = screen.getByLabelText('A line just for !123')
     fireEvent.change(box, { target: { value: 'Ask Sam about the flaky test' } })
@@ -312,27 +321,12 @@ describe('the reading page: what is in front of the reader', () => {
     nothingOld(container)
   })
 
-  test('several items picked: one section each, in order, each with its own angle', () => {
-    const pr = { target: { kind: 'ref', ref: 'gh#200' } as Target, type: 'pr' as const, as: ['reviewer' as const, 'author' as const], elsewhere: [] }
-    const issue = { target: REF, type: 'issue' as const, as: ['any' as const], elsewhere: ['assignee' as const] }
-    const angled: string[] = []
+  test('an item whose type has a chosen checklist offers no starter and no new one', () => {
+    const item = { target: { kind: 'ref', ref: '!7' } as Target, type: 'mr' as const, as: ['any' as const], elsewhere: [], chosen: { id: 'list1', name: 'MRs', by: 'project' as const } }
     const { container } = render(
-      <Reading
-        here={here([held({ target: REF }), held({ checklist: { ...held().checklist, id: 'list2' }, target: { kind: 'ref', ref: 'gh#200' } })])}
-        items={[pr, issue]}
-        onAngle={(angle) => angled.push(angle)}
-        room={ROOMY}
-      />,
+      <Reading here={here([held({ target: { kind: 'ref', ref: '!7' } })])} items={[item]} onNewFor={noop} onChoose={noop} room={ROOMY} />,
     )
-    expect([...container.querySelectorAll('[data-section]')].map((one) => one.getAttribute('data-section'))).toEqual(['ref:gh#200', 'ref:gh#105'])
-    expect([...container.querySelectorAll('[data-angle]')].map((one) => one.firstElementChild?.textContent)).toEqual([
-      'As reviewer and author on gh#200',
-      'Any role on gh#105',
-    ])
-    expect(container.querySelector('[data-section="ref:gh#200"] [data-instance]')?.getAttribute('data-instance')).toBe('list2')
-    /* Another angle has lists for gh#105: one press reads from it. */
-    fireEvent.click(container.querySelector('[data-section="ref:gh#105"] [data-angle-to="assignee"]') as HTMLElement)
-    expect(angled).toEqual(['assignee'])
+    expect(container.querySelectorAll('[data-use-starter], [data-new-for]')).toHaveLength(0)
   })
 
   test('a list in front through a rule says which types and roles; an item’s own lines say they are its own, and are edited in place', () => {

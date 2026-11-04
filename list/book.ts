@@ -12,6 +12,7 @@ import {
   shardSchema,
 } from './shapes.ts'
 import { migrateStanding } from './standing.ts'
+import { choicesOf, type Choices } from './choices.ts'
 
 /**
  * How a project's checklists lie on disk, and the one class that reads and
@@ -152,6 +153,11 @@ export function speaks(entry: Entry | undefined): entry is Entry {
  */
 export class Book {
   lists: Record<string, List>
+  /**
+   * Which list each type of item uses (`list/choices.ts`), or undefined when the file has never said:
+   * a file from before there were choices, which `read` in `list/checklists.ts` migrates.
+   */
+  choices: Choices | undefined
   private readonly shards = new Map<string, Shard>()
   private readonly dirty = new Set<string>()
   private listsDirty = false
@@ -164,8 +170,10 @@ export class Book {
     /** The project, resolved, which every list's own folder is fenced against. */
     private readonly root: string | null,
     lists: Record<string, List> = {},
+    choices?: Choices,
   ) {
     this.lists = lists
+    this.choices = choices
   }
 
   /** Open what is at `dir`: `lists.json` if it is there, or nothing yet. Throws `Unreadable`. */
@@ -173,7 +181,8 @@ export class Book {
     const path = join(dir, NAMES.lists)
     if (!existsSync(path)) return new Book(dir, root)
     try {
-      return new Book(dir, root, settleStanding(listsFileSchema.parse(JSON.parse(readFileSync(path, 'utf8'))).checklists))
+      const file = listsFileSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
+      return new Book(dir, root, settleStanding(file.checklists), file.choices === undefined ? undefined : choicesOf(file.choices))
     } catch (e) {
       throw new Unreadable(
         `${path} could not be read (${firstLine(e)}), so no checklist is being shown and nothing will be written `
@@ -327,7 +336,7 @@ export class Book {
     }
     this.dirty.clear()
     if (this.listsDirty) {
-      writeAtomic(join(this.dir, NAMES.lists), serialise({ layout: 2, checklists: this.lists }))
+      writeAtomic(join(this.dir, NAMES.lists), serialise({ layout: 2, checklists: this.lists, choices: this.choices ?? {} }))
       this.listsDirty = false
     }
     for (const id of this.gone) {

@@ -233,11 +233,18 @@ for (const sent of SHAPES) describe(`the checklists follow the picked parts, wha
   test('a list held against a reference follows the parts as it did: in front when a picked part lists it, put aside when none does', async () => {
     render(<App />)
     const refs = { methods: ['gh#105'] }
+    /* The click is the one target: the reference's list alone, not the paper's beside it. */
     await say('hello', canvas('main.tex', EVERY, [], { selection: ['gh#105'], refs }))
-    await waitFor(() => expect(drawn()[0]).toBe('+Change 1/1'))
+    await waitFor(() => expect(drawn()).toEqual(['+Change 1/1']))
 
+    /* A part picked while the reference stays the one target: in front, because the part lists it. */
+    await say('context', { ...canvas('main.tex', EVERY, ['methods'], { selection: ['gh#105'], refs }) })
+    await waitFor(() => expect(drawn()).toEqual(['+Change 1/1']))
+    expect(notice()).toBe(false)
+
+    /* The reader moves in the paper: that is the most recent thing now, and the one target is the paper. */
     await say('context', canvas('chapters/3_methods.tex', ['chapters/3_methods.tex'], ['methods'], { selection: ['gh#105'], refs }))
-    await waitFor(() => expect(drawn()).toEqual(['+Change 1/1', '+Design 0/1', '+Methods 1/1', '+Thesis 0/1']))
+    await waitFor(() => expect(drawn()).toEqual(['+Design 0/1', '+Methods 1/1', '+Thesis 0/1']))
     expect(notice()).toBe(false)
 
     await say('context', canvas('chapters/4_results.tex', ['chapters/4_results.tex'], ['results'], { selection: ['gh#105'], refs }))
@@ -304,7 +311,7 @@ describe('a click the picks set aside is said (Jalez/kehikko-checklist#32)', () 
         await new Promise((resolve) => setTimeout(resolve, 20))
       })
       const asked = posted.find((one) => (one as { method?: string }).method === 'filters.set') as { params?: unknown } | undefined
-      expect(asked?.params).toEqual({ filters: { aim: 'all', angle: 'auto' } })
+      expect(asked?.params).toEqual({ filters: { aim: 'all' } })
     } finally {
       ;(HOST as { postMessage: unknown }).postMessage = was
     }

@@ -12,11 +12,19 @@ import { moduleNamed } from './aim.ts'
 import { heldAs, part, readKey, targetKey, targetName, type Target } from './targets.ts'
 import { starterNamed, starterOrigin, STARTERS } from './starters.ts'
 import {
+  chosenFor,
+  chosenForAny,
+  choosable,
+  choosingIsThePersons,
+  effective,
+  madeFor,
+  migrateChoices,
+  typesChoosing,
+  type Choices,
+} from './choices.ts'
+import {
   angleRoles,
-  covers,
-  coversPaper,
-  elsewhere,
-  inEpic,
+  possibleTypes,
   mayCover,
   NO_TASKS,
   normalRoles,
@@ -29,6 +37,7 @@ import {
   standardIsThePersons,
   tickedUnheld,
   typeOf,
+  typesName,
   USABLE_TYPES,
   type Angle,
   type ItemType,
@@ -340,10 +349,80 @@ function read(projectPath: string | null | undefined): Opened {
      only safe order: bringing somebody's paper lists across into a store this
      app has just failed to parse would write them over the file it could not
      read. */
-  if (migrate(book, projectPath)) save(book, projectPath)
+  const papers = migrate(book, projectPath)
+  const chose = settleChoices(book)
+  if (papers || chose) save(book, projectPath)
   return { book, where: 'here', trouble: null }
 }
 export { read as openBook }
+
+/**
+ * A `lists.json` from before there was ONE checklist per type: each type takes the standard that
+ * applied to it, and where several did, the one most recently used (its latest tick, else when its
+ * rule was made); the rest are unassigned standards (`migrateChoices` in `list/choices.ts`). True
+ * when that wrote a choice, so the read saves it once. A file with no standard says `{}` in memory
+ * and is written with the next change.
+ */
+function settleChoices(book: Book): boolean {
+  if (book.choices !== undefined) return false
+  const lists = Object.values(book.lists)
+  if (!lists.some((list) => !list.only && list.applies?.length)) {
+    book.choices = {}
+    return false
+  }
+  const usedAt = (id: string): string => {
+    const list = book.lists[id]
+    let latest = [list?.at ?? '', ...(list?.applies ?? []).map((rule) => rule.since)].sort().at(-1) ?? ''
+    try {
+      for (const [, entry] of book.all(id)) {
+        for (const tick of Object.values(entry.ticks ?? {})) if (tick.at > latest) latest = tick.at
+      }
+    } catch (e) {
+      if (!(e instanceof Unreadable)) throw e
+    }
+    return latest
+  }
+  book.choices = migrateChoices(lists, usedAt)
+  book.touch()
+  return true
+}
+
+/**
+ * A standard the person made, adopted or gave a type to becomes that type's choice when the type has
+ * none (`list/choices.ts`): making "the checklist for merge requests" is saying which one they use.
+ * A type that already has a choice keeps it, and this list is an unassigned standard for it.
+ */
+function claimFree(book: Book, list: List): ItemType[] {
+  const choices: Choices = { ...(book.choices ?? {}) }
+  const claimed: ItemType[] = []
+  for (const type of madeFor(list)) {
+    if (chosenFor(choices, type, book.lists)) continue
+    choices[type] = list.id
+    claimed.push(type)
+  }
+  if (claimed.length) {
+    book.choices = choices
+    book.touch()
+  }
+  return claimed
+}
+
+/** Take a list out of every type it was chosen for: it is gone, or it no longer says it is for that type. */
+function unchoose(book: Book, id: string, keep: readonly ItemType[] = []): ItemType[] {
+  const choices: Choices = { ...(book.choices ?? {}) }
+  const dropped = typesChoosing(choices, id).filter((type) => !keep.includes(type))
+  for (const type of dropped) delete choices[type]
+  if (dropped.length) {
+    book.choices = choices
+    book.touch()
+  }
+  return dropped
+}
+
+/** " — it is the checklist for merge requests now", or '' when it claimed nothing. */
+function claimedSaid(types: readonly ItemType[]): string {
+  return types.length ? `; it is the checklist for ${typesName(types)} now` : ''
+}
 
 /**
  * Write what changed into this project's folder, making the folder if it is
@@ -550,6 +629,11 @@ export interface Summary {
    * lines somebody added for that item alone rather than a list a person named.
    */
   only?: string
+  /**
+   * The types of item this list is THE checklist for in this project (`list/choices.ts`). Absent for
+   * none: a standard with none is unassigned.
+   */
+  chosen?: ItemType[]
 }
 
 /** How many items are in each state for one target. They add up to `total`. */
@@ -627,6 +711,7 @@ function summaries(book: Book): Summary[] {
       ...(list.for ? { for: list.for } : {}),
       ...(list.origin ? { origin: list.origin } : {}),
       ...(list.only ? { only: list.only } : {}),
+      ...(typesChoosing(book.choices ?? {}, list.id).length ? { chosen: typesChoosing(book.choices ?? {}, list.id) } : {}),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -735,8 +820,13 @@ export interface ItemInFront {
   type: ItemType | null
   /** The roles of the angle it is read from: `['any']` for any role. */
   as: Role[]
-  /** Roles outside the angle from which some list's rules would apply to it. */
+  /** Roles outside the angle from which some list's rules would apply to it. Always empty since one checklist per type. */
   elsewhere: PersonRole[]
+  /**
+   * The ONE standing checklist its type uses (`list/choices.ts`), with whether this kehikko chose it
+   * or the project did; null when none is chosen for its type, or its type is not known.
+   */
+  chosen?: { id: string; name: string; by: 'project' | 'kehikko' } | null
 }
 
 /**
@@ -783,8 +873,13 @@ export function inFront(
      * (`list/standing.ts`).
      */
     read?: RefsRead
-    /** The angle the items are read from. `auto`, the person's own roles, when not said. */
+    /** The angle the items are read from. `auto`, the person's own roles, when not said. Kept for older callers; no longer decides which standard is in front. */
     angle?: Angle
+    /**
+     * This kehikko's own choices (`list/choices.ts`), over the project's: kept by the host per
+     * container and sent by the page. Absent: the project's alone.
+     */
+    choices?: Choices
     /**
      * The epic whose paper is a picked item: what a list for papers is asked
      * by, and what an item just for the paper is kept under. Null when no
@@ -826,10 +921,23 @@ export function inFront(
         ? input.following.modules.map((module) => targetKey({ kind: 'kehikko', kehikko: input.following!.kehikko, module, epic: null }))
         : []),
     ])
+    const choices = effective(book.choices ?? {}, input.choices)
+    const chosenRef = new Map(input.selection.map((ref) => [ref, chosenForAny(choices, possibleTypes(ref, read), book.lists)] as const))
+    const chosenPaper = input.paper ? chosenFor(choices, 'paper', book.lists) : null
+    const whose = (id: string, type: ItemType): 'project' | 'kehikko' => (input.choices?.[type] === id ? 'kehikko' : 'project')
+    for (const item of items) {
+      if (item.target.kind === 'paper') {
+        const list = chosenPaper ? book.lists[chosenPaper] : undefined
+        item.chosen = list ? { id: list.id, name: list.name, by: whose(list.id, 'paper') } : null
+      } else if (item.target.kind === 'ref') {
+        const got = chosenRef.get(item.target.ref)
+        const list = got?.answer === 'one' ? book.lists[got.id] : undefined
+        item.chosen = list && got?.answer === 'one' ? { id: list.id, name: list.name, by: whose(list.id, got.type) } : null
+      }
+    }
     const lists = Object.values(book.lists)
-      .filter((list) => list.holds > 0 || list.applies?.length)
+      .filter((list) => list.holds > 0 || Object.values(choices).includes(list.id))
       .map((list) => {
-        const rules = rulesOf(list)
         const targets = list.holds > 0 ? [...asked].filter((key) => book.holds(list.id, key)) : []
         if (input.whole && list.holds > 0) {
           for (const [key, entry] of book.group(list.id, `paper:${input.whole}`)) {
@@ -837,46 +945,32 @@ export function inFront(
           }
         }
         /*
-         * Each ref in front that this list is not held against by itself, and
-         * that one of its rules covers from the angle it is read at, is in
-         * front as that ref: the same key and so the same ticks a hold by hand
-         * would have. One the tracker has not decided is said, never guessed.
+         * The ONE standing checklist each item's type uses (`list/choices.ts`) is in front of it, as
+         * that item: the same key and so the same ticks a hold by hand would have. Not the rules, and
+         * not the angle: two standards for merge requests is one chosen and one unassigned. An item
+         * whose type the tracker has not said, and whose possible types use different lists, is said,
+         * never guessed.
          */
-        for (const ref of rules.length ? input.selection : []) {
+        for (const ref of input.selection) {
           const key = targetKey({ kind: 'ref', ref })
-          const as = asOf(ref)
-          const type = typeOf(ref, read)
-          const away = elsewhere(rules, type, as, (rule) => inEpic(rule, ref, read) === 'yes')
-          if (away.length) {
-            const seen = other.get(key) ?? new Set<PersonRole>()
-            for (const role of away) seen.add(role)
-            other.set(key, seen)
-          }
-          if (targets.includes(key)) continue
-          const covered = covers(rules, ref, read, as)
-          if (covered.answer === 'yes') {
+          const got = chosenRef.get(ref)
+          if (!got) continue
+          if (got.answer === 'one' && got.id === list.id) {
+            if (targets.includes(key)) continue
             targets.push(key)
-            through.set(`${list.id}|${key}`, { rules: covered.rules.map(ruleTarget), roles: covered.roles })
-          } else if (covered.answer === 'unknown') {
-            const row = undecided.get(ref) ?? { ref, why: covered.why, lists: [] }
-            if (covered.why === 'kind') row.why = 'kind'
+            through.set(`${list.id}|${key}`, { rules: [ruleTarget({ types: [got.type], roles: ['any'], epic: null })], roles: ['any'] })
+          } else if (got.answer === 'unknown' && got.ids.includes(list.id)) {
+            const row = undecided.get(ref) ?? { ref, why: 'kind' as const, lists: [] }
             if (!row.lists.includes(list.name)) row.lists.push(list.name)
             undecided.set(ref, row)
           }
         }
-        /* And the paper, when one is picked: a list for papers, from the angle. */
-        if (input.paper && rules.length) {
+        /* And the paper, when one is picked: the checklist papers use. */
+        if (input.paper && chosenPaper === list.id) {
           const key = targetKey({ kind: 'paper', epic: input.paper, section: null })
-          const away = elsewhere(rules, 'paper', paperAs, (rule) => !rule.epic || rule.epic === input.paper)
-          if (away.length) {
-            const seen = other.get(key) ?? new Set<PersonRole>()
-            for (const role of away) seen.add(role)
-            other.set(key, seen)
-          }
-          const covered = coversPaper(rules, input.paper, paperAs)
-          if (covered && !targets.includes(key)) {
+          if (!targets.includes(key)) {
             targets.push(key)
-            through.set(`${list.id}|${key}`, { rules: covered.rules.map(ruleTarget), roles: covered.roles })
+            through.set(`${list.id}|${key}`, { rules: [ruleTarget({ types: ['paper'], roles: ['any'], epic: null })], roles: ['any'] })
           }
         }
         return { id: list.id, name: list.name, targets }
@@ -931,6 +1025,12 @@ export type Op = (
    * through the MCP door — and never twice for one starter.
    */
   | { op: 'adopt'; starter: string; by: string; viaMcp?: boolean }
+  /**
+   * Choose the ONE standing checklist every item of a type uses in this project (`list/choices.ts`):
+   * a list (`id`), a starter adopted for it on the way (`starter`), or none (`id: null`). The
+   * person's, on the page; refused through the MCP door.
+   */
+  | { op: 'choose'; type: ItemType; id: string | null; starter?: string; by: string; viaMcp?: boolean }
   /**
    * Say what a list applies to, whole: every rule it has, replaced by these.
    * The edit page's types × roles; an empty array is a list that applies by
@@ -1192,7 +1292,49 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
       ...(rule ? { applies: [stored(rule, at)] } : {}),
     }
     book.touch()
-    return answer(id, `adopted “${starter.name}” as ${id}${rule ? `, applying to ${ruleName(rule)}` : ''}, with ${starter.items.length} lines to keep, reword or drop`, null)
+    const claimed = claimFree(book, book.lists[id] as List)
+    return answer(id, `adopted “${starter.name}” as ${id}${rule ? `, made for ${typesName(rule.types)}` : ''}, with ${starter.items.length} lines to keep, reword or drop${claimedSaid(claimed)}`, null)
+  }
+
+  if (input.op === 'choose') {
+    if (input.viaMcp === true) return { ok: false, error: choosingIsThePersons(input.type) }
+    if (!USABLE_TYPES.includes(input.type)) {
+      return { ok: false, error: `"${String(input.type).slice(0, 40)}" is not a type a checklist is chosen for. The types are ${USABLE_TYPES.join(', ')}. Nothing was changed.` }
+    }
+    const choices: Choices = { ...(book.choices ?? {}) }
+    let id = input.id
+    let made = ''
+    if (input.starter) {
+      const starter = starterNamed(input.starter)
+      if (!starter) return { ok: false, error: `there is no starter "${input.starter.slice(0, 40)}". The starters are ${STARTERS.map((one) => one.id).join(', ')}.` }
+      const had = Object.values(book.lists).find((list) => !list.only && list.origin === starterOrigin(starter.id))
+      if (had) id = had.id
+      else {
+        const adopted = apply({ op: 'adopt', starter: starter.id, by }, projectPath)
+        if (!adopted.ok) return adopted
+        /* The adoption was written, and may have claimed the type already: read again, and choose on that. */
+        return apply({ op: 'choose', type: input.type, id: adopted.id, by }, projectPath)
+      }
+    }
+    if (id === null) {
+      if (!choices[input.type]) return answer('', `no checklist was chosen for ${typesName([input.type])}, and none is`, null)
+      delete choices[input.type]
+      book.choices = choices
+      book.touch()
+      return answer('', `no checklist is chosen for ${typesName([input.type])} now: none is in front of them until one is${made}`, null)
+    }
+    const list = book.lists[id]
+    if (!list || !choosable(list)) {
+      return { ok: false, error: `there is no checklist "${String(id).slice(0, 64)}" to choose: pick one of the project's checklists, or a starter. Nothing was changed.` }
+    }
+    /* Chosen for a type it was not made for: it is made for it too, so it reads as the standard it now is. */
+    if (!madeFor(list).includes(input.type)) {
+      list.applies = [...(list.applies ?? []), stored({ types: [input.type], roles: ['any'], epic: null }, at)]
+    }
+    choices[input.type] = list.id
+    book.choices = choices
+    book.touch()
+    return answer(list.id, `"${list.name}" is the checklist for ${typesName([input.type])} now: every one of them is read against it`, null)
   }
 
   if (input.op === 'create') {
@@ -1239,9 +1381,10 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
       ...(rule?.rules.length ? { applies: rule.rules.map((one) => stored(one, at)) } : {}),
     }
     book.touch()
+    const claimed = claimFree(book, book.lists[id] as List)
     return answer(
       id,
-      `created "${name}" as ${id}${rule?.rules.length ? `, applying to ${rule.rules.map(ruleName).join('; ')}` : ''}`,
+      `created "${name}" as ${id}${rule?.rules.length ? `, made for ${rule.rules.map((one) => typesName(one.types)).join('; ')}` : ''}${claimedSaid(claimed)}`,
       null,
     )
   }
@@ -1470,11 +1613,13 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     if (next.length) list.applies = next
     else delete list.applies
     book.touch()
+    unchoose(book, list.id, madeFor(list))
+    const claimed = claimFree(book, list)
     const kept = next.length ? 0 : releaseThrough(book, list, at)
     return answer(
       list.id,
       next.length
-        ? `"${list.name}" applies to ${got.rules.map(ruleName).join('; ')}`
+        ? `"${list.name}" is made for ${got.rules.map((one) => typesName(one.types)).join('; ')}${claimedSaid(claimed)}`
         : `"${list.name}" applies to no type of item now${kept ? `; the ticks made on ${kept === 1 ? 'one item are' : `${kept} items are`} kept` : ''}`,
       null,
     )
@@ -1526,6 +1671,7 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
   }
 
   if (input.op === 'forget') {
+    unchoose(book, input.id)
     book.forget(input.id)
     /* And every tick on it, against every target. A checklist without its ticks
        is a list of items nobody can explain; ticks without their checklist are
@@ -1554,10 +1700,13 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
       if (was !== -1) return answer(list.id, `"${list.name}" already applies to ${name}`, null)
       list.applies = [...rules, stored(rule, at)]
       book.touch()
+      const claimed = claimFree(book, list)
       return answer(
         list.id,
-        `"${list.name}" now applies to ${name}: it is in front of every such item${rule.epic ? ` ${rule.epic} names` : ''} `
-        + 'read from that angle, as the host\'s tracker says what each is, and each keeps its own ticks',
+        `"${list.name}" is made for ${typesName(rule.types)}`
+        + (claimed.length
+          ? `${claimedSaid(claimed)}: it is in front of every such item, as the host's tracker says what each is, and each keeps its own ticks`
+          : `; it is in front of them only once it is chosen as their checklist (the person's choice, on the page)`),
         null,
       )
     }
@@ -1566,6 +1715,7 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
     if (left.length) list.applies = left
     else delete list.applies
     book.touch()
+    unchoose(book, list.id, madeFor(list))
     const kept = left.length ? 0 : releaseThrough(book, list, at)
     return answer(
       list.id,
