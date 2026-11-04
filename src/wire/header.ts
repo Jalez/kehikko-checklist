@@ -23,9 +23,22 @@ export const VIEWS = [
 ] as const
 export type HeaderView = (typeof VIEWS)[number]['id']
 
-/** The header for the view the page is on and the angle it reads from. The edit page counts as the view it was opened from. */
-export function headerFor(view: HeaderView, angle: Angle = 'auto'): HeaderItemInput[] {
-  return [
+/** The id of the header's run that copies a checklist in from another project. */
+export const COPY = 'import'
+
+/** How the copy is going, for the run's `disabled`: asking which project, or busy with something else. */
+export interface CopyState {
+  importing: boolean
+  busy: boolean
+}
+
+/**
+ * The header for the view the page is on and the angle it reads from. The edit page counts as the
+ * view it was opened from. On the manager it also carries "Copy from another project": starting
+ * something is the header's (the footer says what is going on now), so it is a Run item here.
+ */
+export function headerFor(view: HeaderView, angle: Angle = 'auto', copy: CopyState = { importing: false, busy: false }): HeaderItemInput[] {
+  const items: HeaderItemInput[] = [
     {
       kind: 'switch',
       id: 'view',
@@ -45,13 +58,24 @@ export function headerFor(view: HeaderView, angle: Angle = 'auto'): HeaderItemIn
       agents: false,
     },
   ]
+  if (view === 'all') {
+    items.push({
+      kind: 'run',
+      id: COPY,
+      label: copy.importing ? 'Choosing…' : 'Copy from another project',
+      state: copy.importing ? 'busy' : 'idle',
+      disabled: copy.importing ? null : copy.busy ? 'Working on something else.' : null,
+    })
+  }
+  return items
 }
 
 /** What a press in the header asks for. */
-export type Pressed = { view: HeaderView } | { angle: Angle }
+export type Pressed = { view: HeaderView } | { angle: Angle } | { copy: true }
 
 /** The view or the angle a press asks for, or a sentence saying why not. */
 export function pressed(press: { item: string; value?: string | boolean }): Pressed | string {
+  if (press.item === COPY) return { copy: true }
   if (press.item === 'angle') {
     const wanted = ANGLES.find((one) => one === press.value)
     return wanted ? { angle: wanted } : `"angle" takes one of: ${ANGLES.join(', ')}.`
@@ -62,7 +86,7 @@ export function pressed(press: { item: string; value?: string | boolean }): Pres
 
 /** The view a press asks for, or a sentence saying why not. */
 export function viewPressed(press: { item: string; value?: string | boolean }): HeaderView | string {
-  if (press.item !== 'view') return `There is no "${press.item}" here. What can be pressed: view, angle.`
+  if (press.item !== 'view') return `There is no "${press.item}" here. What can be pressed: view, angle, import.`
   const wanted = VIEWS.find((one) => one.id === press.value)
   return wanted ? wanted.id : `"view" takes one of: ${VIEWS.map((one) => one.id).join(', ')}.`
 }

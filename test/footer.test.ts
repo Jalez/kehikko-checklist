@@ -1,44 +1,60 @@
 import { describe, expect, test } from 'bun:test'
-import { footerItemsSchema, footerLayout, type FooterItem } from 'kehikot-module-protocol'
+import { footerItemsSchema, headerItemsSchema, type FooterItem } from 'kehikot-module-protocol'
 
-import { FOOT, footerItems, footerPressed, type FooterState } from '../src/wire/footer.ts'
+import { footerItems, tallyOf, tallySaid, type FooterState } from '../src/wire/footer.ts'
+import { COPY, headerFor, pressed } from '../src/wire/header.ts'
 
-/** The footer the host draws: the items declared for each screen's bar. */
+/**
+ * The footer the host draws: what is going on now, as readouts. The header is how the module is
+ * set up, so nothing pressable is declared down here.
+ */
 
-const base: FooterState = { view: 'here', trouble: null, busy: false, importing: false, canStorage: true, aside: null, troubleInBar: true }
+const tally = { lists: 2, passed: 3, failed: 0, na: 1, total: 7 }
+const base: FooterState = { view: 'here', trouble: null, tally, lists: 4, editing: null, aside: null, troubleInBar: true }
 const parsed = (state: Partial<FooterState>): FooterItem[] => footerItemsSchema.parse(footerItems({ ...base, ...state }))
 const byId = (items: FooterItem[], id: string) => items.find((one) => one.id === id)
 
 describe('the footer declared', () => {
-  test('the reading page ends in Manage checklists, with what was put aside as its hint', () => {
-    expect(parsed({}).map((one) => one.id)).toEqual(['manage'])
-    expect(byId(parsed({ aside: 'Two lists are put aside.' }), 'manage')).toMatchObject({ kind: 'run', label: 'Manage checklists', tooltip: 'Two lists are put aside.', align: 'end' })
+  test('the reading page says how far the lists in front have got, at the end of the row', () => {
+    expect(byId(parsed({}), 'count')).toMatchObject({ kind: 'text', text: '2 checklists · 3/7 passed · 1 n/a', align: 'end', level: 'normal' })
+  })
+
+  test('a failure raises the count to warn, and a finished set says done', () => {
+    expect(byId(parsed({ tally: { ...tally, failed: 2 } }), 'count')).toMatchObject({ level: 'warn', text: '2 checklists · 3/7 passed · 2 failed · 1 n/a' })
+    expect((byId(parsed({ tally: { lists: 1, passed: 2, failed: 0, na: 1, total: 3 } }), 'count') as { text: string }).text).toEndWith('· done')
+  })
+
+  test('what was put aside rides in the count’s tooltip', () => {
+    expect(byId(parsed({ aside: 'Two lists are put aside.' }), 'count')).toMatchObject({ tooltip: '2 checklists · 3/7 passed · 1 n/a. Two lists are put aside.' })
+  })
+
+  test('nothing is counted before the first answer', () => {
+    expect(parsed({ tally: null })).toEqual([])
   })
 
   test('what went wrong stands first, in words and at critical', () => {
     const items = parsed({ trouble: 'The server did not answer.' })
     expect(items[0]).toMatchObject({ kind: 'text', id: 'trouble', level: 'critical', text: 'The server did not answer.' })
-    expect(items.map((one) => one.id)).toEqual(['trouble', 'manage'])
+    expect(items.map((one) => one.id)).toEqual(['trouble', 'count'])
   })
 
-  test('the manager: Copy from another project, and Storage, which goes first when the row is narrow', () => {
-    const items = parsed({ view: 'all' })
-    expect(items.map((one) => one.id)).toEqual(['import', 'storage'])
-    expect(byId(items, 'import')).toMatchObject({ label: 'Copy from another project', disabled: null })
-    expect(byId(items, 'storage')).toMatchObject({ optional: true })
-    expect(footerLayout(items, 200).overflow.map((one) => one.id)).toContain('storage')
-    expect(byId(parsed({ view: 'all', importing: true }), 'import')).toMatchObject({ label: 'Choosing…', disabled: 'Choosing a project already.' })
-    expect(byId(parsed({ view: 'all', busy: true }), 'import')).toMatchObject({ disabled: 'Working on something else.' })
-    expect(parsed({ view: 'all', canStorage: false }).map((one) => one.id)).toEqual(['import'])
+  test('the manager counts the project’s checklists, and says trouble in its bar only as an overlay', () => {
+    expect(parsed({ view: 'all' })).toMatchObject([{ id: 'count', text: '4 checklists in this project' }])
+    expect(parsed({ view: 'all', lists: 1 })[0]).toMatchObject({ text: '1 checklist in this project' })
+    expect(parsed({ view: 'all', trouble: 'No.' }).map((one) => one.id)).toEqual(['trouble', 'count'])
+    expect(parsed({ view: 'all', trouble: 'No.', troubleInBar: false }).map((one) => one.id)).toEqual(['count'])
   })
 
-  test('the manager says trouble in its bar only where the page composes as an overlay; flowing, the form says it', () => {
-    expect(parsed({ view: 'all', trouble: 'No.' }).map((one) => one.id)).toEqual(['trouble', 'import', 'storage'])
-    expect(parsed({ view: 'all', trouble: 'No.', troubleInBar: false }).map((one) => one.id)).toEqual(['import', 'storage'])
+  test('the edit page names the list open on it; Storage keeps its own rows', () => {
+    expect(parsed({ view: 'edit', editing: 'Release', trouble: 'x' })).toMatchObject([{ id: 'editing', text: 'Editing Release' }])
+    expect(parsed({ view: 'edit', editing: null })).toEqual([])
+    expect(footerItems({ ...base, view: 'storage', trouble: 'x' })).toEqual([])
   })
 
-  test('the edit page, the import screen and Storage keep their own rows', () => {
-    for (const view of ['edit', 'storage'] as const) expect(footerItems({ ...base, view, trouble: 'x' })).toEqual([])
+  test('nothing in the footer can be pressed', () => {
+    for (const view of ['here', 'all', 'edit'] as const) {
+      for (const one of parsed({ view, editing: 'A', trouble: 'x' })) expect(one.kind).toBe('text')
+    }
   })
 
   test('a long sentence is cut to the protocol’s limit', () => {
@@ -47,15 +63,28 @@ describe('the footer declared', () => {
   })
 })
 
-describe('a press in the footer', () => {
-  test('is judged against the screen on show', () => {
-    expect(footerPressed(FOOT.MANAGE, base)).toBe('manage')
-    expect(footerPressed(FOOT.MANAGE, { ...base, view: 'all' })).toBe('That is not here now.')
-    expect(footerPressed(FOOT.IMPORT, { ...base, view: 'all' })).toBe('import')
-    expect(footerPressed(FOOT.IMPORT, { ...base, view: 'all', importing: true })).toBe('Choosing a project already.')
-    expect(footerPressed(FOOT.IMPORT, { ...base, view: 'all', busy: true })).toBe('Working on something else.')
-    expect(footerPressed(FOOT.IMPORT, base)).toBe('That is not here now.')
-    expect(footerPressed(FOOT.STORAGE, { ...base, view: 'all' })).toBe('storage')
-    expect(footerPressed('trouble', base)).toBe('That is not something here.')
+describe('the tally', () => {
+  test('adds every row of every list the way each list counts its own', () => {
+    const rows = (...states: (null | 'passed' | 'failed' | 'na')[]) => states.map((state) => ({ done: state === null ? null : state === 'passed' ? {} : { state } }))
+    const got = tallyOf([
+      { rows: rows('passed', null, 'na'), total: 3 },
+      { rows: rows('failed', 'passed'), total: 2 },
+    ])
+    expect(got).toEqual({ lists: 2, passed: 2, failed: 1, na: 1, total: 5 })
+    expect(tallySaid({ lists: 0, passed: 0, failed: 0, na: 0, total: 0 })).toBe('0 checklists')
+  })
+})
+
+describe('the header carries the copy', () => {
+  test('on the manager only, as a Run item that says when it is choosing', () => {
+    expect(headerFor('here').some((one) => one.id === COPY)).toBe(false)
+    const items = headerItemsSchema.parse(headerFor('all'))
+    expect(items.find((one) => one.id === COPY)).toMatchObject({ kind: 'run', label: 'Copy from another project', state: 'idle' })
+    expect(headerFor('all', 'auto', { importing: true, busy: false }).find((one) => one.id === COPY)).toMatchObject({ label: 'Choosing…', state: 'busy' })
+    expect(headerFor('all', 'auto', { importing: false, busy: true }).find((one) => one.id === COPY)).toMatchObject({ disabled: 'Working on something else.' })
+  })
+
+  test('a press of it asks for the copy', () => {
+    expect(pressed({ item: COPY })).toEqual({ copy: true })
   })
 })

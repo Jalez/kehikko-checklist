@@ -1,36 +1,60 @@
 import { LIMITS, type FooterItemInput } from 'kehikot-module-protocol'
 
+import { countRows } from '../../list/shapes.ts'
+
 /**
- * This page's footer, as the host draws it (`kehikot.footer`, protocol 2.38.0): the bottom rows the
- * page drew itself — what went wrong, and the few buttons that end each screen — as items.
+ * This page's footer, as the host draws it (`kehikot.footer`, protocol 2.38.0): what is going on
+ * now, as readouts. What went wrong, and how far the lists in front have got.
+ *
+ * The rule the rows follow: the header is how the module is set up (which screen, which angle,
+ * starting a copy), the footer is what is going on now. So the footer has no buttons of its own:
+ * "Manage checklists" and "Storage" are the header's View switch, and "Copy from another project"
+ * is the header's Run item. Folded to two rows, a container shows its header and this footer, so
+ * the count is what a person reads there.
  *
  * Declared only when the host says it draws a footer (`drawsFooter === true`); with any other host
  * the page draws its own rows exactly as before. The page owns every bit of state: the host draws
- * the latest list and reports a press. Pure, so what is declared is what is tested.
+ * the latest list. Pure, so what is declared is what is tested.
  *
- * Two screens end in a bar: the reading page ("Manage checklists") and the manager (copying a list
- * in from another project, and Storage). The edit page and the storage page keep their own rows:
- * those are part of what they edit, not a status line.
+ * The edit page and the storage page keep their own rows: those are part of what they edit, not a
+ * status line. The edit page names the list open on it, the one thing a person glances for there.
  */
 
-/** The ids of what can be pressed in the footer. */
-export const FOOT = {
-  MANAGE: 'manage',
-  IMPORT: 'import',
-  STORAGE: 'storage',
-} as const
+export interface Tally {
+  /** How many checklists are drawn. */
+  lists: number
+  /** Items ticked passed, failed and not applicable, over every list drawn, and how many there are. */
+  passed: number
+  failed: number
+  na: number
+  total: number
+}
+
+/** The tally of the lists drawn: every row of every instance, counted the way each list's own count is. */
+export function tallyOf(instances: readonly { rows: { done: { state?: 'passed' | 'failed' | 'na' } | null }[]; total: number }[]): Tally {
+  const tally: Tally = { lists: instances.length, passed: 0, failed: 0, na: 0, total: 0 }
+  for (const one of instances) {
+    const counts = countRows(one.rows)
+    tally.passed += counts.passed
+    tally.failed += counts.failed
+    tally.na += counts.na
+    tally.total += one.total
+  }
+  return tally
+}
 
 export interface FooterState {
-  /** The screen on show; the edit page counts as the one it was opened from, and has no footer of its own. */
+  /** The screen on show; the import screen counts as `edit`. */
   view: 'here' | 'all' | 'edit' | 'storage'
   /** The last thing that went wrong, said in words, or null. */
   trouble: string | null
-  busy: boolean
-  /** The manager: the person is being asked which project, or the other project is being read. */
-  importing: boolean
-  /** The manager can open Storage. */
-  canStorage: boolean
-  /** The reading page's hint on "Manage checklists" about lists put aside, or null. */
+  /** The reading page: the lists drawn, and how far they have got. Null before the first answer. */
+  tally: Tally | null
+  /** The manager: how many checklists the project has, or null before they are read. */
+  lists: number | null
+  /** The edit page: the name of the list open on it, or null. */
+  editing: string | null
+  /** The reading page's sentence about lists put aside, or null. */
   aside: string | null
   /** Whether this screen shows the trouble in a bar of its own (the manager, composed as an overlay, shows it in the bar; flowing, it is inline in the form). */
   troubleInBar: boolean
@@ -41,49 +65,46 @@ const clip = (text: string, most: number) => {
   return one.length <= most ? one : `${one.slice(0, most - 1)}…`
 }
 
-/** The footer's items for a state; `[]` when the screen has no bar. */
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+
+/** What the reading page's count says: lists, then passed of all, then failed and not applicable. */
+export function tallySaid(tally: Tally): string {
+  const parts = [plural(tally.lists, 'checklist')]
+  if (tally.total > 0) parts.push(`${tally.passed}/${tally.total} passed`)
+  if (tally.failed) parts.push(`${tally.failed} failed`)
+  if (tally.na) parts.push(`${tally.na} n/a`)
+  return parts.join(' · ')
+}
+
+/** The footer's items for a state; `[]` when the screen has no row. */
 export function footerItems(state: FooterState): FooterItemInput[] {
   const items: FooterItemInput[] = []
   const { view } = state
-  if (view !== 'here' && view !== 'all') return items
-  if (state.trouble && (view === 'here' || state.troubleInBar)) {
+  if (view === 'storage') return items
+  if (state.trouble && view !== 'edit' && (view === 'here' || state.troubleInBar)) {
     items.push({ kind: 'text', id: 'trouble', text: clip(state.trouble, LIMITS.FOOTER_TEXT), level: 'critical', tooltip: clip(state.trouble, LIMITS.FOOTER_TOOLTIP) })
   }
-  if (view === 'here') {
+  if (view === 'here' && state.tally) {
+    const said = tallySaid(state.tally)
+    const { passed, failed, na, total } = state.tally
+    const finished = total > 0 && passed + na === total && failed === 0
     items.push({
-      kind: 'run',
-      id: FOOT.MANAGE,
-      label: 'Manage checklists',
+      kind: 'text',
+      id: 'count',
+      text: clip(finished ? `${said} · done` : said, LIMITS.FOOTER_TEXT),
+      level: failed ? 'warn' : 'normal',
       align: 'end',
-      ...(state.aside ? { tooltip: clip(state.aside, LIMITS.FOOTER_TOOLTIP) } : {}),
+      tooltip: clip(state.aside ? `${said}. ${state.aside}` : `${said}.`, LIMITS.FOOTER_TOOLTIP),
     })
-  } else {
+  } else if (view === 'all' && state.lists !== null) {
+    items.push({ kind: 'text', id: 'count', text: `${plural(state.lists, 'checklist')} in this project`, align: 'end' })
+  } else if (view === 'edit' && state.editing) {
     items.push({
-      kind: 'run',
-      id: FOOT.IMPORT,
-      label: state.importing ? 'Choosing…' : 'Copy from another project',
-      align: 'start',
-      tooltip: 'Copy a checklist from another project.',
-      disabled: state.importing ? 'Choosing a project already.' : state.busy ? 'Working on something else.' : null,
+      kind: 'text',
+      id: 'editing',
+      text: clip(`Editing ${state.editing}`, LIMITS.FOOTER_TEXT),
+      tooltip: clip(`Editing the checklist ${state.editing}.`, LIMITS.FOOTER_TOOLTIP),
     })
-    if (state.canStorage) {
-      items.push({ kind: 'run', id: FOOT.STORAGE, label: 'Storage', align: 'end', optional: true, tooltip: 'What the checklists take up on disk, and purging old ones.' })
-    }
   }
   return items
-}
-
-/** What a press in the footer asks for, or a sentence saying why not. */
-export type FooterPress = 'manage' | 'import' | 'storage'
-
-export function footerPressed(item: string, state: FooterState): FooterPress | string {
-  if (item === FOOT.MANAGE) return state.view === 'here' ? 'manage' : 'That is not here now.'
-  if (item === FOOT.IMPORT) {
-    if (state.view !== 'all') return 'That is not here now.'
-    if (state.importing) return 'Choosing a project already.'
-    if (state.busy) return 'Working on something else.'
-    return 'import'
-  }
-  if (item === FOOT.STORAGE) return state.view === 'all' && state.canStorage ? 'storage' : 'That is not here now.'
-  return 'That is not something here.'
 }

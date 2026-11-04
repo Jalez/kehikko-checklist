@@ -30,7 +30,7 @@ import {
 } from '@/store/ask.ts'
 import type { TrackerReading } from 'kehikot-module-protocol'
 import { marksOf, useKehikot, type GotoHandler, type PressHandler } from '@/wire/use-kehikot.ts'
-import { footerItems, footerPressed, type FooterState } from '@/wire/footer.ts'
+import { footerItems, tallyOf, type FooterState } from '@/wire/footer.ts'
 import { ANGLE_FILTER, angleOffer, headerFor, pressed } from '@/wire/header.ts'
 import { StorageView } from '@/view/storage.tsx'
 import { factsOf } from '@/view/facts.tsx'
@@ -192,17 +192,19 @@ export function App() {
     )
   }, [])
 
-  /* What a press in the footer the host draws does, filled in below; a ref, for the same reason. */
-  const footerPress = useRef<(item: string) => string | undefined>(() => 'This page is not ready for that yet.')
+  /* What the header's "Copy from another project" does, filled in below once the copy is defined; a ref, for the same reason. */
+  const copyPress = useRef<() => string | undefined>(() => 'This page is not ready for that yet.')
 
   /* What a press of the angle does, filled in below once the host's choice is known; a ref, so the press handler is made once. */
   const angleTo = useRef<(next: Angle) => void>(() => {})
 
   /* A press in the host's View menu: the same three screens the page's own buttons reach, or the angle. */
   const onPress = useCallback<PressHandler>((press) => {
-    if (press.place === 'footer') return footerPress.current(press.item)
+    /* The footer is readouts only: nothing in it can be pressed. */
+    if (press.place === 'footer') return 'Nothing in this footer can be pressed.'
     const wanted = pressed(press)
     if (typeof wanted === 'string') return wanted
+    if ('copy' in wanted) return copyPress.current()
     if ('angle' in wanted) angleTo.current(wanted.angle)
     else setView({ kind: wanted.view })
     return undefined
@@ -409,8 +411,8 @@ export function App() {
   /* The header says which screen is showing — the edit page counts as the one it was opened from — and the angle. */
   const showing = view.kind === 'edit' ? view.back : view.kind
   useEffect(() => {
-    if (where === 'hosted') header(headerFor(showing, angle))
-  }, [where, header, showing, angle])
+    if (where === 'hosted') header(headerFor(showing, angle, { importing: choosing, busy }))
+  }, [where, header, showing, angle, choosing, busy])
 
   /* Every checklist that exists. This app's own material, read at load, after
      every change, and on the doorbell. */
@@ -903,13 +905,14 @@ export function App() {
    * nothing is declared and the rows are drawn as they always were.
    */
   const footed = where === 'hosted' && drawsFooter === true
+  const drawnHere = drawn.current.here
   const footState: FooterState = {
     /* The import's own screen stands above the others and keeps its own rows. */
-    view: from ? 'edit' : showing,
+    view: from ? 'edit' : view.kind,
     trouble,
-    busy,
-    importing: choosing,
-    canStorage: true,
+    tally: drawnHere ? tallyOf(drawnHere.instances) : null,
+    lists: lists.length,
+    editing: from ? null : view.kind === 'edit' ? (opened?.held.checklist.name ?? null) : null,
     aside: drawn.current.putAside,
     troubleInBar: room.compose === 'overlay',
   }
@@ -917,12 +920,11 @@ export function App() {
   useEffect(() => {
     if (footerSaid !== null) footer(JSON.parse(footerSaid))
   }, [footerSaid, footer])
-  footerPress.current = (item) => {
-    const asked = footerPressed(item, footState)
-    if (asked === 'manage') setView({ kind: 'all' })
-    else if (asked === 'import') void onImport()
-    else if (asked === 'storage') setView({ kind: 'storage' })
-    else return asked
+  copyPress.current = () => {
+    if (view.kind !== 'all' || from) return 'Copy from another project is on Manage checklists.'
+    if (choosing) return 'Choosing a project already.'
+    if (busy) return 'Working on something else.'
+    void onImport()
     return undefined
   }
 

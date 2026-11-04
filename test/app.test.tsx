@@ -346,8 +346,9 @@ describe('the not-ready moments, each as the one shared cover', () => {
 })
 
 /**
- * The footer the host draws (protocol 2.38.0): the reading page's "Manage checklists" and the manager's
- * "Copy from another project" and Storage stand in it when the host draws one, and in the page when not.
+ * The footer the host draws (protocol 2.38.0): readouts only. "Manage checklists" and Storage are the
+ * header's View switch, and "Copy from another project" is the header's Run item; the page's own bar
+ * carries them when the host draws no footer.
  */
 describe('the footer', () => {
   const answerLists = () => {
@@ -356,45 +357,44 @@ describe('the footer', () => {
       return Response.json({ whole: false, placed: null, positions: [], instances: [], trouble: null, nowhere: false })
     }) as unknown as typeof fetch
   }
+  const headers: { id: string; kind: string; [k: string]: unknown }[][] = []
   const footed = (draws: boolean | null) => {
     answerLists()
+    headers.length = 0
     const declared: { id: string; kind: string; [k: string]: unknown }[][] = []
-    wire = { projectPath: '/p', drawsFooter: draws, footer: (items) => void declared.push(items as never) }
+    wire = { projectPath: '/p', drawsFooter: draws, footer: (items) => void declared.push(items as never), header: (items) => void headers.push(items as never) }
     return declared
   }
-  const pressFoot = (item: string) => {
+  const pressAt = (item: string, place: 'header' | 'footer', value?: string) => {
     let answer: unknown
     act(() => {
-      answer = press?.({ item, place: 'footer' })
+      answer = press?.({ item, place, ...(value === undefined ? {} : { value }) })
     })
     return answer
   }
 
-  test('a host that draws it is declared the reading page\'s bar, and the page draws none of its own', async () => {
+  test('a host that draws it is declared a count, and the page draws no bar of its own', async () => {
     const declared = footed(true)
     render(<App />)
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['manage']))
+    await waitFor(() => expect(declared.at(-1)).toMatchObject([{ id: 'count', kind: 'text', text: '0 checklists' }]))
     expect(screen.queryByText('Manage checklists')).toBeNull()
-    expect(pressFoot('manage')).toBeUndefined()
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['import', 'storage']))
-    /* The heading of the manager is the page's own; its bottom row is not. */
+    expect(pressAt('count', 'footer')).toBe('Nothing in this footer can be pressed.')
+    expect(pressAt('view', 'header', 'all')).toBeUndefined()
+    await waitFor(() => expect(declared.at(-1)).toMatchObject([{ id: 'count', text: '0 checklists in this project' }]))
     expect(screen.queryByText('Copy from another project')).toBeNull()
-    expect(screen.queryByText('Storage')).toBeNull()
-    expect(pressFoot('manage')).toBe('That is not here now.')
-    expect(pressFoot('nope')).toBe('That is not something here.')
-    expect(pressFoot('storage')).toBeUndefined()
-    await waitFor(() => expect(declared.at(-1)).toEqual([]))
+    expect(headers.at(-1)?.map((one) => one.id)).toEqual(['view', 'angle', 'import'])
   })
 
-  test('Copy from another project asks the host which project, from the footer', async () => {
+  test('Copy from another project asks the host which project, from the header', async () => {
     const declared = footed(true)
     let asked = 0
     wire = { ...wire, pickProject: async () => (asked++, null) }
     render(<App />)
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['manage']))
-    pressFoot('manage')
-    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['import', 'storage']))
-    pressFoot('import')
+    await waitFor(() => expect(declared.at(-1)?.map((one) => one.id)).toEqual(['count']))
+    expect(pressAt('import', 'header')).toBe('Copy from another project is on Manage checklists.')
+    pressAt('view', 'header', 'all')
+    await waitFor(() => expect(headers.at(-1)?.map((one) => one.id)).toContain('import'))
+    expect(pressAt('import', 'header')).toBeUndefined()
     await waitFor(() => expect(asked).toBe(1))
   })
 
