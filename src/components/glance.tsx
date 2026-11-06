@@ -1,7 +1,8 @@
-import { useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { Area, AreaChart, CartesianGrid, ReferenceLine, XAxis, YAxis } from 'recharts'
 
 import { ChartContainer, type ChartConfig } from '@/components/ui/chart'
+import { fromKeyboard, hideTip, showTip, useTip } from '@/lib/one-tip'
 import { cn } from '@/lib/utils'
 import {
   failing,
@@ -280,6 +281,9 @@ function StateBar({ progress, rows, said }: { progress: Progress; rows: readonly
  * key raises the tooltip of one point, Escape closes it. The tooltip is drawn inside the plot's own
  * box (above it, or over a one-line glance), so it never runs off the tile or makes the page scroll
  * sideways. The plot is an image whose label is its sentence: the text equivalent of the chart.
+ *
+ * One tooltip on the page at a time (`useTip`): it goes when the pointer leaves the plot or the page,
+ * and focus raises it only from the keyboard, so a click never leaves one pinned.
  */
 function Pointable({
   said,
@@ -308,13 +312,18 @@ function Pointable({
   data?: Record<string, string>
   children: (index: number | null) => ReactNode
 }) {
-  const [shown, setShown] = useState<{ index: number | null } | null>(null)
-  const focused = useRef(false)
+  const [held, setShown] = useState<{ index: number | null } | null>(null)
+  const { key: tipKey, mine } = useTip()
+  useEffect(() => {
+    if (!mine) setShown(null)
+  }, [mine])
+  const shown = mine ? held : null
   const id = useId()
   const index = shown?.index ?? null
   const text = shown ? (index !== null && tip ? tip(index) : summary) : null
   const align = place === 'over' ? 'start' : tipAlign(index, count)
   const point = (event: PointerEvent<HTMLDivElement>) => {
+    showTip(tipKey, event.currentTarget, { touch: event.pointerType === 'touch' })
     if (!count || !indexAt) return setShown({ index: null })
     const box = event.currentTarget.getBoundingClientRect()
     setShown({ index: indexAt(box.width ? (event.clientX - box.left) / box.width : 0) })
@@ -324,6 +333,8 @@ function Pointable({
     if (next === undefined) return
     event.preventDefault()
     setShown(next === null ? null : { index: next })
+    if (next === null) hideTip(tipKey)
+    else showTip(tipKey, event.currentTarget, { keyboard: true })
   }
   return (
     <div
@@ -336,15 +347,20 @@ function Pointable({
       data-testid={testId}
       {...data}
       onPointerEnter={point}
+      onPointerDown={point}
       onPointerMove={point}
-      onPointerLeave={() => setShown(focused.current ? { index: null } : null)}
-      onFocus={() => {
-        focused.current = true
+      onPointerLeave={(event) => {
+        if (event.pointerType !== 'touch') hideTip(tipKey)
+      }}
+      onPointerCancel={() => hideTip(tipKey)}
+      onFocus={(event) => {
+        if (!fromKeyboard()) return
         setShown({ index: null })
+        showTip(tipKey, event.currentTarget, { keyboard: true })
       }}
       onBlur={() => {
-        focused.current = false
         setShown(null)
+        hideTip(tipKey)
       }}
       onKeyDown={key}
     >
