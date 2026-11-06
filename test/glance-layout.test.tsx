@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from 'bun:test'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 
 import type { Held } from '../list/checklists.ts'
 import { failing, progressOf, progressOver, workingOn, type GlanceList, type Progress } from '../list/glance.ts'
@@ -19,6 +19,7 @@ import {
   tipAlign,
   troubleSaid,
 } from '../src/components/glance-layout.ts'
+import { TOUCH_MS, resetTips } from '../src/lib/one-tip.ts'
 import { HereView } from '../src/view/here.tsx'
 import { room } from '../src/view/room.ts'
 
@@ -29,6 +30,7 @@ import { room } from '../src/view/room.ts'
  * which words it draws.
  */
 afterEach(cleanup)
+beforeEach(resetTips)
 
 const REF: Target = { kind: 'ref', ref: 'gh#105' }
 const tick = (state: string, at: string, note?: string) => ({ state, at, by: 'claude', viaMcp: true, ...(note ? { note } : {}) }) as never
@@ -270,5 +272,109 @@ describe('the page at its smallest', () => {
     const { container } = page(200, 200)
     expect(container.querySelector('[data-concerns]')?.getAttribute('title')).toBe('Pull request gh#105')
     expect(container.querySelector('[data-working-first]')?.getAttribute('title')).toBe('Being worked on: “Follows patterns”.')
+  })
+})
+
+describe('one chart tooltip, and only while it is wanted (2.13.1)', () => {
+  const tips = (root: ParentNode) => [...root.querySelectorAll('[role="tooltip"]')].map((one) => one.textContent)
+  const plots = (root: ParentNode) => ({
+    progress: root.querySelector('[data-testid="plot-progress"]') as HTMLElement,
+    states: root.querySelector('[data-testid="plot-states"]') as HTMLElement,
+  })
+  const hover = (el: HTMLElement) => fireEvent.pointerMove(el, { pointerType: 'mouse', clientX: 0 })
+
+  test('leaving the plot hides it', () => {
+    const { container } = page(200, 200)
+    const { states } = plots(container)
+    hover(states)
+    expect(tip(states)).toBe('1 passed of 6')
+    fireEvent.pointerLeave(states, { pointerType: 'mouse' })
+    expect(tip(states)).toBeNull()
+  })
+
+  test('the pointer leaving the page (the module) hides it', () => {
+    const { container } = page(200, 200)
+    const { states } = plots(container)
+    hover(states)
+    act(() => void document.documentElement.dispatchEvent(new MouseEvent('mouseleave')))
+    expect(tip(states)).toBeNull()
+    hover(states)
+    expect(tip(states)).not.toBeNull()
+    act(() => void document.dispatchEvent(new PointerEvent('pointerout', { pointerType: 'mouse', relatedTarget: null })))
+    expect(tip(states)).toBeNull()
+  })
+
+  test('the window losing focus, a scroll, a resize and Escape each hide it', () => {
+    const { container } = page(200, 200)
+    const { states } = plots(container)
+    const aways = [
+      () => window.dispatchEvent(new Event('blur')),
+      () => window.dispatchEvent(new Event('scroll')),
+      () => window.dispatchEvent(new Event('resize')),
+      () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })),
+    ]
+    for (const away of aways) {
+      hover(states)
+      expect(tip(states)).not.toBeNull()
+      act(() => void away())
+      expect(tip(states)).toBeNull()
+    }
+  })
+
+  test('showing a second hides the first', () => {
+    const { container } = page(200, 200)
+    const { progress, states } = plots(container)
+    hover(progress)
+    expect(tip(progress)).not.toBeNull()
+    hover(states)
+    expect(tips(container)).toEqual(['1 passed of 6'])
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    fireEvent.focus(progress)
+    expect(tips(container)).toEqual(['2/6 done · 1 failing · 1 blocked · 1 working'])
+  })
+
+  test('a click that focuses a chart leaves no tooltip once the pointer goes', () => {
+    const { container } = page(200, 200)
+    const { states } = plots(container)
+    fireEvent.pointerDown(states, { pointerType: 'mouse', clientX: 0 })
+    fireEvent.focus(states)
+    expect(tip(states)).not.toBeNull()
+    fireEvent.pointerLeave(states, { pointerType: 'mouse' })
+    expect(tip(states)).toBeNull()
+    fireEvent.blur(states)
+    fireEvent.focus(states)
+    expect(tip(states)).toBeNull()
+  })
+
+  test('keyboard focus still shows it, and blur hides it', () => {
+    const { container } = page(200, 200)
+    const { progress } = plots(container)
+    fireEvent.pointerDown(document.body, { pointerType: 'mouse' })
+    fireEvent.keyDown(document.body, { key: 'Tab' })
+    fireEvent.focus(progress)
+    expect(tip(progress)).toBe('2/6 done · 1 failing · 1 blocked · 1 working')
+    fireEvent.keyDown(progress, { key: 'End' })
+    expect(tip(progress)).toBe('2/6 now')
+    fireEvent.blur(progress)
+    expect(tip(progress)).toBeNull()
+  })
+
+  test('a tap shows it; a tap elsewhere or the time hides it', () => {
+    jest.useFakeTimers()
+    try {
+      const { container } = page(200, 200)
+      const { states } = plots(container)
+      fireEvent.pointerDown(states, { pointerType: 'touch', clientX: 0 })
+      fireEvent.pointerLeave(states, { pointerType: 'touch' })
+      expect(tip(states)).not.toBeNull()
+      fireEvent.pointerDown(document.body, { pointerType: 'touch' })
+      expect(tip(states)).toBeNull()
+      fireEvent.pointerDown(states, { pointerType: 'touch', clientX: 0 })
+      expect(tip(states)).not.toBeNull()
+      act(() => void jest.advanceTimersByTime(TOUCH_MS + 1))
+      expect(tip(states)).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })

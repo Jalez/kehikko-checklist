@@ -16,6 +16,7 @@ import { PERSON_ANSWERS_WITHIN_MS, type HostEvents } from 'kehikot-module-protoc
 import { useHost, useKept, type Host } from 'kehikot-module-protocol/client/react'
 
 import { openerOf, type OpenAddress } from '../lib/links.ts'
+import { hideTip } from '../lib/one-tip.ts'
 import { pump } from './emit.ts'
 import { flattenParts } from '../../list/focus.ts'
 
@@ -333,6 +334,10 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   pressed.current = onPress
   const press = useCallback<PressHandler>((one) => pressed.current?.(one) ?? 'This page is not ready for that yet.', [])
   const host = useHost(id, { onGoto, onPress: press }, { reloadWhenStale: false })
+  /* Off screen (`kehikot.visible` false): no chart tooltip is left standing for when it comes back. */
+  useEffect(() => {
+    if (!host.visible) hideTip()
+  }, [host.visible])
   const hostOpens = host.openAddress
   const hostAnswers = host.answers
   const openAddress = useMemo(() => openerOf({ answers: hostAnswers, openAddress: hostOpens }), [hostAnswers, hostOpens])
