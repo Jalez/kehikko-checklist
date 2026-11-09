@@ -173,7 +173,7 @@ describe('the MCP door', () => {
       null,
     )
     const text = (reply?.body as { result: { content: { text: string }[] } }).result.content[0]!.text
-    expect(text).toContain('Automatic, from a test run')
+    expect(text).toContain('Automatic, from a run')
     expect(text).toContain('[x] Tests pass: bun test — passed, exit 0 (automatic')
     expect(text).toContain('[ ] Tests pass: typecheck — running (automatic')
     expect(text).toContain('hidden on the page by a person')

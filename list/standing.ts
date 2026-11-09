@@ -535,6 +535,6 @@ export function standardIsThePersons(name: string, rules: readonly Rule[]): stri
  * expectations, and a run of tests is not one.
  */
 export const TESTS_ELSEWHERE =
-  'Test runs, verification commands and one-time test steps do not belong on a checklist: queue them in Test runs '
+  'Test runs, builds, verification commands and one-time test steps do not belong on a checklist: queue them in Queue '
   + 'when it is installed, whose results show here as automatic items. A checklist is for the person’s standing '
   + 'expectations of every item of a kind.'

@@ -81,9 +81,9 @@ ones always come first: on the reading page, on the manager, and in what
   `change()` (`list/checklists.ts`, `standardIsThePersons` in
   `list/standing.ts`), so it holds for every caller. The page is the person and
   is not asked.
-- **Test steps belong in Test runs.** The tool descriptions, the guidance and
-  the session notes say plainly that test runs, verification commands and
-  one-time test steps go in Test runs when it is installed (their results show
+- **Test steps belong in Queue.** The tool descriptions, the guidance and
+  the session notes say plainly that test runs, builds, verification commands
+  and one-time test steps go in Queue when it is installed (their results show
   here as automatic items), and an agent that creates a one-off list is told it
   made one and where such lines belong.
 - **Starters.** `list/starters.ts` holds a few standing checklists — pull and
@@ -558,9 +558,10 @@ folder under `.kehikot/` and names none, and keeps the newest run of each label 
 (`latestRuns`). This module names no publisher and does not know who they are; `list/runs.ts` is the
 whole of it, `GET /api/runs?project=…&refs=…` is the page's read.
 
-Under a picked ref's angle line, above its lists, each label is one item, "Tests pass: <label>",
-with the run's state in words — Queued, Running, Passed, Failed, Cancelled — and a shape, and
-"from a test run" on every row. It is ticked while the newest run of that label passed and unticked
+Under a picked ref's angle line, above its lists, each label is one item, "Tests pass: <label>"
+for a run of checks (kind `verify` or `push`) and "Passes: <label>" for any other kind (a build, a
+task), with the run's state in words — Queued, Running, Passed, Failed, Cancelled — and a shape, and
+"from a run" on every row. It is ticked while the newest run of that label passed and unticked
 when a newer one is queued, running, failed or cancelled. It has no box: a run's item is the run's,
 and the way to change it is to run it again. A person can **Hide** one; the hide is kept by (ref,
 label) in `runs-hidden.json` (`POST /api/runs`, behind the page's ticket) and stays through newer

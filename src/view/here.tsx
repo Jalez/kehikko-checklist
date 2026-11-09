@@ -739,7 +739,7 @@ export function RunItems({
                     one.passed && 'text-muted-foreground line-through decoration-1',
                   )}
                 >
-                  {runItemText(one.label)}
+                  {runItemText(one.label, one.kind)}
                 </span>
                 <span className="sr-only">{`${RUN_STATE_WORDS[one.state].toLowerCase()}, ${FROM_A_RUN}, not ticked by hand`}</span>
               </div>

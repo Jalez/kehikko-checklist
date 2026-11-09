@@ -23,12 +23,12 @@ const item = (over: Partial<RunItem> & { label: string }): RunItem => ({
 })
 
 describe('an automatic item', () => {
-  test('says it is from a test run, shows its state in words, and has no box to tick', () => {
+  test('says it is from a run, shows its state in words, and has no box to tick', () => {
     const { container } = render(
       <RunItems refName="!44" runs={[item({ label: 'bun test' }), item({ label: 'typecheck', state: 'failed', exit: 1 })]} busy={false} onHide={() => {}} />,
     )
     const rows = [...container.querySelectorAll('[data-run]')]
-    expect(rows.map((one) => one.textContent?.includes('from a test run'))).toEqual([true, true])
+    expect(rows.map((one) => one.textContent?.includes('from a run'))).toEqual([true, true])
     expect(rows[0]!.textContent).toContain('Tests pass: bun test')
     expect(rows[0]!.getAttribute('data-done')).toBe('yes')
     expect(rows[0]!.querySelector('[data-state-word]')!.textContent).toBe('Passed')
@@ -92,6 +92,6 @@ describe('on the reading page', () => {
     const run = section.querySelector('[data-runs="!44"] [data-run="bun test"]')!
     expect(run.getAttribute('data-state')).toBe('running')
     expect(run.textContent).toContain('Running')
-    expect(run.textContent).toContain('from a test run')
+    expect(run.textContent).toContain('from a run')
   })
 })

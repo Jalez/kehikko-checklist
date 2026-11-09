@@ -816,7 +816,7 @@ function listed() {
         'Two questions. (1) With a ref (or an epic, for its paper) and no module: the checklists FOR that item — '
         + 'first the ONE standing checklist its type uses (the person chose it; when none is chosen this says so and '
         + 'names none — never make one up or choose one), then the one-off lists held against it by hand, then its own '
-        + 'lines, with what is answered there, and the automatic results of its test runs. Read-only. (2) With a '
+        + 'lines, with what is answered there, and the automatic results of its queued runs (tests, builds). Read-only. (2) With a '
         + 'checklist and module (person_asked for a standing one): say which module’s work that checklist is for, or — with module: '
         + 'null — that it is for every module’s. Several modules can show the same place in a paper; said to be for '
         + 'one module, a list is in front of a PERSON only while that module’s container is among the ones they '
@@ -1199,7 +1199,7 @@ function runsBlock(runs: readonly RunItem[]): string[] {
     `  Automatic, ${FROM_A_RUN} (ticked by the run, not by hand; check_item cannot tick them):`,
     ...runs.map(
       (one) =>
-        `    [${mark(one)}] ${runItemText(one.label)} — ${RUN_STATE_WORDS[one.state].toLowerCase()}`
+        `    [${mark(one)}] ${runItemText(one.label, one.kind)} — ${RUN_STATE_WORDS[one.state].toLowerCase()}`
         + `${one.exit !== null ? `, exit ${one.exit}` : ''} (automatic, published in .kehikot/${one.from}/)`
         + `${one.hidden ? ' — hidden on the page by a person' : ''}`,
     ),

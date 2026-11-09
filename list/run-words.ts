@@ -5,9 +5,12 @@ import type { RunResultState } from 'kehikot-module-protocol'
  * here: the page imports this for its values (`list/runs.ts`, which reads the disk, only as types).
  */
 
-/** The item's own words. */
-export function runItemText(label: string): string {
-  return `Tests pass: ${label}`
+/**
+ * The item's own words: "Tests pass: <label>" for a run of checks (`verify`, `push`), "Passes: <label>"
+ * for any other kind — a build or another heavy command is not a test. Without a kind, tests.
+ */
+export function runItemText(label: string, kind?: string): string {
+  return kind === undefined || kind === 'verify' || kind === 'push' ? `Tests pass: ${label}` : `Passes: ${label}`
 }
 
 /** The words of each state, as a person reads them beside the item. */
@@ -20,7 +23,7 @@ export const RUN_STATE_WORDS: Record<RunResultState, string> = {
 }
 
 /** Where an item came from, said on it so it is never read as a line somebody typed. */
-export const FROM_A_RUN = 'from a test run'
+export const FROM_A_RUN = 'from a run'
 
 /** Why there is no box to tick: the run decides, and the way to change it is to run it again. */
-export const NO_HAND_TICK = 'Ticked by the test run, not by hand: it is ticked while the newest run of it passed. Run it again to change it.'
+export const NO_HAND_TICK = 'Ticked by the run, not by hand: it is ticked while the newest run of it passed. Run it again to change it.'
