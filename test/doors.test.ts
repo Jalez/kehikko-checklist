@@ -1205,7 +1205,7 @@ describe('standing checklists are the person’s, one-offs are steered away from
     const oneOff = await tool('create_checklist', { name: 'Steps for gh#9' })
     expect(oneOff.isError).toBe(false)
     expect(oneOff.text).toContain('This is a ONE-OFF list')
-    expect(oneOff.text).toContain('belong on a checklist: queue them in Test runs')
+    expect(oneOff.text).toContain('belong on a checklist: queue them in Queue')
     const listed = (await tool('checklists', {})).text
     expect(listed.indexOf('"PR standards"')).toBeLessThan(listed.indexOf('"Steps for gh#9"'))
     expect(listed).toContain('Standard — the person')
