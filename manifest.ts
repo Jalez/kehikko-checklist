@@ -1,5 +1,8 @@
 import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 import pkg from './package.json'
+/* This module's introduction (protocol 2.57.0): slides the host shows in its introduction dialog. Also
+   read as a file from the repository, so a person can watch it before the module runs or is installed. */
+import intro from './intro.json'
 
 /** "How to use" (protocol 2.52.0). Each string one line of plain text. */
 export const HELP = {
@@ -348,6 +351,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * holds it to them.
    */
   help: HELP,
+  intro,
   entry: '/app',
   /* What its content belongs to (protocol 2.29.0): one mode per scope, the default first. */
   modes: [

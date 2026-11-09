@@ -1,0 +1,94 @@
+{
+  "slides": [
+    {
+      "title": "Your standards, for every item of a kind",
+      "body": "One standing checklist per kind of item — pull requests, merge requests, issues, papers — so every one of them is held to the same practices.",
+      "art": {
+        "label": "one standing checklist copied onto three items of the same kind",
+        "shapes": [
+          { "kind": "pane", "x": 16, "y": 30, "w": 110, "h": 90, "tone": "strong", "motion": "pop" },
+          { "kind": "box", "x": 28, "y": 50, "w": 8, "h": 8, "round": 2, "tone": "card" },
+          { "kind": "rows", "x": 42, "y": 52, "widths": [70] },
+          { "kind": "box", "x": 28, "y": 66, "w": 8, "h": 8, "round": 2, "tone": "card" },
+          { "kind": "rows", "x": 42, "y": 68, "widths": [54] },
+          { "kind": "box", "x": 28, "y": 82, "w": 8, "h": 8, "round": 2, "tone": "card" },
+          { "kind": "rows", "x": 42, "y": 84, "widths": [62] },
+          { "kind": "box", "x": 28, "y": 98, "w": 8, "h": 8, "round": 2, "tone": "card" },
+          { "kind": "rows", "x": 42, "y": 100, "widths": [46] },
+          { "kind": "line", "x": 130, "y": 75, "x2": 178, "y2": 34, "dashed": true, "motion": "draw", "delay": 0.5 },
+          { "kind": "line", "x": 130, "y": 75, "x2": 178, "y2": 75, "dashed": true, "motion": "draw", "delay": 0.6 },
+          { "kind": "line", "x": 130, "y": 75, "x2": 178, "y2": 116, "dashed": true, "motion": "draw", "delay": 0.7 },
+          { "kind": "box", "x": 182, "y": 20, "w": 122, "h": 28, "round": 4, "tone": "card", "motion": "pop", "delay": 0.9 },
+          { "kind": "text", "x": 192, "y": 37, "text": "!412", "size": 8, "mono": true, "tone": "muted" },
+          { "kind": "rows", "x": 222, "y": 33, "widths": [70] },
+          { "kind": "box", "x": 182, "y": 61, "w": 122, "h": 28, "round": 4, "tone": "card", "motion": "pop", "delay": 1.1 },
+          { "kind": "text", "x": 192, "y": 78, "text": "!415", "size": 8, "mono": true, "tone": "muted" },
+          { "kind": "rows", "x": 222, "y": 74, "widths": [56] },
+          { "kind": "box", "x": 182, "y": 102, "w": 122, "h": 28, "round": 4, "tone": "card", "motion": "pop", "delay": 1.3 },
+          { "kind": "text", "x": 192, "y": 119, "text": "!418", "size": 8, "mono": true, "tone": "muted" },
+          { "kind": "rows", "x": 222, "y": 115, "widths": [64] }
+        ]
+      }
+    },
+    {
+      "title": "Pick one thing to see its checklist",
+      "body": "Pick a container as a target, or click an issue or a change: Checklist shows the lines for that one thing, and its footer says which.",
+      "art": {
+        "label": "a change picked in another container, and its checklist appearing",
+        "shapes": [
+          { "kind": "pane", "x": 14, "y": 14, "w": 120, "h": 122 },
+          { "kind": "box", "x": 24, "y": 32, "w": 100, "h": 16, "round": 4, "tone": "card" },
+          { "kind": "rows", "x": 32, "y": 38, "widths": [60] },
+          { "kind": "box", "x": 24, "y": 54, "w": 100, "h": 16, "round": 4, "tone": "strong", "motion": "chip" },
+          { "kind": "rows", "x": 32, "y": 60, "widths": [70], "tone": "text" },
+          { "kind": "box", "x": 24, "y": 76, "w": 100, "h": 16, "round": 4, "tone": "card" },
+          { "kind": "rows", "x": 32, "y": 82, "widths": [52] },
+          { "kind": "pointer", "x": 96, "y": 64, "motion": "pop", "delay": 0.3 },
+          { "kind": "pane", "x": 150, "y": 14, "w": 156, "h": 122, "tone": "strong" },
+          { "kind": "rows", "x": 162, "y": 34, "widths": [80, 64, 90, 58], "gap": 16, "motion": "rise", "delay": 0.8 },
+          { "kind": "line", "x": 150, "y": 116, "x2": 306, "y2": 116, "tone": "faint" },
+          { "kind": "text", "x": 160, "y": 129, "text": "For !415", "size": 8, "tone": "muted", "motion": "rise", "delay": 1 }
+        ]
+      }
+    },
+    {
+      "title": "Agents answer the lines",
+      "body": "An agent working on the item marks each line passed, failed or not applicable, with a note. An answer you set yourself stays yours.",
+      "art": {
+        "label": "a checklist whose lines are answered one after another",
+        "shapes": [
+          { "kind": "pane", "x": 50, "y": 12, "w": 220, "h": 126 },
+          { "kind": "dot", "x": 68, "y": 38, "r": 5, "tone": "ok", "motion": "pop", "delay": 0.4 },
+          { "kind": "rows", "x": 82, "y": 36, "widths": [130], "tone": "text" },
+          { "kind": "dot", "x": 68, "y": 62, "r": 5, "tone": "ok", "motion": "pop", "delay": 1 },
+          { "kind": "rows", "x": 82, "y": 60, "widths": [104], "tone": "text" },
+          { "kind": "dot", "x": 68, "y": 86, "r": 5, "tone": "danger", "motion": "pop", "delay": 1.6 },
+          { "kind": "rows", "x": 82, "y": 84, "widths": [118], "tone": "text" },
+          { "kind": "rows", "x": 82, "y": 94, "widths": [90], "tone": "faint" },
+          { "kind": "dot", "x": 68, "y": 116, "r": 5, "tone": "busy", "motion": "pulse", "delay": 2.2 },
+          { "kind": "rows", "x": 82, "y": 114, "widths": [96] },
+          { "kind": "text", "x": 260, "y": 30, "text": "2 / 4", "size": 8, "tone": "muted" }
+        ]
+      }
+    },
+    {
+      "title": "Choose the checklist for a kind",
+      "body": "In the header’s Checklist menu, choose which standing checklist each kind of item uses, or start from a ready-made one.",
+      "art": {
+        "label": "the header's Checklist menu open, choosing the checklist for merge requests",
+        "shapes": [
+          { "kind": "pane", "x": 30, "y": 10, "w": 260, "h": 130 },
+          { "kind": "box", "x": 40, "y": 20, "w": 66, "h": 14, "round": 4, "tone": "strong" },
+          { "kind": "text", "x": 73, "y": 30, "text": "Checklist", "size": 8, "middle": true, "tone": "text" },
+          { "kind": "pointer", "x": 92, "y": 28, "motion": "pop" },
+          { "kind": "box", "x": 40, "y": 38, "w": 160, "h": 74, "round": 5, "tone": "card", "motion": "rise", "delay": 0.5 },
+          { "kind": "rows", "x": 50, "y": 50, "widths": [110], "tone": "text", "motion": "rise", "delay": 0.6 },
+          { "kind": "box", "x": 46, "y": 62, "w": 148, "h": 14, "round": 3, "tone": "strong", "motion": "chip", "delay": 1 },
+          { "kind": "rows", "x": 54, "y": 67, "widths": [96] },
+          { "kind": "rows", "x": 54, "y": 86, "widths": [82, 70], "gap": 12, "motion": "rise", "delay": 0.7 },
+          { "kind": "rows", "x": 220, "y": 50, "widths": [56, 40, 50, 44, 36], "gap": 14, "tone": "faint" }
+        ]
+      }
+    }
+  ]
+}
