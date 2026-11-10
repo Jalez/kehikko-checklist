@@ -112,17 +112,14 @@ export const FORMAT = 'kehikot.notifications@1'
  *
  * ## What it declares, and the longer list of what it does not
  *
- * - **`state:keep` — NOT declared any more, and it was.** It held which
- *   checklist a person had picked on which kehikko, so a container opened on
- *   the same list tomorrow. There is no pick to remember: what a container
- *   shows is every checklist held against what the reader is looking at —
- *   the section or file under their passage, the reference they selected —
- *   and a list is held against those because a person assigned it, on the edit
- *   page, where the assignment is stored with the list in the project's own
- *   file. A remembered pick beside that would be a second answer to "which
- *   list is in front of me", and the two would disagree the first time the
- *   reader scrolled. The kept string a host may still hold for this module is
- *   ignored on the greeting; see `src/wire/use-kehikot.ts`.
+ * - **`state:keep` — declared again, for the kept view (protocol 2.70.0).** What the
+ *   host keeps for the container is no longer a pick of checklist (there is none:
+ *   what a container shows is every checklist held against what the reader is
+ *   looking at, and a remembered pick beside that would be a second answer to
+ *   "which list is in front of me"). It is the protocol's kept view: which of the
+ *   page's views is in front, and the per-type choices this kehikko keeps for
+ *   itself. The checklist pickers are not part of it (`KEEP_EXCEPT` in
+ *   `src/wire/use-kehikot.ts`).
  * - **`projects:pick` — declared, and it is the newest one.** A checklist lives
  *   in the project it is about, so reusing one somebody wrote in another
  *   project is inherently cross-project — and this app is told exactly one
@@ -465,7 +462,7 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    */
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'filters:set', 'projects:pick', 'trackers:read', 'address:open'],
+    uses: ['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open'],
     storage: true,
     prompt: false,
   },

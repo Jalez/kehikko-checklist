@@ -41,6 +41,7 @@ mock.module('../src/wire/use-kehikot.ts', () => ({
     header: () => {},
     footer: () => {},
     drawsFooter: null,
+    ready: () => {},
     ...wire,
   }),
   marksOf: () => [],

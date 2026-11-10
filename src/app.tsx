@@ -246,6 +246,7 @@ export function App() {
     choose,
     header,
     footer,
+    ready,
     drawsFooter,
     openAddress,
     kehikkoChoices,
@@ -972,6 +973,12 @@ export function App() {
       ? 'stale'
       : (coverFor({ where, projectPath })
         ?? (nowhere ? 'no-project' : server === 'down' ? 'down' : view.kind === 'here' && !from && !here ? 'loading' : null))
+
+  /* The host's cover is held until the page is drawn (protocol 2.70.0): once nothing of this page's own is still
+     being waited for. The covers that say why there is nothing to draw (no project, server down) count: they are drawn. */
+  useEffect(() => {
+    if (cover !== 'waiting' && cover !== 'loading') ready()
+  }, [cover, ready])
 
   /*
    * The footer, when the host draws it (protocol 2.38.0): the bottom rows the reading page and the

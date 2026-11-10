@@ -1,0 +1,201 @@
+[
+  {
+    "name": "in front",
+    "header": [
+      {
+        "kind": "switch",
+        "id": "view",
+        "label": "View",
+        "group": "Page",
+        "options": [
+          {
+            "id": "here",
+            "label": "In front"
+          },
+          {
+            "id": "all",
+            "label": "Manage checklists"
+          },
+          {
+            "id": "storage",
+            "label": "Storage"
+          }
+        ],
+        "value": "here",
+        "agents": false
+      },
+      {
+        "kind": "switch",
+        "id": "list",
+        "label": "Checklist",
+        "group": "Checklist",
+        "options": [
+          {
+            "id": "all",
+            "label": "Every checklist in front"
+          },
+          {
+            "id": "a",
+            "label": "Merge"
+          },
+          {
+            "id": "b",
+            "label": "Issues"
+          }
+        ],
+        "value": "a",
+        "agents": false
+      },
+      {
+        "kind": "switch",
+        "id": "choose:issue",
+        "label": "Checklist for issues",
+        "group": "Checklist",
+        "options": [
+          {
+            "id": "none",
+            "label": "Pick a checklist for issues"
+          },
+          {
+            "id": "b",
+            "label": "Issues"
+          },
+          {
+            "id": "a",
+            "label": "Merge"
+          }
+        ],
+        "value": "none",
+        "agents": false
+      },
+      {
+        "kind": "switch",
+        "id": "choose:mr",
+        "label": "Checklist for merge requests",
+        "group": "Checklist",
+        "options": [
+          {
+            "id": "none",
+            "label": "Pick a checklist for merge requests"
+          },
+          {
+            "id": "b",
+            "label": "Issues"
+          },
+          {
+            "id": "a",
+            "label": "Merge"
+          }
+        ],
+        "value": "none",
+        "agents": false
+      },
+      {
+        "kind": "switch",
+        "id": "choose:pr",
+        "label": "Checklist for pull requests",
+        "group": "Checklist",
+        "options": [
+          {
+            "id": "none",
+            "label": "Pick a checklist for pull requests"
+          },
+          {
+            "id": "b",
+            "label": "Issues"
+          },
+          {
+            "id": "a",
+            "label": "Merge"
+          }
+        ],
+        "value": "none",
+        "agents": false
+      },
+      {
+        "kind": "switch",
+        "id": "choose:paper",
+        "label": "Checklist for papers",
+        "group": "Checklist",
+        "options": [
+          {
+            "id": "none",
+            "label": "Pick a checklist for papers"
+          },
+          {
+            "id": "b",
+            "label": "Issues"
+          },
+          {
+            "id": "a",
+            "label": "Merge"
+          }
+        ],
+        "value": "none",
+        "agents": false
+      },
+      {
+        "kind": "switch",
+        "id": "choose:task",
+        "label": "Checklist for tasks",
+        "group": "Checklist",
+        "options": [
+          {
+            "id": "none",
+            "label": "Pick a checklist for tasks"
+          },
+          {
+            "id": "b",
+            "label": "Issues"
+          },
+          {
+            "id": "a",
+            "label": "Merge"
+          }
+        ],
+        "value": "none",
+        "agents": false
+      },
+      {
+        "kind": "toggle",
+        "id": "choose-here",
+        "label": "Choices for this kehikko only",
+        "group": "Checklist",
+        "checked": false,
+        "agents": false
+      },
+      {
+        "kind": "run",
+        "id": "new",
+        "label": "New checklist",
+        "group": "Create",
+        "disabled": null
+      },
+      {
+        "kind": "run",
+        "id": "copy",
+        "label": "Copy from another project",
+        "group": "Create",
+        "disabled": null
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "concerns",
+        "text": "gh#1",
+        "tooltip": "Pull request gh#1 · Fix."
+      },
+      {
+        "kind": "meter",
+        "id": "progress",
+        "label": "Progress",
+        "value": null,
+        "text": "undefined/12",
+        "level": "normal",
+        "align": "center",
+        "tooltip": "undefined/12 done. undefined passed, undefined not applicable."
+      }
+    ]
+  }
+]
