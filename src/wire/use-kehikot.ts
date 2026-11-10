@@ -15,9 +15,11 @@ import {
 import { PERSON_ANSWERS_WITHIN_MS, type HostEvents } from 'kehikot-module-protocol/client'
 import { useHost, useKept, type Host } from 'kehikot-module-protocol/client/react'
 
+import { USABLE_TYPES } from '../../list/standing.ts'
 import { openerOf, type OpenAddress } from '../lib/links.ts'
 import { hideTip } from '../lib/one-tip.ts'
 import { pump } from './emit.ts'
+import { CHOOSE, PICK } from './header.ts'
 import { flattenParts } from '../../list/focus.ts'
 
 /**
@@ -290,6 +292,8 @@ export interface Kehikot {
   drawsFooter: boolean | null
   /** Declare this page's footer (`kehikot.footer`), whole. Only when `drawsFooter` is true. */
   footer: (items: FooterItemInput[]) => void
+  /** Say the page is drawn (protocol 2.70.0): the host's cover, held until then, comes off. Said once; again is nothing. */
+  ready: () => void
   /**
    * This kehikko's own choice of checklist per type, over the project's (`list/choices.ts`), as one
    * string: the host's per-container kept state (protocol 2.51.0, `useKept`), `''` for none. The
@@ -327,13 +331,17 @@ export function marksOf(marks: string): Disposition[] {
  */
 export type GotoHandler = NonNullable<HostEvents['onGoto']>
 
+/* The kept view (protocol 2.70.0) keeps the page switch. Not the pickers: which checklist is in front and each
+   type's choice follow what is in front and what was chosen, and a press back would write a choice. */
+const KEEP_EXCEPT = [PICK, CHOOSE.HERE, ...USABLE_TYPES.map((type) => `${CHOOSE.PREFIX}${type}`)]
+
 export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void, onPress?: PressHandler): Kehikot {
   /* Through a ref, so the handler the host calls is always the page's latest, and the
      connection is not re-made when the page's view changes. */
   const pressed = useRef(onPress)
   pressed.current = onPress
   const press = useCallback<PressHandler>((one) => pressed.current?.(one) ?? 'This page is not ready for that yet.', [])
-  const host = useHost(id, { onGoto, onPress: press }, { reloadWhenStale: false })
+  const host = useHost(id, { onGoto, onPress: press }, { reloadWhenStale: false, keepView: { except: KEEP_EXCEPT } })
   /* Off screen (`kehikot.visible` false): no chart tooltip is left standing for when it comes back. */
   useEffect(() => {
     if (!host.visible) hideTip()
@@ -341,7 +349,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   const hostOpens = host.openAddress
   const hostAnswers = host.answers
   const openAddress = useMemo(() => openerOf({ answers: hostAnswers, openAddress: hostOpens }), [hostAnswers, hostOpens])
-  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header, footer, drawsFooter } = host
+  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header, footer, drawsFooter, ready } = host
   /* This kehikko's choice of checklist per type: kept by the host for this container, never in the browser. */
   const [keptChoices, setKeptChoices] = useKept<Record<string, string>>(host, 'choices', {}, (value) => typeof value === 'object' && value !== null && !Array.isArray(value))
   const kehikkoChoices = flattenChoice(keptChoices)
@@ -491,6 +499,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       choose,
       header,
       footer,
+      ready,
       drawsFooter,
       openAddress,
       kehikkoChoices,
@@ -522,6 +531,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       choose,
       header,
       footer,
+      ready,
       drawsFooter,
       openAddress,
     ],

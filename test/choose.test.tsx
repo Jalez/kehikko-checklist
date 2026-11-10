@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
-import { mailbox, resetServerStanding } from 'kehikot-module-protocol/client'
+import { mailbox, resetServerStanding, unwrapKept } from 'kehikot-module-protocol/client'
 
 import { TICKET, answerAt as door } from '../doors.ts'
 
@@ -252,7 +252,7 @@ describe('one checklist per type of item', () => {
       await new Promise((resolve) => setTimeout(resolve, 400))
     })
     const kept = posted.filter((one) => one.type === MESSAGE.REQUEST && one.method === 'state.set').at(-1) as { params: { state: string } } | undefined
-    expect(kept && JSON.parse(kept.params.state).choices.mr).toBe(ids['What every change owes'])
+    expect(kept && JSON.parse(unwrapKept(kept.params.state).state ?? '{}').choices.mr).toBe(ids['What every change owes'])
     const listed = door('GET', '/api/checklists', new URLSearchParams({ project: dir }), null, null)?.body as { lists: { id: string; chosen?: string[] }[] }
     expect(listed.lists.find((one) => one.id === ids['What a review owes'])!.chosen).toEqual(['mr', 'pr'])
   })

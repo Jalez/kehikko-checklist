@@ -37,12 +37,11 @@ describe('the manifest', () => {
        work out on its own: which OTHER project a checklist is being copied out
        of, which a person answers in the host's own dialog.
 
-       `state:keep` is NOT here any more, and its absence is asserted below. It
-       remembered which checklist was picked per kehikko, and there is no pick:
-       what a container shows is every list held against what the reader is
-       looking at, and the holding is stored on the list in the project's own
-       file. A remembered pick beside that would be a second answer to "which
-       list is in front of me". See `manifest.ts`.
+       `state:keep` is here again (protocol 2.70.0), for the kept view: which
+       page is in front, and this kehikko's own per-type choices. It is still
+       not a remembered pick of checklist: there is none, and a pick beside
+       the holding stored on the list would be a second answer to "which list
+       is in front of me". See `manifest.ts`.
 
        What is not here, and must never be, is anything that reads the projects.
        There is no such capability in the protocol and there is not meant to be:
@@ -61,9 +60,8 @@ describe('the manifest', () => {
        and kept on a tick as evidence, and every tick is still a press
        (Jalez/kehikko-checklist#1). `trackers:refresh` is not here — spending
        the person's rate limit was not asked for. */
-    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'filters:set', 'projects:pick', 'trackers:read', 'address:open'])
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open'])
     expect(MANIFEST.declares.uses).not.toContain('trackers:refresh')
-    expect(MANIFEST.declares.uses).not.toContain('state:keep')
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('projects:read')
     /* Checked against the protocol's own list rather than against a string
