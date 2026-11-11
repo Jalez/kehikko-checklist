@@ -8,8 +8,11 @@ import * as manifest from '../manifest.ts'
    "Inbox" is a host term and may stay. */
 const OTHERS = ['Journeys', 'References', 'Checklist', 'Paper', 'Slides', 'Citations', 'Notes', 'Learning', 'Source', 'Diff', 'Review', 'Explorer', 'Terminal', 'History', 'Orchestrator', 'Browser', 'Editor', 'Factory', 'Kanban', 'Monitor', 'Queue', 'Worktrees', 'Flows', 'Screenplay', 'Codex', 'Antigravity', 'OpenCode', 'Vibe'].filter((n) => n !== 'Checklist')
 const ROOT = join(import.meta.dir, '..')
-const names = new RegExp(`\\b(${OTHERS.join('|')})\\b|kehikot\\.(${OTHERS.map((n) => n.toLowerCase()).join('|')})\\b|mcp__(${OTHERS.map((n) => n.toLowerCase()).join('|')})__`)
-const ids = new RegExp(`kehikot\\.(${OTHERS.map((n) => n.toLowerCase()).join('|')})\\b`)
+/* Agent modules are named by id only: "Claude" as a word is the model. */
+const lower = [...OTHERS.map((n) => n.toLowerCase()), 'claude'].join('|')
+const names = new RegExp(`\\b(${OTHERS.join('|')})\\b|(kehikot|roadmap)\\.(${lower})\\b|\\.kehikot/(${lower})\\b|mcp__(${lower})__`)
+/* Another module's id (either spelling) or its folder under `.kehikot/`. */
+const ids = new RegExp(`(kehikot|roadmap)\\.(${lower})\\b|\\.kehikot/(${lower})\\b`)
 
 /* Lines where a capitalised everyday word is only a word, not a module. */
 const PLAIN: string[] = []
@@ -30,7 +33,20 @@ describe('no module names another', () => {
   })
 
   test('the descriptions an agent reads in the code', () => {
-    for (const file of ["doors.ts", "list/standing.ts", "list/starters.ts"]) {
+    /* Every source file but the tests (whose fixtures stand in for a project's other folders). */
+    const SKIP = new Set(['node_modules', 'test', 'notes', 'dist', '.git', '.github'])
+    const files: string[] = []
+    const walk = (at: string): void => {
+      for (const one of readdirSync(join(ROOT, at), { withFileTypes: true })) {
+        const path = at ? `${at}/${one.name}` : one.name
+        if (one.isDirectory()) {
+          if (!SKIP.has(one.name)) walk(path)
+        } else if (/\.(ts|tsx)$/.test(one.name)) files.push(path)
+      }
+    }
+    walk('')
+    expect(files).toContain('doors.ts')
+    for (const file of files) {
       let inBlock = false
       const lines = read(file).split('\n').filter((line) => {
         const was = inBlock
@@ -38,7 +54,7 @@ describe('no module names another', () => {
         if (inBlock && line.includes('*/')) inBlock = false
         return !was && !/^\s*(\/\*|\*|\/\/)/.test(line) && !/^\s*import /.test(line)
       })
-      expect(lines.filter((line) => ids.test(line))).toEqual([])
+      expect(lines.filter((line) => ids.test(line)).map((line) => `${file}: ${line.trim()}`)).toEqual([])
     }
   })
 })

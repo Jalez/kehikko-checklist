@@ -1,4 +1,4 @@
-import { CHECKLIST_HOLDER, MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
+import { CHECKLIST_HOLDER, MANIFEST_KIND, MODULE_FOLDERS, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 import pkg from './package.json'
 /* This module's introduction (protocol 2.57.0): slides the host shows in its introduction dialog. Also
    read as a file from the repository, so a person can watch it before the module runs or is installed. */
@@ -475,6 +475,13 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     [CHECKLIST_HOLDER]: {
       name: 'Checklist',
       tools: { list: 'checklists', create: 'create_checklist', add: 'add_checklist_item', hold: 'hold_checklist', check: 'check_item' },
+      /* 2.85.0: `checklists` also takes `format: 'json'` and answers the protocol's JSON shapes. */
+      formats: ['json'],
+    },
+    /* 2.85.0: the one folder this module keeps under `.kehikot/`, and is the only writer of. */
+    [MODULE_FOLDERS]: {
+      name: 'Checklist',
+      folders: [{ folder: 'checklist', says: "The person's checklists, what each is held against, and every answer to an item.", derived: false }],
     },
   },
   health: '/healthz',
