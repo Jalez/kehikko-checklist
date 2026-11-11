@@ -81,9 +81,9 @@ ones always come first: on the reading page, on the manager, and in what
   `change()` (`list/checklists.ts`, `standardIsThePersons` in
   `list/standing.ts`), so it holds for every caller. The page is the person and
   is not asked.
-- **Test steps belong in Queue.** The tool descriptions, the guidance and
+- **Test steps belong in a work queue.** The tool descriptions, the guidance and
   the session notes say plainly that test runs, builds, verification commands
-  and one-time test steps go in Queue when it is installed (their results show
+  and one-time test steps go in a work queue module when one is installed (their results show
   here as automatic items), and an agent that creates a one-off list is told it
   made one and where such lines belong.
 - **Starters.** `list/starters.ts` holds a few standing checklists — pull and

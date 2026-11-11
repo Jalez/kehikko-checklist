@@ -335,8 +335,8 @@ const TARGET_PROPERTIES = {
   module: {
     type: 'string',
     description:
-      'With kehikko: the module whose container it is, by the id the host spells, e.g. "kehikot.flows" — its '
-      + 'short name, "flows", is read as that id when one module here has it.',
+      'With kehikko: the module whose container it is, by the id the host spells, e.g. "kehikot.<name>" — its '
+      + 'short name, "<name>", is read as that id when one module here has it.',
   },
   section: {
     type: 'string',
@@ -832,7 +832,7 @@ function listed() {
           module: {
             type: ['string', 'null'],
             description:
-              'The module’s id as the host spells it, e.g. "kehikot.screenplay" — its short name, "screenplay", is '
+              'The module’s id as the host spells it, e.g. "kehikot.<name>" — its short name, "<name>", is '
               + 'read as that id when one module here has it. Or null, to say the list is for every module’s work '
               + 'again. Leave it out to ask what applies to a ref or an epic instead.',
           },
@@ -1365,7 +1365,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     const module = args.module === null ? null : typeof args.module === 'string' ? str(args.module, MAX_TARGET_PART) : ''
     if (module === '') {
       throw new Error(
-        'checklist_for needs module: the id of the module whose work the list is for, e.g. "kehikot.screenplay", or '
+        'checklist_for needs module: the id of the module whose work the list is for, e.g. "kehikot.<name>", or '
         + 'null to say it is for every module’s work again. Nothing was changed. '
         + (present.length ? `The modules here are: ${present.join(', ')}.` : 'No other module is registered here to offer.'),
       )

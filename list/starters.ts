@@ -52,7 +52,7 @@ export const STARTERS: readonly Starter[] = [
   },
   {
     id: 'papers',
-    name: 'Paper standards',
+    name: 'Writing standards',
     summary: 'What every chapter of a paper owes before it is sent on.',
     types: ['paper'],
     roles: ['any'],
