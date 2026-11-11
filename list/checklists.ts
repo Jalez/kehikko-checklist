@@ -1647,7 +1647,7 @@ function apply(input: Op, projectPath: string | null | undefined): Result {
         ok: false,
         error:
           'that is not a module. A list is for one module’s work by that module’s id, as the host spells it — '
-          + 'lowercase letters, digits, dots and dashes, like "kehikot.paper" — or for every module’s, which is '
+          + 'lowercase letters, digits, dots and dashes, like "kehikot.example" — or for every module’s, which is '
           + `said with null. ${present.length ? `The modules here are: ${present.join(', ')}.` : 'No other module is known here to offer.'}`,
       }
     }

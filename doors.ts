@@ -2,7 +2,7 @@ import { choicesOf, type Choices } from './list/choices.ts'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { MODULE_ID } from 'kehikot-module-protocol'
+import { CHECKLIST_JSON, MODULE_ID, type ChecklistJson, type ChecklistListsJson } from 'kehikot-module-protocol'
 import { establishBuild, mintTicket, refuseTicket, registryDir, type Reply } from 'kehikot-module-protocol/serve'
 
 import { ID, MANIFEST, VERSION } from './manifest.ts'
@@ -754,6 +754,12 @@ function listed() {
           checklist: { type: 'string', description: 'The checklist id. Omit to list every checklist, or — with a ref or an epic — to read what applies to that item.' },
           ...TARGET_PROPERTIES,
           ...ANGLE_PROPERTIES,
+          format: {
+            type: 'string',
+            enum: [CHECKLIST_JSON],
+            description: 'For a program: "json" answers JSON instead of the print — every list as { lists: [{ id, name, held }] } with no checklist, '
+              + 'or one list as { id, name, held, items } with a checklist (items as answered for the ref when one is given). Leave it out to read.',
+          },
         },
         required: ['project'],
       },
@@ -1211,6 +1217,46 @@ function runsBlock(runs: readonly RunItem[]): string[] {
   ]
 }
 
+/**
+ * The `format: 'json'` answer of `checklists` (protocol 2.85.0, the `checklist.holder` descriptor's
+ * `formats`): the protocol's `checklistListsJson` with no checklist, its `checklistJson` with one — items
+ * as answered for the ref when one is given. `held` names every target the list is held against by hand
+ * (not the standing types it applies to: those are no ref). A state still being worked on or blocked is
+ * no answer yet, so null; `byPerson` is a tick that did not come through this door.
+ */
+function jsonAnswer(where: string, id: string, args: Record<string, unknown>): { said: string; error?: true } {
+  const heldBy = (list: string): string[] => targetsOf(list, where).filter((row) => row.target.kind !== 'rule').map((row) => targetName(row.target))
+  if (!id) {
+    const { lists, trouble } = checklists(where)
+    if (trouble) return { said: trouble, error: true }
+    const out: ChecklistListsJson = { lists: lists.map((list) => ({ id: list.id, name: list.name, held: heldBy(list.id) })) }
+    return { said: JSON.stringify(out) }
+  }
+  const gave = args.ref !== undefined || args.epic !== undefined || args.kehikko !== undefined
+  const aim = gave ? aimed(args, where, id, false) : null
+  if (gave && !aim) return { said: 'checklists was given something that is not a target. Nothing was read.', error: true }
+  const { held: on, trouble } = held(id, aim?.target ?? null, where)
+  if (trouble) return { said: trouble, error: true }
+  if (!on) return { said: `There is no checklist "${id}" in ${where}. Call checklists with just the project to see what exists.`, error: true }
+  const out: ChecklistJson = {
+    id: on.checklist.id,
+    name: on.checklist.name,
+    held: heldBy(id),
+    items: on.rows.map(({ item, done }) => {
+      const state = stateOf(done)
+      return {
+        id: item.id,
+        text: item.text,
+        state: state === 'passed' || state === 'failed' || state === 'na' ? state : null,
+        byPerson: done ? !done.viaMcp : false,
+        ...(done ? { by: done.by } : {}),
+        ...(done?.note ? { note: done.note } : {}),
+      }
+    }),
+  }
+  return { said: JSON.stringify(out) }
+}
+
 /** One checklist, with the ticks for a target where one was named. */
 function listText(id: string, target: Target | null, where: string): string {
   const { held: on, trouble } = held(id, target, where)
@@ -1580,6 +1626,11 @@ function mcp(rpc: Rpc): Reply {
         const id = str(args.checklist, MAX_ID)
         const ref = part(args.ref)
         const epic = part(args.epic)
+        if (args.format !== undefined && args.format !== null) {
+          if (args.format !== CHECKLIST_JSON) return text(`format is "${CHECKLIST_JSON}" or left out. Nothing was read.`, true)
+          const json = jsonAnswer(where, id, args)
+          return text(json.said, json.error)
+        }
         if (!id && (ref || epic)) {
           /* No checklist and an item: what applies to it, from the angle. */
           return text(appliesText(where, ref ? { kind: 'ref', ref } : { kind: 'paper', epic: epic as string, section: null }, args))
