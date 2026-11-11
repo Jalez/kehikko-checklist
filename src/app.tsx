@@ -134,6 +134,9 @@ import { cn } from '@/lib/utils.ts'
  */
 const framed = typeof window !== 'undefined' && window.parent !== window
 
+/** What the host's cover says while this page reads the checklists it shows (protocol 2.84.0). */
+export const LOADING_CHECKLISTS = 'Loading checklists…'
+
 /** Which of the three screens is showing, and for the edit page, which list and where Done leads. */
 type View =
   | { kind: 'here' }
@@ -247,6 +250,7 @@ export function App() {
     header,
     footer,
     ready,
+    loading,
     drawsFooter,
     openAddress,
     kehikkoChoices,
@@ -976,9 +980,12 @@ export function App() {
 
   /* The host's cover is held until the page is drawn (protocol 2.70.0): once nothing of this page's own is still
      being waited for. The covers that say why there is nothing to draw (no project, server down) count: they are drawn. */
+  const pageDrawn = cover !== 'waiting' && cover !== 'loading'
+  /* While a switch is being read, the host's cover again, in this module's words (protocol 2.84.0). */
   useEffect(() => {
-    if (cover !== 'waiting' && cover !== 'loading') ready()
-  }, [cover, ready])
+    if (pageDrawn) ready()
+    else loading?.(LOADING_CHECKLISTS)
+  }, [pageDrawn, ready, loading])
 
   /*
    * The footer, when the host draws it (protocol 2.38.0): the bottom rows the reading page and the
