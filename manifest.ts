@@ -1,4 +1,4 @@
-import { MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
+import { CHECKLIST_HOLDER, MANIFEST_KIND, PROTOCOL, manifestSchema, type Manifest } from 'kehikot-module-protocol'
 import pkg from './package.json'
 /* This module's introduction (protocol 2.57.0): slides the host shows in its introduction dialog. Also
    read as a file from the repository, so a person can watch it before the module runs or is installed. */
@@ -467,6 +467,15 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     uses: ['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open', 'services:read'],
     storage: true,
     prompt: false,
+  },
+  /* The service other modules use this one through (protocol 2.83.0), so none of them names it: the
+     person's checklists, held against work, answered item by item. The tools on this module's door
+     are said here and nowhere else; `test/services.test.ts` holds them to the door. */
+  services: {
+    [CHECKLIST_HOLDER]: {
+      name: 'Checklist',
+      tools: { list: 'checklists', create: 'create_checklist', add: 'add_checklist_item', hold: 'hold_checklist', check: 'check_item' },
+    },
   },
   health: '/healthz',
 })
