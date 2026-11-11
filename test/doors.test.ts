@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { toolEffect } from 'kehikot-module-protocol'
+import { toolEffect, type ServiceProvider } from 'kehikot-module-protocol'
+
+import { WORK_QUEUE_FRESH_MS, findWorkQueueWith, workQueueNow } from '../workQueue.ts'
 
 /**
  * The doors, tested without a socket.
@@ -1205,7 +1207,9 @@ describe('standing checklists are the person’s, one-offs are steered away from
     const oneOff = await tool('create_checklist', { name: 'Steps for gh#9' })
     expect(oneOff.isError).toBe(false)
     expect(oneOff.text).toContain('This is a ONE-OFF list')
-    expect(oneOff.text).toContain('belong on a checklist: queue them in a work queue module')
+    /* No work queue named: where test steps go is not said, and no queue is mentioned. */
+    expect(oneOff.text).toContain('do not belong on a checklist. A checklist is for')
+    expect(oneOff.text).not.toMatch(/queue/i)
     const listed = (await tool('checklists', {})).text
     expect(listed.indexOf('"PR standards"')).toBeLessThan(listed.indexOf('"Steps for gh#9"'))
     expect(listed).toContain('Standard — the person')
@@ -1430,5 +1434,61 @@ describe('types × roles, and lines just for one item, at the doors', () => {
     expect(made.lists[0]!.applies).toEqual([{ kind: 'rule', types: ['mr'], roles: ['reviewer'], epic: null }])
     const bad = answer('POST', '/api/checklist', query, { op: 'applies', id: 'x', rules: ['issue'], project: dir }, TICKET)
     expect(bad?.status).toBe(400)
+  })
+})
+
+describe('where test steps go: the work queue the host names (services.find, protocol 2.81.0)', () => {
+  const LANE = { name: 'Lane Keeper', run: { test: "'/opt/lane' take -- {command}" }, tool: 'lane_take', marks: [] }
+  const providers = (descriptor: unknown): ServiceProvider[] => [{ module: 'kehikot.lanes', name: 'Lanes', descriptor, placed: null }]
+  afterEach(() => void findWorkQueueWith(null))
+
+  async function instructions(): Promise<string> {
+    const { answerAt: answer } = await import('../doors.ts')
+    const reply = answer('POST', '/mcp', query, { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, null)
+    return (reply?.body as { result: { instructions: string } }).result.instructions
+  }
+
+  test('with a provider, its name and its tool, from its descriptor', async () => {
+    await findWorkQueueWith(async () => providers(LANE))
+    expect(await instructions()).toContain('do not belong on a checklist: queue them in Lane Keeper (its lane_take tool), whose results show here as automatic items.')
+    expect((await tool('create_checklist', { name: 'Steps for gh#9' })).text).toContain('queue them in Lane Keeper (its lane_take tool)')
+    expect((await tool('add_item_for', { ref: 'gh#9', text: 'Docs updated' })).text).toContain('test steps do not belong on a checklist: queue them in Lane Keeper')
+  })
+
+  test('without one — none provided, or a descriptor that does not parse — nothing about a queue', async () => {
+    for (const answer of [[], providers({ name: 'Broken' })]) {
+      await findWorkQueueWith(async () => answer)
+      const said = await instructions()
+      expect(said).toContain('do not belong on a checklist. A checklist is for')
+      expect(said).not.toMatch(/queue/i)
+    }
+  })
+
+  test('asked again when old; no answer keeps what was found', async () => {
+    let clock = 1_000
+    let answer: ServiceProvider[] | null = providers(LANE)
+    let asked = 0
+    await findWorkQueueWith(async () => (asked++, answer), () => clock)
+    expect(workQueueNow()?.name).toBe('Lane Keeper')
+    expect(asked).toBe(1)
+    answer = null
+    clock += WORK_QUEUE_FRESH_MS
+    workQueueNow()
+    await Bun.sleep(5)
+    expect(asked).toBe(2)
+    expect(workQueueNow()?.name).toBe('Lane Keeper')
+    /* Let the ask the line above started (still with no answer) end first. */
+    await Bun.sleep(5)
+    answer = []
+    clock += WORK_QUEUE_FRESH_MS
+    workQueueNow()
+    await Bun.sleep(5)
+    expect(workQueueNow()).toBeNull()
+  })
+
+  test('the advice never names a queue module of its own accord', () => {
+    for (const file of ['doors.ts', 'list/standing.ts', 'manifest.ts', 'workQueue.ts']) {
+      expect(readFileSync(join(import.meta.dir, '..', file), 'utf8')).not.toMatch(/kehikot-queue|queue_run|queue_wait|kehikot\.queue|\bQueue\b/)
+    }
   })
 })

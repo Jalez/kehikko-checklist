@@ -532,9 +532,16 @@ export function standardIsThePersons(name: string, rules: readonly Rule[]): stri
 /**
  * Where test steps belong. Said by the tools and the notes wherever an agent is
  * about to write lines for one item: a checklist is the person's standing
- * expectations, and a run of tests is not one.
+ * expectations, and a run of tests is not one. Where they go instead is the work
+ * queue the host names (`services.find`, protocol 2.81.0), in its own words — its
+ * name and its tool; with none, no queue is mentioned.
  */
-export const TESTS_ELSEWHERE =
-  'Test runs, builds, verification commands and one-time test steps do not belong on a checklist: queue them in a work queue module '
-  + 'if one is installed, whose results show here as automatic items. A checklist is for the person’s standing '
-  + 'expectations of every item of a kind.'
+export function testsElsewhere(queue: { name: string; tool?: string } | null): string {
+  const where = queue
+    ? `: queue them in ${queue.name}${queue.tool ? ` (its ${queue.tool} tool)` : ''}, whose results show here as automatic items.`
+    : '.'
+  return (
+    `Test runs, builds, verification commands and one-time test steps do not belong on a checklist${where} `
+    + 'A checklist is for the person’s standing expectations of every item of a kind.'
+  )
+}

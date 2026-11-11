@@ -7,6 +7,7 @@ import { defineConfig } from 'vite'
 
 import { BUILD, MANIFEST, TICKET, answer, stream } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
+import { startWorkQueue } from './workQueue.ts'
 
 /**
  * The dev server.
@@ -33,6 +34,8 @@ export default defineConfig({
   plugins: [
     serves({ id: ID, prefer: PREFERRED_PORT }),
     doors({ manifest: MANIFEST, answer, stream, build: BUILD, page: { title: 'Checklist', ticket: TICKET } }),
+    /* Where test steps go, in the words of the work queue the host names (workQueue.ts): asked by the dev server, never by a build. */
+    { name: 'work-queue', configureServer: () => void startWorkQueue() },
     react(),
     tailwindcss(),
   ],
