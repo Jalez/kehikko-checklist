@@ -59,8 +59,11 @@ describe('the manifest', () => {
        nothing is derived from the reading. It is drawn beside a ref's lists
        and kept on a tick as evidence, and every tick is still a press
        (Jalez/kehikko-checklist#1). `trackers:refresh` is not here — spending
-       the person's rate limit was not asked for. */
-    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open'])
+       the person's rate limit was not asked for.
+
+       `services:read` asks the host which work queue there is (`services.find`, protocol 2.81.0), so
+       where test steps go is said in that queue's words, and not at all without one. */
+    expect(MANIFEST.declares.uses).toEqual(['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open', 'services:read'])
     expect(MANIFEST.declares.uses).not.toContain('trackers:refresh')
     expect(MANIFEST.declares.uses).not.toContain('live:read')
     expect(MANIFEST.declares.uses).not.toContain('projects:read')
@@ -150,10 +153,12 @@ describe('what agent sessions are told (protocol 2.36.0)', () => {
   test('where it is, to answer the lines before calling work done; where it is not, not to claim a checklist', () => {
     const parsed = manifestSchema.parse(MANIFEST)
     expect(agentSaysOf(parsed)).toContain('check_item')
-    expect(agentSaysOf(parsed)).toContain('Test steps go in a work queue')
+    expect(agentSaysOf(parsed)).toContain('Test steps are not checklist lines')
     expect(agentSaysOf(parsed)).toContain('only the person changes standards')
     expect(absentSaysOf(parsed)).toContain("don't claim work meets the person's standing checklists")
-    expect(absentSaysOf(parsed)).toContain('Test steps belong in a work queue')
+    expect(absentSaysOf(parsed)).toContain('Test steps are not checklist lines')
+    /* Which work queue there is, if any, is the host's to say at run time (`services.find`): the manifest names none. */
+    for (const line of [parsed.agentSays, parsed.absentSays, parsed.guidance]) expect(line).not.toMatch(/queue/i)
     for (const line of [parsed.agentSays, parsed.absentSays]) expect(line!.length).toBeLessThanOrEqual(200)
   })
 })

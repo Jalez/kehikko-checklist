@@ -44,9 +44,9 @@ export const HELP = {
       ],
     },
     {
-      title: 'Test steps go in a work queue',
+      title: 'Test steps are not checklist lines',
       points: [
-        'Test runs, builds, verification commands and one-time test steps belong in a work queue module, if one is installed, not on a checklist. Their results show here as automatic "Tests pass" (or, for a build or other command, "Passes") items, ticked by the run.',
+        'Test runs, builds, verification commands and one-time test steps do not go on a checklist. Where a module that runs them is installed, agents are told to hand them to it, and their results show here as automatic "Tests pass" (or, for a build or other command, "Passes") items, ticked by the run.',
       ],
     },
     {
@@ -333,13 +333,13 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'note saying how you know; `blocked` with a note when it cannot be answered yet. Before calling anything done, '
     + 'answer each line or say which you could not, and why. An answer a person set is theirs. Only the person makes '
     + 'or changes a standing checklist: change one only when they asked, passing `person_asked`. Test runs, '
-    + 'builds, verification commands and one-time test steps do NOT belong here — queue them in a work queue module, if one is installed.',
+    + 'builds, verification commands and one-time test steps do NOT belong here; the tools say where they go.',
   /* What every agent session is told about it (protocol 2.36.0): beside its name where it is on the
      kehikko, and — for a session on a kehikko it is NOT on, while it is installed here — the second. */
   agentSays:
-    'Answer the person’s standing checklists for your item (checklists, then check_item: working, then passed, failed or na). Test steps go in a work queue, if any; only the person changes standards.',
+    'Answer the person’s standing checklists for your item (checklists, then check_item: working, then passed, failed or na). Test steps are not checklist lines; only the person changes standards.',
   absentSays:
-    "Checklist isn't on this kehikko: don't claim work meets the person's standing checklists. Test steps belong in a work queue, if any; to check standards, suggest adding Checklist.",
+    "Checklist isn't on this kehikko: don't claim work meets the person's standing checklists. Test steps are not checklist lines; to check standards, suggest adding Checklist.",
   /*
    * How to use it, for a person (protocol 2.52.0): plain text the host draws as "How to use" — headings
    * and bullet lists, never markup or links. The rules, not a tour: which ONE thing it shows and how
@@ -460,9 +460,11 @@ export const MANIFEST: Manifest = manifestSchema.parse({
    * else — never another container's pick, which is the host's own control
    * and has no method.
    */
+  /* `services:read` (protocol 2.81.0): `services.find` for `work.queue`, so where test steps go is said in
+     the words of the work queue the host names (workQueue.ts), and not at all without one. */
   declares: {
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
-    uses: ['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open'],
+    uses: ['events:emit', 'filters:set', 'projects:pick', 'state:keep', 'trackers:read', 'address:open', 'services:read'],
     storage: true,
     prompt: false,
   },
