@@ -1166,6 +1166,7 @@ export function App() {
   return (
     <OpenAddressContext.Provider value={openAddress}>
     <div
+      data-kehikot-page
       ref={setShell}
       /* Not pinned under a cover: a cover fills a parent that has a height, and this page reports
          its height to the host — a cover as tall as the frame would ask for a taller frame, forever. */
