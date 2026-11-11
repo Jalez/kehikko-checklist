@@ -12,8 +12,8 @@ export const HELP = {
     {
       title: 'What it shows: one thing',
       points: [
-        'Checklists for exactly ONE target, never several at once. The footer says which and why, e.g. "For !4233 (picked in References)".',
-        'A container picked as a target on the kehikko (the box in its header) wins: its subject is the target — References’ picked item, Paper’s paper. Several picked: the one picked last.',
+        'Checklists for exactly ONE target, never several at once. The footer says which and why, e.g. "For !4233 (picked in a tracker list)".',
+        'A container picked as a target on the kehikko (the box in its header) wins: its subject is the target — the picked item of a tracker list, the picked paper. Several picked: the one picked last.',
         'Nothing picked: the thing you selected or moved to most recently — an issue, MR or PR you clicked, or the place in a paper you are reading.',
         'Neither: nothing is shown, and the page says how to pick something.',
       ],
@@ -44,9 +44,9 @@ export const HELP = {
       ],
     },
     {
-      title: 'Test steps go in Queue',
+      title: 'Test steps go in a work queue',
       points: [
-        'Test runs, builds, verification commands and one-time test steps belong in Queue, not on a checklist. Their results show here as automatic "Tests pass" (or, for a build or other command, "Passes") items, ticked by the run.',
+        'Test runs, builds, verification commands and one-time test steps belong in a work queue module, if one is installed, not on a checklist. Their results show here as automatic "Tests pass" (or, for a build or other command, "Passes") items, ticked by the run.',
       ],
     },
     {
@@ -333,13 +333,13 @@ export const MANIFEST: Manifest = manifestSchema.parse({
     + 'note saying how you know; `blocked` with a note when it cannot be answered yet. Before calling anything done, '
     + 'answer each line or say which you could not, and why. An answer a person set is theirs. Only the person makes '
     + 'or changes a standing checklist: change one only when they asked, passing `person_asked`. Test runs, '
-    + 'builds, verification commands and one-time test steps do NOT belong here — queue them in Queue when installed.',
+    + 'builds, verification commands and one-time test steps do NOT belong here — queue them in a work queue module, if one is installed.',
   /* What every agent session is told about it (protocol 2.36.0): beside its name where it is on the
      kehikko, and — for a session on a kehikko it is NOT on, while it is installed here — the second. */
   agentSays:
-    'Answer the person’s standing checklists for your item (checklists, then check_item: working, then passed, failed or na). Test steps go in Queue; only the person changes standards.',
+    'Answer the person’s standing checklists for your item (checklists, then check_item: working, then passed, failed or na). Test steps go in a work queue, if any; only the person changes standards.',
   absentSays:
-    "Checklist isn't on this kehikko: don't claim work meets the person's standing checklists. Test steps belong in Queue; if they want standards checked, suggest adding Checklist.",
+    "Checklist isn't on this kehikko: don't claim work meets the person's standing checklists. Test steps belong in a work queue, if any; to check standards, suggest adding Checklist.",
   /*
    * How to use it, for a person (protocol 2.52.0): plain text the host draws as "How to use" — headings
    * and bullet lists, never markup or links. The rules, not a tour: which ONE thing it shows and how

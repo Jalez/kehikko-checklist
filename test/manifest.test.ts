@@ -150,10 +150,10 @@ describe('what agent sessions are told (protocol 2.36.0)', () => {
   test('where it is, to answer the lines before calling work done; where it is not, not to claim a checklist', () => {
     const parsed = manifestSchema.parse(MANIFEST)
     expect(agentSaysOf(parsed)).toContain('check_item')
-    expect(agentSaysOf(parsed)).toContain('Test steps go in Queue')
+    expect(agentSaysOf(parsed)).toContain('Test steps go in a work queue')
     expect(agentSaysOf(parsed)).toContain('only the person changes standards')
     expect(absentSaysOf(parsed)).toContain("don't claim work meets the person's standing checklists")
-    expect(absentSaysOf(parsed)).toContain('Test steps belong in Queue')
+    expect(absentSaysOf(parsed)).toContain('Test steps belong in a work queue')
     for (const line of [parsed.agentSays, parsed.absentSays]) expect(line!.length).toBeLessThanOrEqual(200)
   })
 })
@@ -177,7 +177,7 @@ describe('How to use (protocol 2.52.0)', () => {
   test('states the rules plainly: one target, one checklist per type, standing vs one-off, who changes what, Test runs, the states', () => {
     const text = JSON.stringify(HELP)
     expect(text).toContain('exactly ONE target')
-    expect(text).toContain('picked in References')
+    expect(text).toContain('picked in a tracker list')
     expect(text).toContain('ONE standing checklist')
     expect(text).toMatch(/generic, overarching guideline/i)
     expect(text).toContain('Not per-item test steps')
