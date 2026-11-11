@@ -294,6 +294,8 @@ export interface Kehikot {
   footer: (items: FooterItemInput[]) => void
   /** Say the page is drawn (protocol 2.70.0): the host's cover, held until then, comes off. Said once; again is nothing. */
   ready: () => void
+  /** Say the page is reading what a new context asks for (protocol 2.84.0): the host may cover it in these words. */
+  loading: (label?: string | null) => void
   /**
    * This kehikko's own choice of checklist per type, over the project's (`list/choices.ts`), as one
    * string: the host's per-container kept state (protocol 2.51.0, `useKept`), `''` for none. The
@@ -349,7 +351,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
   const hostOpens = host.openAddress
   const hostAnswers = host.answers
   const openAddress = useMemo(() => openerOf({ answers: hostAnswers, openAddress: hostOpens }), [hostAnswers, hostOpens])
-  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header, footer, drawsFooter, ready } = host
+  const { where, context, epic, projectPath, project, kehikko, selection, request, resize, filters, header, footer, drawsFooter, ready, loading } = host
   /* This kehikko's choice of checklist per type: kept by the host for this container, never in the browser. */
   const [keptChoices, setKeptChoices] = useKept<Record<string, string>>(host, 'choices', {}, (value) => typeof value === 'object' && value !== null && !Array.isArray(value))
   const kehikkoChoices = flattenChoice(keptChoices)
@@ -500,6 +502,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       header,
       footer,
       ready,
+      loading,
       drawsFooter,
       openAddress,
       kehikkoChoices,
@@ -532,6 +535,7 @@ export function useKehikot(id: string, onGoto: GotoHandler, onDoor?: () => void,
       header,
       footer,
       ready,
+      loading,
       drawsFooter,
       openAddress,
     ],
