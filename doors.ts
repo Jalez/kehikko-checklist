@@ -35,7 +35,7 @@ import {
   type Angle,
   standingOf,
   STANDING_WORD,
-  TESTS_ELSEWHERE,
+  testsElsewhere,
   type ItemType,
   type RefsRead,
   type Role,
@@ -51,6 +51,7 @@ import { filesNamed, placeIn, placeNamed, placeOf } from './file/open.ts'
 import { outlineOf } from './file/outline.ts'
 import { MAX_RUN_REFS, runsFor, setHidden, type RunItem } from './list/runs.ts'
 import { FROM_A_RUN, RUN_STATE_WORDS, runItemText } from './list/run-words.ts'
+import { workQueueNow } from './workQueue.ts'
 
 /**
  * Every door this app answers on that is not the page itself.
@@ -726,6 +727,10 @@ const PERSON_ASKED = {
   },
 } as const
 
+/** Where test steps go instead of a checklist, in the words of the work queue the host names now (workQueue.ts). */
+const elsewhere = (): string => testsElsewhere(workQueueNow())
+const lowerFirst = (text: string): string => text.charAt(0).toLowerCase() + text.slice(1)
+
 function tools() {
   return listed().map((tool) => ({ ...tool, annotations: ANNOTATIONS[tool.name] }))
 }
@@ -761,7 +766,7 @@ function listed() {
         + 'and merge request from then on. Making a standing checklist is the person\'s decision: do it only when '
         + 'they asked, and pass person_asked with their words. Without types this makes a ONE-OFF list that is shown '
         + 'nowhere until held — almost never what is wanted: '
-        + `${TESTS_ELSEWHERE} For a line one item still owes, use add_item_for. Look at what exists first (checklists): `
+        + `${elsewhere()} For a line one item still owes, use add_item_for. Look at what exists first (checklists): `
         + 'two lists saying nearly the same thing is the failure this app is most likely to suffer.',
       inputSchema: {
         type: 'object',
@@ -848,7 +853,7 @@ function listed() {
         'Add a line for ONE item only — an issue, merge request or pull request (ref), or the paper an epic is '
         + 'aimed at (epic) — on top of the standing checklists for its kind. It is shown under them as a one-off, '
         + '"Only for <ref>", is answered with check_item like any line (the checklist id comes back with it), and is '
-        + `kept whatever happens to the other lists. Use it for something the person expects of this item alone. ${TESTS_ELSEWHERE} `
+        + `kept whatever happens to the other lists. Use it for something the person expects of this item alone. ${elsewhere()} `
         + 'Something every such item owes belongs on the standing checklist for the kind: suggest it to the person.',
       inputSchema: {
         type: 'object',
@@ -866,7 +871,7 @@ function listed() {
       name: 'add_checklist_item',
       description:
         'Add one line to a checklist. On a standing checklist (one that applies to a kind of item) only when the '
-        + `person asked for that line: pass person_asked with their words. ${TESTS_ELSEWHERE} `
+        + `person asked for that line: pass person_asked with their words. ${elsewhere()} `
         + 'It goes on the end, which is where a new thing belongs until somebody says '
         + 'otherwise — move_checklist_item is how it gets somewhere else. Write what is owed, in a line somebody else '
         + 'could act on. The id it comes back with is how you address it afterwards; the words and the position both '
@@ -1000,7 +1005,7 @@ function listsText(where: string): string {
     return (
       `There are no checklists in ${where} yet. Nothing is wrong: this app ships no lists, and a project `
       + 'that has never had one has no .kehikot/checklist/lists.json in it. A checklist here is the person\'s '
-      + `standing expectations for a kind of item, which is theirs to make. ${starters} ${TESTS_ELSEWHERE}`
+      + `standing expectations for a kind of item, which is theirs to make. ${starters} ${elsewhere()}`
     )
   }
   const own = lists.filter((list) => list.only)
@@ -1027,7 +1032,7 @@ function listsText(where: string): string {
       : []),
     '',
     'Answers live per (checklist, item): ask again with a ref or an epic, and no checklist, to see what applies to it '
-    + `and what is answered there. ${TESTS_ELSEWHERE}`,
+    + `and what is answered there. ${elsewhere()}`,
   ].join('\n')
 }
 
@@ -1183,7 +1188,7 @@ function appliesText(where: string, target: Target, args: Record<string, unknown
     '',
     'Answer a line with check_item, naming the checklist id above and this item — working while you are on it, then '
     + 'passed, failed or na with a note. add_item_for adds a one-off line just for this item. '
-    + TESTS_ELSEWHERE,
+    + elsewhere(),
   )
   return parts.join('\n')
 }
@@ -1292,7 +1297,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     const oneOff = rule
       ? ''
       : '\n\nThis is a ONE-OFF list: it applies to no kind of item and is shown nowhere until it is held against '
-        + `something. ${TESTS_ELSEWHERE} If these are expectations for every item of a kind, the person can make `
+        + `something. ${elsewhere()} If these are expectations for every item of a kind, the person can make `
         + 'this list apply to that kind (or adopt a starter) on the Checklist page; if they asked you to, '
         + 'hold_checklist with types and person_asked does it.'
     return `${out.said}.${oneOff}\n\n${listText(out.id, null, where)}`
@@ -1312,7 +1317,7 @@ function call(name: string, args: Record<string, unknown>, where: string): strin
     const target: Target = ref ? { kind: 'ref', ref } : { kind: 'paper', epic: epic as string, section: null }
     const out = change({ op: 'add-for', target, text, by, viaMcp: true }, where)
     if (!out.ok) throw new Error(out.error)
-    return `${out.said}. It is a one-off line for this item alone; ${TESTS_ELSEWHERE.charAt(0).toLowerCase()}${TESTS_ELSEWHERE.slice(1)}\n\n${appliesText(where, target, args)}`
+    return `${out.said}. It is a one-off line for this item alone; ${lowerFirst(elsewhere())}\n\n${appliesText(where, target, args)}`
   }
 
   if (name === 'checklist_for' && !('module' in args)) {
@@ -1507,7 +1512,7 @@ function mcp(rpc: Rpc): Reply {
         + 'owes: good practice, patterns, their general expectations — and what has been answered against each one. '
         + 'Agents answer lines (check_item: working while on it, then passed, failed or na with a note); only the '
         + 'person makes or changes a standing checklist. Nothing here ships a list. '
-        + TESTS_ELSEWHERE,
+        + elsewhere(),
     })
   }
   /* A notification carries no id and is answered with nothing. */

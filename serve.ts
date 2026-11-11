@@ -3,6 +3,7 @@ import { run } from 'kehikot-module-protocol/run'
 
 import { answer, BUILD, MANIFEST, stream, TICKET } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
+import { startWorkQueue } from './workQueue.ts'
 
 /**
  * This module over its BUILT page (`bun run build`), on the same doors and the
@@ -24,3 +25,6 @@ await run({
   build: BUILD,
   ticket: TICKET,
 })
+
+/* Where test steps go, in the words of the work queue the host names (workQueue.ts). */
+void startWorkQueue()
